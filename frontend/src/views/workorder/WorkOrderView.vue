@@ -536,6 +536,11 @@ const pagination = reactive({
 // 列表数据
 const workOrders = ref<any[]>([])
 const loading = ref(false)
+const statsExpanded = ref({
+  sla_overdue: 0,
+  sla_warning: 0,
+  avg_satisfaction: 0
+})
 const categories = ref<any[]>([])
 const assignableUsers = ref<any[]>([])
 const devices = ref<any[]>([])
@@ -961,11 +966,21 @@ const getStatusLabel = (status: string) => {
 }
 
 
+
+// SLA helpers
+function getSlaClass(status: string) {
+  if (status === 'overdue') return 'text-danger'
+  if (status === 'warning') return 'text-warning'
+  return ''
+}
+function formatSlaTime(hours: number) {
+  if (hours < 0) return Math.abs(hours).toFixed(1) + 'h'
+  if (hours < 24) return hours.toFixed(1) + 'h'
+  return (hours / 24).toFixed(1) + 'd'
+}
 onMounted(() => {
   loadStats()
-  loadData()
-  loadOptions()
-})
+  loadData(); loadOptions(); loadStats()
 </script>
 
 <style scoped>
