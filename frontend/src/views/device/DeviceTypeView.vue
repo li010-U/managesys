@@ -179,7 +179,7 @@
             </div>
             <div class="threshold-range">
               <span class="range-dot min"></span>
-              <el-slider v-model="thresholdRange[index]" range :min="-50" :max="100" :step="1" :format-tooltip="v => v + (threshold.unit || '')" style="flex:1" />
+              <el-slider v-model="thresholdRange[index]" range :min="-50" :max="100" :step="1" :format-tooltip="(v: number) => v + (threshold.unit || '')" style="flex:1" />
               <span class="range-dot max"></span>
             </div>
             <div class="threshold-field">
@@ -256,8 +256,8 @@ const formRef = ref<FormInstance>()
 
 const form = ref({
   name: "", code: "", category: "server", manufacturer: "", model: "",
-  height_units: undefined as number, max_power: undefined as number, weight: undefined as number,
-  depth: undefined as number, rated_current: undefined as number, spec_description: "",
+  height_units: null as number, max_power: null as number, weight: null as number,
+  depth: null as number, rated_current: null as number, spec_description: "",
 })
 
 const formRules: FormRules = {
@@ -294,7 +294,7 @@ function openDialog(item?: DeviceTypeInfo) {
     model: item.model || "", height_units: item.height_units, max_power: item.max_power,
     weight: item.weight, depth: item.depth, rated_current: item.rated_current,
     spec_description: item.spec_description || "",
-  } : { name: "", code: "", category: "server", manufacturer: "", model: "", height_units: undefined, max_power: undefined, weight: undefined, depth: undefined, rated_current: undefined, spec_description: "" }
+  } : { name: "", code: "", category: "server", manufacturer: "", model: "", height_units: null, max_power: null, weight: null, depth: null, rated_current: null, spec_description: "" }
 }
 
 async function submit() {

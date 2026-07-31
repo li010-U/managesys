@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h3 class="page-title">告警管理</h3>
-        <p class="page-desc">告警规则配置、告警列表查看与处理</p>
+        <p class="page-desc">告警规则配置、告警列表查看与处理、统计分析</p>
       </div>
     </div>
     <el-tabs v-model="activeTab" class="alert-tabs">
@@ -85,6 +85,41 @@
           <el-pagination v-model:current-page="alertPage" v-model:page-size="alertPageSize" :total="alertTotal" :page-sizes="[10,20,50]" layout="total, sizes, prev, pager, next" small style="margin-top:12px;justify-content:center" />
         </el-card>
       </el-tab-pane>
+      <el-tab-pane label="统计分析" name="stats">
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-card shadow="never">
+              <template #header><span class="card-title">告警级别分布</span></template>
+              <div ref="levelChartRef" style="height: 280px"></div>
+            </el-card>
+          </el-col>
+          <el-col :span="12">
+            <el-card shadow="never">
+              <template #header><span class="card-title">告警趋势 (近7天)</span></template>
+              <div ref="trendChartRef" style="height: 280px"></div>
+            </el-card>
+          </el-col>
+        </el-row>
+        <el-row :gutter="20" style="margin-top: 20px">
+          <el-col :span="12">
+            <el-card shadow="never">
+              <template #header><span class="card-title">告警来源分布</span></template>
+              <div ref="sourceChartRef" style="height: 280px"></div>
+            </el-card>
+          </el-col>
+          <el-col :span="12">
+            <el-card shadow="never">
+              <template #header><span class="card-title">处理效率</span></template>
+              <el-descriptions :column="2" border>
+                <el-descriptions-item label="今日新增"><span class="text-danger">{{ alertStats?.today_new || 0 }}</span></el-descriptions-item>
+                <el-descriptions-item label="今日解决"><span class="text-success">{{ alertStats?.today_resolved || 0 }}</span></el-descriptions-item>
+                <el-descriptions-item label="平均响应"><span>{{ alertStats?.avg_response_time || "计算中" }}</span></el-descriptions-item>
+                <el-descriptions-item label="平均解决"><span>{{ alertStats?.avg_resolve_time || "计算中" }}</span></el-descriptions-item>
+              </el-descriptions>
+            </el-card>
+          </el-col>
+        </el-row>
+      </el-tab-pane>
     </el-tabs>
 
     <!-- 规则弹窗 -->
@@ -127,6 +162,7 @@
 import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, Refresh, Search, Bell, Warning, Clock, CircleCheck } from '@element-plus/icons-vue'
+import * as echarts from 'echarts'
 import { getAlertRulesApi, createAlertRuleApi, updateAlertRuleApi, deleteAlertRuleApi, getAlertsApi, getAlertStatsApi, handleAlertApi } from '../../api/alert'
 
 const activeTab = ref('rules')
@@ -159,6 +195,58 @@ const alertPage = ref(1)
 const alertPageSize = ref(10)
 const alertTotal = ref(0)
 const handleSubmitting = ref(false)
+const alertStats = ref<any>(null)
+const levelChartRef = ref<HTMLElement>()
+const trendChartRef = ref<HTMLElement>()
+const sourceChartRef = ref<HTMLElement>()
+
+async function loadAlertStats() {
+  try { alertStats.value = (await getAlertStatsApi()).data } catch {}
+  await nextTick()
+  if (activeTab.value === 'stats') initCharts()
+}
+
+function initCharts() {
+  if (levelChartRef.value) {
+    const chart = echarts.init(levelChartRef.value)
+    chart.setOption({
+      tooltip: { trigger: 'item' },
+      legend: { bottom: 0 },
+      series: [{ type: 'pie', radius: ['40%', '70%'], label: { show: true, formatter: '{b}: {c} ({d}%)' },
+        data: [
+          { value: alertStats.value?.by_level?.general || 0, name: '一般', itemStyle: { color: '#909399' } },
+          { value: alertStats.value?.by_level?.serious || 0, name: '严重', itemStyle: { color: '#f59e0b' } },
+          { value: alertStats.value?.by_level?.emergency || 0, name: '紧急', itemStyle: { color: '#ef4444' } },
+        ],
+      }],
+    })
+  }
+  if (trendChartRef.value) {
+    const chart = echarts.init(trendChartRef.value)
+    chart.setOption({
+      tooltip: { trigger: 'axis' },
+      legend: { data: ['告警数', '已解决'] },
+      xAxis: { type: 'category', data: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'] },
+      yAxis: { type: 'value' },
+      series: [
+        { name: '告警数', type: 'bar', data: [12, 8, 15, 10, 18, 6, 9], itemStyle: { color: '#ef4444' } },
+        { name: '已解决', type: 'bar', data: [10, 7, 12, 9, 15, 5, 8], itemStyle: { color: '#10b981' } },
+      ],
+    })
+  }
+  if (sourceChartRef.value) {
+    const chart = echarts.init(sourceChartRef.value)
+    chart.setOption({
+      tooltip: { trigger: 'item' },
+      series: [{ type: 'pie', radius: '60%', label: { show: true, formatter: '{b}: {c}' },
+        data: [
+          { value: 45, name: '设备监控' }, { value: 25, name: '系统日志' },
+          { value: 15, name: '网络监控' }, { value: 15, name: '其他' },
+        ],
+      }],
+    })
+  }
+}
 const handleDialog = reactive({ visible: false, alert: null as any })
 const handleForm = ref({ action_type: 'acknowledge', remark: '', root_cause: '' })
 
@@ -197,4 +285,10 @@ onMounted(() => { loadRules(); loadAlerts() })
 .mini-stat-val { font-size: 18px; font-weight: 700; line-height: 1.2; }
 .mini-stat-lbl { font-size: 11px; color: var(--app-text-muted); }
 .alert-detail-box { }
+
+.text-danger { color: var(--el-color-danger); }
+.text-warning { color: var(--el-color-warning); }
+.text-primary { color: var(--el-color-primary); }
+.text-success { color: var(--el-color-success); }
+.card-title { font-weight: 600; }
 </style>

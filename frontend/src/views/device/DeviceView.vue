@@ -131,7 +131,7 @@
                 <el-dropdown-menu>
                   <el-dropdown-item command="mount" v-if="!row.rack_id"><el-icon><Top /></el-icon>上机</el-dropdown-item>
                   <el-dropdown-item command="unmount" v-if="row.rack_id"><el-icon><Bottom /></el-icon>下架</el-dropdown-item>
-                  <el-dropdown-item command="lifecycle"><el-icon><Time /></el-icon>生命周期</el-dropdown-item>
+                  <el-dropdown-item command="lifecycle"><el-icon><Timer /></el-icon>生命周期</el-dropdown-item>
                   <el-dropdown-item command="delete" divided><el-icon><Delete /></el-icon>删除</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
@@ -219,15 +219,15 @@
           </el-descriptions>
         </el-tab-pane>
         <el-tab-pane label="生命周期" name="lifecycle">
-          <el-timeline v-if="lifecycleList.length">
-            <el-timeline-item v-for="item in lifecycleList" :key="item.id" :type="lifecycleActionTag(item.action)" :timestamp="formatDate(item.created_at)">
+          <el-Timerline v-if="lifecycleList.length">
+            <el-Timerline-item v-for="item in lifecycleList" :key="item.id" :type="lifecycleActionTag(item.action)" :Timerstamp="formatDate(item.created_at)">
               <el-card shadow="never">
                 <p><strong>{{ lifecycleActionLabel(item.action) }}</strong></p>
                 <p class="text-muted">{{ item.description || '无描述' }}</p>
                 <p class="text-muted">操作人：{{ item.operator }}</p>
               </el-card>
-            </el-timeline-item>
-          </el-timeline>
+            </el-Timerline-item>
+          </el-Timerline>
           <el-empty v-else description="暂无生命周期记录" />
         </el-tab-pane>
         <el-tab-pane label="监控阈值" name="threshold">
@@ -258,7 +258,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue"
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from "element-plus"
-import { Plus, Edit, Delete, Refresh, Download, Box, CircleCheck, Warning, Bell, MoreFilled, Top, Bottom, Time } from "@element-plus/icons-vue"
+import { Plus, Edit, Delete, Refresh, Download, Box, CircleCheck, Warning, Bell, MoreFilled, Top, Bottom, Timer } from "@element-plus/icons-vue"
 import { getDevicesApi, createDeviceApi, updateDeviceApi, deleteDeviceApi, getAllDeviceTypesApi, getAllRacksApi, getDeviceLifecyclesApi, type DeviceInfo, type DeviceTypeInfo, type RackInfo } from "../../api/device"
 
 const statusOptions = [{ value: "online", label: "在线" }, { value: "offline", label: "离线" }, { value: "in_stock", label: "库存" }, { value: "maintenance", label: "维护中" }, { value: "retired", label: "已退役" }]
@@ -286,15 +286,15 @@ const currentDevice = ref<DeviceInfo | null>(null)
 const detailTab = ref("info")
 const lifecycleList = ref<any[]>([])
 const deviceTypeThresholds = ref<any[]>([])
-const mountForm = ref({ rack_id: undefined as number, start_u: 1, end_u: 1 })
+const mountForm = ref({ rack_id: null as number, start_u: 1, end_u: 1 })
 const formRef = ref<FormInstance>()
 
-const form = ref({ name: "", asset_number: "", device_type_id: undefined as number, brand: "", model: "", serial_number: "", management_ip: "", mac_address: "", cpu_info: "", memory_info: "", disk_info: "", vendor: "", purchase_date: null, warranty_start: null, warranty_end: null, rack_id: undefined as number, start_u: undefined as number, end_u: undefined as number, purchase_order: "" })
+const form = ref({ name: "", asset_number: "", device_type_id: undefined as number, brand: "", model: "", serial_number: "", management_ip: "", mac_address: "", cpu_info: "", memory_info: "", disk_info: "", vendor: "", purchase_date: null, warranty_start: null, warranty_end: null, rack_id: null as number, start_u: null as number, end_u: null as number, purchase_order: "" })
 
 const formRules: FormRules = { name: [{ required: true, message: "请输入设备名称", trigger: "blur" }], asset_number: [{ required: true, message: "请输入资产编号", trigger: "blur" }] }
 
-let debounceTimer: ReturnType<typeof setTimeout>
-function debounceFetch() { clearTimeout(debounceTimer); debounceTimer = setTimeout(() => { page.value = 1; fetchData() }, 300) }
+let debounceTimerr: ReturnType<typeof setTimerout>
+function debounceFetch() { clearTimerout(debounceTimerr); debounceTimerr = setTimerout(() => { page.value = 1; fetchData() }, 300) }
 
 onMounted(async () => { await Promise.all([fetchDeviceTypes(), fetchRacks()]); fetchData() })
 
@@ -316,7 +316,7 @@ function rowClassName({ row }: { row: DeviceInfo }) { if (row.status === "alert"
 
 function openDialog(item?: DeviceInfo) {
   dialog.value = { visible: true, isEdit: !!item, id: item?.id || 0 }
-  form.value = item ? { name: item.name, asset_number: item.asset_number, device_type_id: item.device_type_id, brand: item.brand || "", model: item.model || "", serial_number: item.serial_number || "", management_ip: item.management_ip || "", mac_address: item.mac_address || "", cpu_info: item.cpu_info || "", memory_info: item.memory_info || "", disk_info: item.disk_info || "", vendor: item.vendor || "", purchase_date: item.purchase_date || null, warranty_start: item.warranty_start || null, warranty_end: item.warranty_end || null, rack_id: item.rack_id, start_u: item.start_u, end_u: item.end_u, purchase_order: item.purchase_order || "" } : { name: "", asset_number: "", device_type_id: undefined, brand: "", model: "", serial_number: "", management_ip: "", mac_address: "", cpu_info: "", memory_info: "", disk_info: "", vendor: "", purchase_date: null, warranty_start: null, warranty_end: null, rack_id: undefined, start_u: undefined, end_u: undefined, purchase_order: "" }
+  form.value = item ? { name: item.name, asset_number: item.asset_number, device_type_id: item.device_type_id, brand: item.brand || "", model: item.model || "", serial_number: item.serial_number || "", management_ip: item.management_ip || "", mac_address: item.mac_address || "", cpu_info: item.cpu_info || "", memory_info: item.memory_info || "", disk_info: item.disk_info || "", vendor: item.vendor || "", purchase_date: item.purchase_date || null, warranty_start: item.warranty_start || null, warranty_end: item.warranty_end || null, rack_id: item.rack_id, start_u: item.start_u, end_u: item.end_u, purchase_order: item.purchase_order || "" } : { name: "", asset_number: "", device_type_id: undefined, brand: "", model: "", serial_number: "", management_ip: "", mac_address: "", cpu_info: "", memory_info: "", disk_info: "", vendor: "", purchase_date: null, warranty_start: null, warranty_end: null, rack_id: null, start_u: null, end_u: null, purchase_order: "" }
 }
 
 async function submitForm() {
@@ -337,15 +337,15 @@ async function deleteItem(item: DeviceInfo) {
   try { await ElMessageBox.confirm(`确定删除设备 "${item.name}"？`, "确认删除", { type: "warning" }); await deleteDeviceApi(item.id); ElMessage.success("删除成功"); fetchData() } catch {}
 }
 
-function handleCommand(cmd: string, row: DeviceInfo) {
+function handleCommand(cmd: any, row: DeviceInfo) {
   if (cmd === "unmount") unmountDevice(row)
-  else if (cmd === "mount") { mountForm.value = { rack_id: undefined, start_u: 1, end_u: 1 }; currentDevice.value = row; mountDialog.value.visible = true }
+  else if (cmd === "mount") { mountForm.value = { rack_id: null, start_u: 1, end_u: 1 }; currentDevice.value = row; mountDialog.value.visible = true }
   else if (cmd === "lifecycle") showDetail(row)
   else if (cmd === "delete") deleteItem(row)
 }
 
 async function unmountDevice(item: DeviceInfo) {
-  try { await ElMessageBox.confirm(`确定将设备 "${item.name}" 下架？`, "确认下架", { type: "warning" }); await updateDeviceApi(item.id, { rack_id: undefined, start_u: undefined, end_u: undefined, status: "in_stock" }); ElMessage.success("已下架"); fetchData() } catch {}
+  try { await ElMessageBox.confirm(`确定将设备 "${item.name}" 下架？`, "确认下架", { type: "warning" }); await updateDeviceApi(item.id, { rack_id: null, start_u: null, end_u: null, status: "in_stock" }); ElMessage.success("已下架"); fetchData() } catch {}
 }
 
 async function confirmMount() {

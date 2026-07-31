@@ -197,7 +197,7 @@
                 <el-option
                   v-for="device in devices"
                   :key="device.id"
-                  :label=\"\\ (\)\\"
+                  :label="u.name"
                   :value="device.id"
                 />
               </el-select>
@@ -229,7 +229,7 @@
                 <el-option
                   v-for="user in assignableUsers"
                   :key="user.id"
-                  :label=\"\\ (\)\\"
+                  :label="u.name"
                   :value="user.id"
                 />
               </el-select>
@@ -386,7 +386,7 @@
             <el-option
               v-for="user in assignableUsers"
               :key="user.id"
-              :label=\"\\ (\)\\"
+              :label="u.name"
               :value="user.id"
             />
           </el-select>

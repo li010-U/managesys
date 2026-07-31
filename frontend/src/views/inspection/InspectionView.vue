@@ -299,7 +299,7 @@
             <el-option
               v-for="u in users"
               :key="u.id"
-              :label=\"\\ (\)\\"
+              :label="u.name"
               :value="u.id"
             />
           </el-select>
@@ -885,7 +885,7 @@ const handleTabChange = (tab: string) => {
   else if (tab === 'issues') loadIssues()
 }
 
-// Old version removed = (row: any) => {
+const editRecord = (row: any) => {
   currentRecord.value = row
   recordForm.id = row.id
   recordForm.item_name = row.item_name
