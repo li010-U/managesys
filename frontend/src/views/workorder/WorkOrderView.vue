@@ -2,9 +2,7 @@
   <div class="work-order-container">
     <!-- 统计卡片 -->
     <el-row :gutter="20" class="stats-row">
-      <el-col :span="6">
-        <el-card shadow="hover" class="stat-card">
-          <div class="stat-icon" style="background: #409eff">
+      <el-col :span="4">\s*<el-card shadow="hover" class="stat-card">\s*<div class="stat-icon gradient-primary">
             <el-icon><Document /></el-icon>
           </div>
           <div class="stat-info">
@@ -13,9 +11,7 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :span="6">
-        <el-card shadow="hover" class="stat-card">
-          <div class="stat-icon" style="background: #e6a23c">
+      <el-col :span="4">\s*<el-card shadow="hover" class="stat-card cursor-pointer">\s*<div class="stat-icon gradient-warning">
             <el-icon><Clock /></el-icon>
           </div>
           <div class="stat-info">
@@ -24,9 +20,7 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :span="6">
-        <el-card shadow="hover" class="stat-card">
-          <div class="stat-icon" style="background: #67c23a">
+      <el-col :span="4">\s*<el-card shadow="hover" class="stat-card cursor-pointer">\s*<div class="stat-icon gradient-success">
             <el-icon><Loading /></el-icon>
           </div>
           <div class="stat-info">
@@ -35,9 +29,7 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :span="6">
-        <el-card shadow="hover" class="stat-card">
-          <div class="stat-icon" style="background: #909399">
+      <el-col :span="4">\s*<el-card shadow="hover" class="stat-card cursor-pointer">\s*<div class="stat-icon gradient-purple">
             <el-icon><Check /></el-icon>
           </div>
           <div class="stat-info">
@@ -116,7 +108,45 @@
           </template>
         </el-table-column>
         <el-table-column prop="device_name" label="关联设备" width="120" show-overflow-tooltip />
-        <el-table-column prop="plan_date" label="计划日期" width="110" />
+        <el-table-column label="SLA" width="80" align="center">
+  <template #default="{ row }">
+    <span v-if="row.sla_remaining_hours !== undefined" :class="getSlaClass(row.sla_status)">{{ formatSlaTime(row.sla_remaining_hours) }}</span>
+    <span v-else>-</span>
+  </template>
+</el-table-column>
+<el-table-column prop="plan_date" label="计划日期" width="110" />'@
+
+$content = $content -replace '<el-table-column prop="created_at" label="创建时间" width="160">', @'
+<el-table-column label="满意度" width="80" align="center">
+  <template #default="{ row }">
+    <el-rate v-if="row.satisfaction" :model-value="row.satisfaction" disabled size="small" />
+    <span v-else class="text-muted">-</span>
+  </template>
+</el-table-column>
+<el-table-column prop="created_at" label="创建时间" width="160">'@
+
+# Add helper functions
+$helperFunctions = @'
+
+// SLA helper functions
+function getSlaClass(status: string) {
+  if (status === 'overdue') return 'sla-overdue'
+  if (status === 'warning') return 'sla-warning'
+  return 'sla-normal'
+}
+
+function getSlaTooltip(row: any) {
+  if (row.sla_status === 'overdue') return 'SLA已超时，请尽快处理'
+  if (row.sla_status === 'warning') return 'SLA即将超时，请注意'
+  return ''
+}
+
+function formatSlaTime(hours: number) {
+  if (hours < 0) return Math.abs(hours).toFixed(1) + 'h超'
+  if (hours < 1) return (hours * 60).toFixed(0) + 'm'
+  if (hours < 24) return hours.toFixed(1) + 'h'
+  return (hours / 24).toFixed(1) + 'd'
+}
         <el-table-column prop="created_at" label="创建时间" width="160">
           <template #default="{ row }">
             {{ formatDate(row.created_at) }}
@@ -929,6 +959,7 @@ const getStatusLabel = (status: string) => {
   }
   return map[status] || status
 }
+
 
 onMounted(() => {
   loadStats()
