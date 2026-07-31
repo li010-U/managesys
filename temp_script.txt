@@ -1,0 +1,8 @@
+﻿function handleDelete(row) {
+  ElMessageBox.confirm('确定要停用用户 "' + row.username + '" 吗？', '确认', { type: 'warning' }).then(function () {
+    deleteUserApi(row.id).then(function () {
+      ElMessage.success('已停用');
+      fetchUsers();
+    });
+  }).catch(function () {});
+}
