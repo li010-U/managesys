@@ -12,6 +12,7 @@ from app.api.v1.systems import router as systems_router
 from app.api.v1.audit_logs import router as audit_logs_router
 from app.api.v1.work_orders import router as work_orders_router
 from app.api.v1.inspection import router as inspection_router
+from app.api.v1.data import router as data_router
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(chat_router)
@@ -27,4 +28,5 @@ router.include_router(systems_router)
 router.include_router(audit_logs_router)
 router.include_router(work_orders_router)
 router.include_router(inspection_router)
+router.include_router(data_router)
 
