@@ -9,7 +9,12 @@
           </el-button>
         </div>
         <div class="conv-items">
-          <div v-for="conv in conversations" :key="conv.id" :class="['conv-item', { active: currentConvId === conv.id }]" @click="selectConversation(conv.id)">
+          <div 
+            v-for="conv in conversations" 
+            :key="conv.id" 
+            :class="['conv-item', { active: currentConvId === conv.id }]"
+            @click="selectConversation(conv.id)"
+          >
             <span class="conv-title">{{ conv.title || '新对话' }}</span>
             <el-icon class="conv-delete" @click.stop="deleteConversation(conv.id)"><Delete /></el-icon>
           </div>
@@ -18,23 +23,42 @@
       </div>
       <div class="chat-area">
         <div class="messages" ref="messagesRef">
-          <div v-for="(msg, idx) in messages" :key="idx" :class="['message', msg.role]">
-            <el-avatar :size="32" class="msg-avatar">{{ msg.role === "user" ? "我" : "AI" }}</el-avatar>
-            <div class="msg-content">
-              <div class="msg-bubble" v-html="renderMarkdown(msg.content)"></div>
-              <div class="msg-time">{{ formatTime(msg.created_at) }}</div>
+          <transition-group name="list" tag="div">
+            <div v-for="(msg, idx) in messages" :key="idx" :class="['message', msg.role]">
+              <el-avatar :size="32" class="msg-avatar">{{ msg.role === "user" ? "我" : "AI" }}</el-avatar>
+              <div class="msg-content">
+                <div class="msg-bubble" v-html="renderMarkdown(msg.content)"></div>
+                <div class="msg-time">{{ formatTime(msg.created_at) }}</div>
+              </div>
             </div>
-          </div>
+          </transition-group>
           <div v-if="sending" class="message assistant">
             <el-avatar :size="32" class="msg-avatar">AI</el-avatar>
             <div class="msg-content">
-              <div class="msg-bubble thinking"><el-icon class="is-loading"><Loading /></el-icon> AI 思考中...</div>
+              <div class="msg-bubble thinking">
+                <el-icon class="is-loading"><Loading /></el-icon> AI 思考中...
+              </div>
             </div>
           </div>
         </div>
         <div class="chat-input">
-          <el-input v-model="inputText" type="textarea" :rows="2" placeholder="输入消息... (Ctrl+Enter 发送)" @keydown.enter.ctrl="sendMessage" />
-          <el-button type="primary" :loading="sending" @click="sendMessage" :disabled="!inputText.trim()">发送</el-button>
+          <el-input 
+            v-model="inputText" 
+            type="textarea" 
+            :rows="2" 
+            placeholder="输入消息... (Ctrl+Enter 发送)" 
+            resize="none"
+            @keydown.enter.ctrl="sendMessage" 
+          />
+          <el-button 
+            type="primary" 
+            :loading="sending" 
+            @click="sendMessage" 
+            :disabled="!inputText.trim()"
+            class="send-btn"
+          >
+            发送
+          </el-button>
         </div>
       </div>
     </div>
@@ -68,22 +92,47 @@ const sending = ref(false)
 const messagesRef = ref<HTMLElement>()
 
 async function loadConversations() {
-  try { conversations.value = (await getConversationsApi()).data } catch (e) { console.error("加载对话列表失败", e) }
+  try { 
+    conversations.value = (await getConversationsApi()).data 
+  } catch (e) { 
+    console.error("加载对话列表失败", e) 
+  }
 }
+
 async function selectConversation(id: number) {
   currentConvId.value = id
-  try { messages.value = (await getMessagesApi(id)).data; scrollToBottom() } catch (e) { console.error("加载消息失败", e) }
+  try { 
+    messages.value = (await getMessagesApi(id)).data; 
+    scrollToBottom() 
+  } catch (e) { 
+    console.error("加载消息失败", e) 
+  }
 }
+
 async function newConversation() {
-  try { const res = await createConversationApi(); await loadConversations(); currentConvId.value = res.data.id; messages.value = [] } catch (e) { console.error("创建对话失败", e) }
+  try { 
+    const res = await createConversationApi(); 
+    await loadConversations(); 
+    currentConvId.value = res.data.id; 
+    messages.value = [] 
+  } catch (e) { 
+    console.error("创建对话失败", e) 
+  }
 }
+
 async function deleteConversation(id: number) {
   try {
     await deleteConversationApi(id)
     await loadConversations()
-    if (currentConvId.value === id) { currentConvId.value = null; messages.value = [] }
-  } catch (e) { console.error("删除对话失败", e) }
+    if (currentConvId.value === id) { 
+      currentConvId.value = null; 
+      messages.value = [] 
+    }
+  } catch (e) { 
+    console.error("删除对话失败", e) 
+  }
 }
+
 async function sendMessage() {
   const text = inputText.value.trim()
   if (!text || sending.value) return
@@ -96,49 +145,273 @@ async function sendMessage() {
   try {
     await sendMessageStreamApi(text, currentConvId.value!, (chunk) => {
       const lastMsg = messages.value[messages.value.length - 1]
-      if (lastMsg && lastMsg.role === "user") messages.value.push({ id: Date.now() + 1, role: "assistant", content: chunk, created_at: new Date().toISOString() })
-      else if (lastMsg && lastMsg.role === "assistant") lastMsg.content += chunk
+      if (lastMsg && lastMsg.role === "user") 
+        messages.value.push({ id: Date.now() + 1, role: "assistant", content: chunk, created_at: new Date().toISOString() })
+      else if (lastMsg && lastMsg.role === "assistant") 
+        lastMsg.content += chunk
       scrollToBottom()
-    }, () => { sending.value = false; loadConversations() }, (error) => { sending.value = false; ElMessage.error(error || "发送失败") })
-  } catch (e: any) { sending.value = false; ElMessage.error(e.message || "发送失败") }
+    }, () => { sending.value = false; loadConversations() }, (error) => { 
+      sending.value = false; 
+      ElMessage.error(error || "发送失败") 
+    })
+  } catch (e: any) { 
+    sending.value = false; 
+    ElMessage.error(e.message || "发送失败") 
+  }
 }
-function scrollToBottom() { nextTick(() => { if (messagesRef.value) messagesRef.value.scrollTop = messagesRef.value.scrollHeight }) }
-function formatTime(timeStr: string) { if (!timeStr) return ""; return new Date(timeStr).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) }
+
+function scrollToBottom() { 
+  nextTick(() => { 
+    if (messagesRef.value) messagesRef.value.scrollTop = messagesRef.value.scrollHeight 
+  }) 
+}
+
+function formatTime(timeStr: string) { 
+  if (!timeStr) return ""; 
+  return new Date(timeStr).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) 
+}
+
 function handleClose() { visible.value = false }
-watch(visible, (val) => { if (val) { loadConversations(); if (currentConvId.value) selectConversation(currentConvId.value) } })
+
+watch(visible, (val) => { 
+  if (val) { 
+    loadConversations(); 
+    if (currentConvId.value) selectConversation(currentConvId.value) 
+  } 
+})
+
 onMounted(() => { loadConversations() })
 </script>
 
 <style scoped>
-.chat-container { display: flex; flex-direction: column; height: 100%; }
-.conversation-list { border-bottom: 1px solid var(--el-border-color-lighter); padding-bottom: 12px; margin-bottom: 12px; }
-.conv-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-weight: 600; }
-.conv-items { max-height: 150px; overflow-y: auto; }
-.conv-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-radius: 6px; cursor: pointer; transition: background 0.2s; }
-.conv-item:hover, .conv-item.active { background: var(--el-fill-color-light); }
-.conv-item.active { background: var(--el-color-primary-light-9); }
-.conv-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
-.conv-delete { opacity: 0; transition: opacity 0.2s; }
-.conv-item:hover .conv-delete { opacity: 1; }
-.chat-area { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-.messages { flex: 1; overflow-y: auto; padding: 8px 0; }
-.message { display: flex; gap: 10px; margin-bottom: 16px; }
-.message.user { flex-direction: row-reverse; }
-.msg-avatar { flex-shrink: 0; background: var(--el-color-primary-light-5); }
-.message.assistant .msg-avatar { background: var(--el-color-success-light-5); }
-.msg-content { max-width: 85%; }
-.msg-bubble { padding: 10px 14px; border-radius: 12px; background: var(--el-fill-color-light); font-size: 14px; line-height: 1.6; word-break: break-word; }
+.chat-container { 
+  display: flex; 
+  flex-direction: column; 
+  height: 100%; 
+}
+
+.conversation-list { 
+  border-bottom: 1px solid var(--app-border-light); 
+  padding-bottom: 12px; 
+  margin-bottom: 12px; 
+}
+
+.conv-header { 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center; 
+  margin-bottom: 8px; 
+  font-weight: 600;
+  color: var(--app-text-primary);
+}
+
+.conv-items { 
+  max-height: 150px; 
+  overflow-y: auto; 
+}
+
+.conv-item { 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center; 
+  padding: 10px 12px; 
+  border-radius: 10px; 
+  cursor: pointer; 
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  margin: 4px 0;
+}
+
+.conv-item:hover, .conv-item.active { 
+  background: var(--el-fill-color-light); 
+}
+
+.conv-item.active { 
+  background: var(--el-color-primary-light-9); 
+}
+
+html.dark .conv-item.active {
+  background: rgba(67, 97, 238, 0.2);
+}
+
+.conv-title { 
+  flex: 1; 
+  overflow: hidden; 
+  text-overflow: ellipsis; 
+  white-space: nowrap; 
+  font-size: 13px; 
+}
+
+.conv-delete { 
+  opacity: 0; 
+  transition: opacity 0.2s;
+  color: var(--app-text-muted);
+}
+
+.conv-item:hover .conv-delete { 
+  opacity: 1; 
+}
+
+.conv-delete:hover {
+  color: var(--el-color-danger);
+}
+
+.chat-area { 
+  flex: 1; 
+  display: flex; 
+  flex-direction: column; 
+  min-height: 0; 
+}
+
+.messages { 
+  flex: 1; 
+  overflow-y: auto; 
+  padding: 8px 0; 
+}
+
+.message { 
+  display: flex; 
+  gap: 12px; 
+  margin-bottom: 16px;
+  animation: fadeInUp 0.3s ease;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.message.user { 
+  flex-direction: row-reverse; 
+}
+
+.msg-avatar { 
+  flex-shrink: 0; 
+  background: var(--app-gradient-primary);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(67, 97, 238, 0.3);
+}
+
+.message.assistant .msg-avatar { 
+  background: var(--app-gradient-success);
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+}
+
+.msg-content { 
+  max-width: 85%; 
+}
+
+.msg-bubble { 
+  padding: 12px 16px; 
+  border-radius: 16px; 
+  background: var(--el-fill-color-light); 
+  font-size: 14px; 
+  line-height: 1.6; 
+  word-break: break-word;
+  transition: background-color 0.3s;
+}
+
+html.dark .msg-bubble {
+  background: #232338;
+}
+
 .msg-bubble :deep(p) { margin: 0 0 8px 0; }
 .msg-bubble :deep(p:last-child) { margin-bottom: 0; }
-.msg-bubble :deep(code) { background: var(--el-fill-color); padding: 2px 6px; border-radius: 4px; font-size: 13px; }
-.msg-bubble :deep(pre) { background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 8px; overflow-x: auto; margin: 8px 0; }
-.msg-bubble :deep(ul), .msg-bubble :deep(ol) { margin: 8px 0; padding-left: 20px; }
-.message.user .msg-bubble { background: var(--el-color-primary); color: #fff; }
-.msg-time { font-size: 11px; color: var(--el-text-color-secondary); margin-top: 4px; }
-.message.user .msg-time { text-align: right; }
-.thinking { display: flex; align-items: center; gap: 8px; }
-.chat-input { display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--el-border-color-lighter); }
-.chat-input .el-textarea { flex: 1; }
+.msg-bubble :deep(code) { 
+  background: var(--el-fill-color); 
+  padding: 2px 6px; 
+  border-radius: 4px; 
+  font-size: 13px; 
+}
+
+html.dark .msg-bubble :deep(code) {
+  background: #1a1a2e;
+}
+
+.msg-bubble :deep(pre) { 
+  background: #1e1e1e; 
+  color: #d4d4d4; 
+  padding: 12px; 
+  border-radius: 10px; 
+  overflow-x: auto; 
+  margin: 8px 0; 
+}
+
+.msg-bubble :deep(ul), .msg-bubble :deep(ol) { 
+  margin: 8px 0; 
+  padding-left: 20px; 
+}
+
+.message.user .msg-bubble { 
+  background: var(--app-gradient-primary); 
+  color: #fff; 
+  border-bottom-right-radius: 4px;
+}
+
+.message.assistant .msg-bubble {
+  border-bottom-left-radius: 4px;
+}
+
+.msg-time { 
+  font-size: 11px; 
+  color: var(--app-text-muted); 
+  margin-top: 6px; 
+}
+
+.message.user .msg-time { 
+  text-align: right; 
+}
+
+.thinking { 
+  display: flex; 
+  align-items: center; 
+  gap: 8px; 
+  color: var(--app-text-secondary);
+}
+
+.chat-input { 
+  display: flex; 
+  gap: 12px; 
+  padding-top: 12px; 
+  border-top: 1px solid var(--app-border-light);
+  align-items: flex-end;
+}
+
+.chat-input .el-textarea { 
+  flex: 1; 
+}
+
+.send-btn {
+  height: 60px;
+  border-radius: 12px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.send-btn:not(:disabled):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(67, 97, 238, 0.35);
+}
+
+/* List transition */
+.list-enter-active {
+  transition: all 0.3s ease;
+}
+.list-leave-active {
+  transition: all 0.2s ease;
+}
+.list-enter-from {
+  opacity: 0;
+  transform: translateY(20px);
+}
+.list-leave-to {
+  opacity: 0;
+}
 </style>
 
 <style>
