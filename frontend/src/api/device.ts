@@ -19,6 +19,11 @@ export interface DeviceTypeInfo {
   model?: string;
   spec_description?: string;
   thresholds?: ThresholdConfig[];
+  height_units?: number;
+  max_power?: number;
+  weight?: number;
+  depth?: number;
+  rated_current?: number;
   device_count: number;
   created_at: string;
   updated_at: string;
@@ -102,6 +107,10 @@ export function getDevicesApi(params: { page: number; page_size: number; keyword
   return http.get<DevicePage>("/devices", { params });
 }
 
+export function getAllRacksApi(room_id?: number) {
+  return http.get("/facilities/racks/all", { params: { room_id } });
+}
+
 export function getDeviceApi(id: number) {
   return http.get<DeviceInfo>(`/devices/${id}`);
 }
@@ -124,4 +133,12 @@ export function changeDeviceStatusApi(id: number, params: { status: string; oper
 
 export function getDeviceLifecyclesApi(id: number) {
   return http.get(`/devices/${id}/lifecycles`);
+}
+
+export interface RackInfo {
+  id: number;
+  room_id: number;
+  name: string;
+  code: string;
+  total_units: number;
 }
