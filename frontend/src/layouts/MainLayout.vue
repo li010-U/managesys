@@ -126,6 +126,7 @@
             </transition>
           </router-view>
         </el-main>
+        <PetAssistant v-if="authStore.isAuthenticated" @open-chat="chatVisible = true" />
       </el-container>
     </el-container>
   </div>
@@ -143,6 +144,7 @@ import { useAuthStore } from "../stores/auth"
 import { useThemeStore } from "../stores/theme"
 import { useTabsStore } from "../stores/tabs"
 import ChatPanel from "../components/chat/ChatPanel.vue"
+import PetAssistant from "../components/assistant/PetAssistant.vue"
 
 const route = useRoute()
 const router = useRouter()
