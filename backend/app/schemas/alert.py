@@ -1,5 +1,5 @@
-"""告警 Schema"""
-from pydantic import BaseModel, Field
+﻿"""告警 Schema"""
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 from typing import Optional
 
@@ -23,6 +23,8 @@ class AlertRuleUpdate(BaseModel):
     notify_methods: Optional[list[str]] = None
 
 class AlertRuleResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     name: str
     code: str
@@ -44,6 +46,8 @@ class AlertRulePageResponse(BaseModel):
 
 # Alert
 class AlertResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     alert_rule_id: Optional[int]
     device_id: Optional[int]
@@ -57,9 +61,6 @@ class AlertResponse(BaseModel):
     rule_name: Optional[str] = None
     device_name: Optional[str] = None
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 class AlertPageResponse(BaseModel):
     items: list[AlertResponse]
@@ -81,3 +82,4 @@ class AlertCreateRequest(BaseModel):
     level: str = "general"
     source: str = "system"
     device_id: Optional[int] = None
+
