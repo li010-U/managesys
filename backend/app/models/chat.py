@@ -1,7 +1,7 @@
-﻿"""AI对话模型"""
+"""AI对话模型"""
 from datetime import datetime
 from typing import Optional, List
-from sqlalchemy import String, Integer, DateTime, Text, ForeignKey, JSON, BigInteger
+from sqlalchemy import String, Integer, DateTime, Text, ForeignKey, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from app.db.base import Base
@@ -24,7 +24,7 @@ class ChatConversation(Base):
 class ChatMessage(Base):
     __tablename__ = "chat_messages"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     conversation_id: Mapped[int] = mapped_column(Integer, ForeignKey("chat_conversations.id", ondelete="CASCADE"), nullable=False, comment="对话ID")
     role: Mapped[str] = mapped_column(String(16), nullable=False, comment="角色：user/assistant/system")
     content: Mapped[str] = mapped_column(Text, nullable=False, comment="消息内容")

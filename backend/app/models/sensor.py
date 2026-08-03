@@ -1,7 +1,7 @@
 """传感器与传感器数据模型"""
 from datetime import datetime
 from typing import Optional, List
-from sqlalchemy import String, Integer, DateTime, Float, Text, ForeignKey, JSON, BigInteger
+from sqlalchemy import String, Integer, DateTime, Float, Text, ForeignKey, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from app.db.base import Base
@@ -33,7 +33,7 @@ class Sensor(Base):
 class SensorData(Base):
     __tablename__ = "sensor_data"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     sensor_id: Mapped[int] = mapped_column(Integer, ForeignKey("sensors.id", ondelete="CASCADE"), nullable=False, comment="传感器ID")
     value: Mapped[float] = mapped_column(Float, nullable=False, comment="数值")
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="记录时间")

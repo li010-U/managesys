@@ -1,7 +1,7 @@
 """设备与生命周期模型"""
 from datetime import datetime, date
 from typing import Optional, List
-from sqlalchemy import String, Integer, DateTime, Float, Text, ForeignKey, Date, BigInteger
+from sqlalchemy import String, Integer, DateTime, Float, Text, ForeignKey, Date
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from app.db.base import Base
@@ -54,7 +54,7 @@ class Device(Base):
 class DeviceLifecycle(Base):
     __tablename__ = "device_lifecycles"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     device_id: Mapped[int] = mapped_column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, comment="设备ID")
     action: Mapped[str] = mapped_column(String(32), nullable=False, comment="操作：mount/unmount/scrap/change")
     from_status: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, comment="变更前状态")

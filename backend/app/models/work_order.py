@@ -1,7 +1,7 @@
-﻿"""工单相关模型"""
+"""工单相关模型"""
 from datetime import datetime, date
 from typing import Optional, List
-from sqlalchemy import String, Integer, DateTime, Float, Text, ForeignKey, Boolean, JSON, BigInteger
+from sqlalchemy import String, Integer, DateTime, Date, Float, Text, ForeignKey, Boolean, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from app.db.base import Base
@@ -76,7 +76,7 @@ class WorkOrderComment(Base):
     """工单评论/处理记录"""
     __tablename__ = "work_order_comments"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     work_order_id: Mapped[int] = mapped_column(Integer, ForeignKey("work_orders.id", ondelete="CASCADE"), nullable=False, comment="工单ID")
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, comment="评论人")
     content: Mapped[str] = mapped_column(Text, nullable=False, comment="评论内容")
@@ -94,7 +94,7 @@ class WorkOrderAttachment(Base):
     """工单附件"""
     __tablename__ = "work_order_attachments"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     work_order_id: Mapped[int] = mapped_column(Integer, ForeignKey("work_orders.id", ondelete="CASCADE"), nullable=False)
     file_name: Mapped[str] = mapped_column(String(256), nullable=False, comment="文件名")
     file_path: Mapped[str] = mapped_column(String(512), nullable=False, comment="文件路径")

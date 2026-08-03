@@ -1,7 +1,7 @@
 """告警规则/告警/告警处理模型"""
 from datetime import datetime
 from typing import Optional, List
-from sqlalchemy import String, Integer, DateTime, Float, Text, ForeignKey, Boolean, JSON, BigInteger
+from sqlalchemy import String, Integer, DateTime, Float, Text, ForeignKey, Boolean, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from app.db.base import Base
@@ -30,7 +30,7 @@ class AlertRule(Base):
 class Alert(Base):
     __tablename__ = "alerts"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     alert_rule_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("alert_rules.id", ondelete="SET NULL"), nullable=True, comment="触发规则ID")
     device_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("devices.id", ondelete="SET NULL"), nullable=True, comment="关联设备ID")
     target_type: Mapped[str] = mapped_column(String(32), nullable=False, comment="告警对象类型：device/sensor/system")
@@ -52,8 +52,8 @@ class Alert(Base):
 class AlertAction(Base):
     __tablename__ = "alert_actions"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    alert_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("alerts.id", ondelete="CASCADE"), nullable=False, comment="告警ID")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    alert_id: Mapped[int] = mapped_column(Integer, ForeignKey("alerts.id", ondelete="CASCADE"), nullable=False, comment="告警ID")
     action_type: Mapped[str] = mapped_column(String(16), nullable=False, comment="处理类型：acknowledge/resolve/ignore")
     operator: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, comment="处理人")
     remark: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="处理备注")

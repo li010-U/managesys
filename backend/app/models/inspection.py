@@ -1,7 +1,7 @@
-﻿"""设备巡检相关模型"""
+"""设备巡检相关模型"""
 from datetime import datetime, date
 from typing import Optional, List
-from sqlalchemy import String, Integer, DateTime, Float, Text, ForeignKey, Boolean, JSON, BigInteger
+from sqlalchemy import String, Integer, DateTime, Float, Text, ForeignKey, Boolean, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from app.db.base import Base
@@ -98,7 +98,7 @@ class InspectionRecord(Base):
     """巡检记录"""
     __tablename__ = "inspection_records"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     task_id: Mapped[int] = mapped_column(Integer, ForeignKey("inspection_tasks.id", ondelete="CASCADE"), nullable=False, comment="关联任务")
     device_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("devices.id", ondelete="SET NULL"), nullable=True, comment="关联设备")
     
@@ -125,9 +125,9 @@ class InspectionIssue(Base):
     """巡检问题"""
     __tablename__ = "inspection_issues"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     task_id: Mapped[int] = mapped_column(Integer, ForeignKey("inspection_tasks.id", ondelete="CASCADE"), nullable=False, comment="关联任务")
-    record_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("inspection_records.id", ondelete="SET NULL"), nullable=True, comment="关联记录")
+    record_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("inspection_records.id", ondelete="SET NULL"), nullable=True, comment="关联记录")
     device_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("devices.id", ondelete="SET NULL"), nullable=True, comment="关联设备")
     
     issue_title: Mapped[str] = mapped_column(String(256), nullable=False, comment="问题标题")
