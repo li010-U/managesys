@@ -276,7 +276,7 @@
         <el-descriptions-item label="更新时间">{{ formatDate(currentRoom.updated_at) }}</el-descriptions-item>
       </el-descriptions>
       <template #footer>
-        <el-button @click="openRoomDialog(currentRoom)">编辑机房</el-button>
+        <el-button @click="openRoomDialog(currentRoom!)">编辑机房</el-button>
         <el-button @click="roomDetailDialog.visible = false">关闭</el-button>
       </template>
     </el-dialog>
@@ -563,7 +563,7 @@ async function submitRoom() {
   submitting.value = true
   try {
     const data = { ...roomForm.value, data_center_id: selectedDataCenterId.value }
-    if (data.area === undefined) data.area = null
+    if (data.area === undefined) delete data.area
     if (roomDialog.value.isEdit) {
       await updateRoomApi(roomDialog.value.id, data)
       ElMessage.success("已更新")

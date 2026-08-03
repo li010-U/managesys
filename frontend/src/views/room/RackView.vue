@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="rack-page">
     <div class="page-header">
       <div>
@@ -113,23 +113,23 @@
               :key="'cell'+r+'-'+c"
               class="grid-cell"
             >
-              <div v-if="getRackAt(r, c)" class="rack-mini-card" :class="utilClass(getRackAt(r,c))" @click="showDetail(getRackAt(r,c))">
-                <div class="rack-mini-status" :style="{background: rackUtilColor(getRackAt(r,c))}"></div>
+              <div v-if="getRackAt(r, c)!" class="rack-mini-card" :class="utilClass(getRackAt(r, c)!)" @click="showDetail(getRackAt(r, c)!)">
+                <div class="rack-mini-status" :style="{background: rackUtilColor(getRackAt(r, c)!)}"></div>
                 <div class="rack-mini-body">
-                  <div class="rack-mini-code">{{ getRackAt(r,c).code }}</div>
-                  <div class="rack-mini-name">{{ getRackAt(r,c).name }}</div>
-                  <div class="rack-mini-bar"><div class="rack-mini-fill" :style="{width:rackUtilPercent(getRackAt(r,c))+'%',background:rackUtilColor(getRackAt(r,c))}"></div></div>
+                  <div class="rack-mini-code">{{ getRackAt(r, c)!.code }}</div>
+                  <div class="rack-mini-name">{{ getRackAt(r, c)!.name }}</div>
+                  <div class="rack-mini-bar"><div class="rack-mini-fill" :style="{width:rackUtilPercent(getRackAt(r, c)!)+'%',background:rackUtilColor(getRackAt(r, c)!)}"></div></div>
                   <div class="rack-mini-info">
-                    <span>{{ getRackUnitText(getRackAt(r,c)) }}</span>
-                    <span v-if="getRackAt(r,c).rated_power">{{ getRackAt(r,c).rated_power }}kW</span>
+                    <span>{{ getRackUnitText(getRackAt(r, c)!) }}</span>
+                    <span v-if="getRackAt(r, c)!.rated_power">{{ getRackAt(r, c)!.rated_power }}kW</span>
                   </div>
                   <div class="rack-mini-tags">
-                    <el-tag size="small" :color="rackUtilColor(getRackAt(r,c))" style="color:#fff;border:none" effect="dark">{{ rackUtilPercent(getRackAt(r,c)) }}%</el-tag>
-                    <el-tag size="small" type="info" effect="plain">{{ getRackAt(r,c).total_units }}U</el-tag>
+                    <el-tag size="small" :color="rackUtilColor(getRackAt(r, c)!)" style="color:#fff;border:none" effect="dark">{{ rackUtilPercent(getRackAt(r, c)!) }}%</el-tag>
+                    <el-tag size="small" type="info" effect="plain">{{ getRackAt(r, c)!.total_units }}U</el-tag>
                   </div>
                   <div class="rack-mini-actions" @click.stop>
-                    <el-button :icon="Edit" size="small" text circle @click.stop="editRack(getRackAt(r,c))" />
-                    <el-button :icon="Delete" size="small" text circle type="danger" @click.stop="deleteRack(getRackAt(r,c))" />
+                    <el-button :icon="Edit" size="small" text circle @click.stop="editRack(getRackAt(r, c)!)" />
+                    <el-button :icon="Delete" size="small" text circle type="danger" @click.stop="deleteRack(getRackAt(r, c)!)" />
                   </div>
                 </div>
               </div>
@@ -279,7 +279,7 @@
         <el-divider />
         <div class="dd-actions">
           <el-button type="primary" :icon="Edit" size="small" @click="goEditDevice(deviceActionDialog.device)">编辑设备</el-button>
-          <el-button type="warning" :icon="Top" size="small" :loading="unmounting" @click="unmountDevice(deviceActionDialog.device)">下架设备</el-button>
+          <el-button type="warning" :icon="Bottom" size="small" :loading="unmounting" @click="unmountDevice(deviceActionDialog.device)">下架设备</el-button>
         </div>
       </div>
       <template #footer><el-button @click="deviceActionDialog.visible=false">关闭</el-button></template>
@@ -386,10 +386,15 @@ const uSlots = computed(() => {
     const startU = Math.min(totalU, totalU - ci * colSize)
     const endU = Math.max(1, totalU - (ci + 1) * colSize + 1)
     for (let u = startU; u >= endU; u--) {
-      const dev = devices.find(d => d.start_u !== undefined && d.end_u !== undefined && u >= d.start_u && u <= d.end_u)
+      const dev = devices.find(d => {
+        if (d.start_u === undefined || d.end_u === undefined) return false
+        return u >= Math.min(d.start_u, d.end_u) && u <= Math.max(d.start_u, d.end_u)
+      })
       if (dev) {
-        const isFirst = u === dev.start_u
-        colSlots.push({ number: u, displayNumber: isFirst ? String(u) : '', occupied: true, device: dev, merged: !isFirst, firstOfMulti: isFirst, deviceHeight: dev.end_u! - dev.start_u! + 1 })
+                const devLo = Math.min(dev.start_u!, dev.end_u!)
+        const devHi = Math.max(dev.start_u!, dev.end_u!)
+        const isFirst = u === devLo
+        colSlots.push({ number: u, displayNumber: isFirst ? String(u) : '', occupied: true, device: dev, merged: !isFirst, firstOfMulti: isFirst, deviceHeight: devHi - devLo + 1 })
       } else {
         colSlots.push({ number: u, displayNumber: String(u), occupied: false, device: null, merged: false, firstOfMulti: true, deviceHeight: 1 })
       }
@@ -579,7 +584,7 @@ async function showDetail(rack: RackInfo) {
 
 async function fetchRackDevices(rackId: number) {
   try {
-    const r = await getDevicesApi({ page: 1, page_size: 999, rack_id: rackId })
+    const r = await getDevicesApi({ page: 1, page_size: 100, rack_id: rackId })
     rackDevices.value = r.data.items || []
   } catch {
     rackDevices.value = []
@@ -594,7 +599,7 @@ async function showMountDialog() {
   mountDialog.value.visible = true
   mountDialog.value.rackId = viewRack.value?.id || 0
   try {
-    const r = await getDevicesApi({ page: 1, page_size: 999, status: 'in_stock' })
+    const r = await getDevicesApi({ page: 1, page_size: 100, status: 'in_stock' })
     availableDevices.value = r.data.items || []
   } catch { availableDevices.value = [] }
 }

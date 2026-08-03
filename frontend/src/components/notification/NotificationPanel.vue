@@ -1,10 +1,10 @@
-<template>
+﻿<template>
   <el-popover
     :visible="visible"
     placement="bottom-end"
     :width="360"
     trigger="click"
-    @update:visible="val => visible = val"
+    @update:visible="(val: boolean) => visible = val"
   >
     <template #reference>
       <el-badge :value="unreadCount" :hidden="unreadCount === 0" :max="99">

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="alert-page">
     <div class="page-header">
       <div>
@@ -143,7 +143,7 @@ const ruleDialog = reactive({ visible: false, isEdit: false, id: 0 })
 const ruleForm = ref<any>({ name: '', code: '', metric: 'temperature', condition: 'gt', threshold: 30, alert_level: 'general', enabled: true })
 const ruleRules = { name: [{ required: true, message: '请输入规则名称', trigger: 'blur' }], code: [{ required: true, message: '请输入规则编码', trigger: 'blur' }], metric: [{ required: true, message: '请选择监控指标', trigger: 'change' }], condition: [{ required: true, message: '请选择条件', trigger: 'change' }], threshold: [{ required: true, message: '请输入阈值', trigger: 'blur' }] }
 
-async function loadRules() { ruleLoading.value = true; try { const r = await getAlertRulesApi({ page: rulePage.value, page_size: rulePageSize.value, keyword: ruleSearch.value || undefined, enabled: ruleEnabled.value }); ruleList.value = r.data.items; ruleTotal.value = r.data.total } catch { ruleList.value = [] } finally { ruleLoading.value = false } }
+async function loadRules() { ruleLoading.value = true; try { const r = await getAlertRulesApi({ page: rulePage.value, page_size: rulePageSize.value, keyword: ruleSearch.value || undefined, enabled: ruleEnabled.value ?? undefined }); ruleList.value = r.data.items; ruleTotal.value = r.data.total } catch { ruleList.value = [] } finally { ruleLoading.value = false } }
 function openRuleDialog(rule?: any) { ruleDialog.visible = true; ruleDialog.isEdit = !!rule; ruleDialog.id = rule?.id || 0; if (rule) { ruleForm.value = { name: rule.name, code: rule.code, metric: rule.metric, condition: rule.condition, threshold: rule.threshold, alert_level: rule.alert_level, enabled: rule.enabled } } else { ruleForm.value = { name: '', code: '', metric: 'temperature', condition: 'gt', threshold: 30, alert_level: 'general', enabled: true } } setTimeout(() => ruleFormRef.value?.clearValidate(), 0) }
 async function submitRule() { const valid = await ruleFormRef.value?.validate().catch(() => false); if (!valid) return; ruleSubmitting.value = true; try { if (ruleDialog.isEdit) { await updateAlertRuleApi(ruleDialog.id, ruleForm.value); ElMessage.success('规则已更新') } else { await createAlertRuleApi(ruleForm.value); ElMessage.success('规则已创建') } ruleDialog.visible = false; await loadRules() } catch { /* interceptor */ } finally { ruleSubmitting.value = false } }
 async function toggleRule(rule: any) { try { await updateAlertRuleApi(rule.id, { enabled: !rule.enabled }); ElMessage.success(rule.enabled ? '规则已禁用' : '规则已启用'); await loadRules() } catch { /* interceptor */ } }

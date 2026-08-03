@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="inspection-container">
     <el-tabs v-model="activeTab" class="inspection-tabs">
       <!-- 巡检任务 -->
@@ -299,7 +299,7 @@
             <el-option
               v-for="u in users"
               :key="u.id"
-              :label=\"\\ (\)\\"
+              :label="`${u.username} (${u.real_name})`"
               :value="u.id"
             />
           </el-select>
@@ -345,7 +345,7 @@
           <el-table-column prop="check_remark" label="备注" min-width="150" show-overflow-tooltip />
           <el-table-column label="操作" width="150" v-if="currentTask.status === 'in_progress'">
             <template #default="{ row }">
-              <el-button type="primary" link size="small" @click="showRecordDialog(row)">
+              <el-button type="primary" link size="small" @click="showRecordDialogFn(row)">
                 {{ row.check_result ? '修改' : '记录' }}
               </el-button>
               <el-button
@@ -353,7 +353,7 @@
                 type="danger"
                 link
                 size="small"
-                @click="showIssueDialog(row)"
+                @click="showIssueDialogFn(row)"
               >
                 记录问题
               </el-button>
@@ -433,7 +433,7 @@ import {
   updateInspectionPlan, deleteInspectionPlan, getInspectionTemplates,
   getInspectionIssues, createInspectionIssue, getInspectionStats
 } from '@/api/inspection'
-import { getFacilityList } from '@/api/facility'
+import { getAllRoomsApi } from '@/api/facility'
 import { getAssignableUsers } from '@/api/workOrder'
 
 const activeTab = ref('tasks')
@@ -572,11 +572,11 @@ const loadOptions = async () => {
   try {
     const [tplRes, facRes, userRes] = await Promise.all([
       getInspectionTemplates(),
-      getFacilityList({ page_size: 1000 }),
+      getAllRoomsApi(),
       getAssignableUsers()
     ])
     templates.value = tplRes.data || []
-    facilities.value = facRes.data?.data || []
+    facilities.value = facRes.data || []
     users.value = userRes.data || []
   } catch (e) {
     console.error(e)
@@ -723,18 +723,6 @@ const showRecordDialogFn = (record: any) => {
 }
 
 
-// 修改 showRecordDialog 方法
-const showRecordDialogFn = (row: any) => {
-  currentRecord.value = row
-  recordForm.id = row.id
-  recordForm.item_name = row.item_name
-  recordForm.item_key = row.item_key
-  recordForm.check_content = row.check_content
-  recordForm.check_result = row.check_result || 'normal'
-  recordForm.check_value = row.check_value || ''
-  recordForm.check_remark = row.check_remark || ''
-  showRecordDialogRef.value = true
-}
 
 // 保存记录
 const handleSaveRecord = async () => {
@@ -755,7 +743,7 @@ const handleSaveRecord = async () => {
       })
     }
     ElMessage.success('保存成功')
-    showRecordDialogRef.value = false
+    showRecordDialog.value = false
     if (currentTask.value) {
       const res = await getInspectionTaskDetail(currentTask.value.id)
       currentTask.value = res.data
@@ -885,17 +873,6 @@ const handleTabChange = (tab: string) => {
   else if (tab === 'issues') loadIssues()
 }
 
-// Old version removed = (row: any) => {
-  currentRecord.value = row
-  recordForm.id = row.id
-  recordForm.item_name = row.item_name
-  recordForm.item_key = row.item_key
-  recordForm.check_content = row.check_content
-  recordForm.check_result = row.check_result || 'normal'
-  recordForm.check_value = row.check_value || ''
-  recordForm.check_remark = row.check_remark || ''
-  showRecordDialogRef.value = true
-}
 
 onMounted(() => {
   loadStats()

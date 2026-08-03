@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="env-page">
     <div class="page-header">
       <div>
@@ -124,8 +124,8 @@
               <span v-else class="sc-value-na">--</span>
             </div>
             <div class="sc-meta">
-              <span>更新: {{ formatTime(s.last_update_time) }}</span>
-              <span v-if="s.threshold_min !== null || s.threshold_max !== null">
+              <span>更新: {{ formatTime(s.last_update_time ?? null) }}</span>
+              <span v-if="s.threshold_min != null || s.threshold_max != null">
                 阈值: {{ s.threshold_min ?? '-' }} ~ {{ s.threshold_max ?? '-' }}
               </span>
             </div>
@@ -222,7 +222,7 @@ const offlineCount = computed(() => sensors.value.filter(s => s.status === "offl
 const alertCount = computed(() => sensors.value.filter(s => {
   if (!s.current_value) return false
   const v = s.current_value.value
-  return (s.threshold_min !== null && v < s.threshold_min) || (s.threshold_max !== null && v > s.threshold_max)
+  return (s.threshold_min != null && v < s.threshold_min) || (s.threshold_max != null && v > s.threshold_max)
 }).length)
 
 const filteredSensors = computed(() => {
@@ -249,21 +249,21 @@ function getUnit(type: string): string {
 function sensorValueColor(s: SensorInfo): string {
   if (!s.current_value || s.current_value.value === null) return "#909399"
   const v = s.current_value.value
-  if (s.threshold_min !== null && v < s.threshold_min) return "#3498db"
-  if (s.threshold_max !== null && v > s.threshold_max) return "#e74c3c"
+  if (s.threshold_min != null && v < s.threshold_min) return "#3498db"
+  if (s.threshold_max != null && v > s.threshold_max) return "#e74c3c"
   return "#27ae60"
 }
 function sensorCardClass(s: SensorInfo): string {
   if (s.status !== "online") return "sc-offline"
   if (!s.current_value) return ""
   const v = s.current_value.value
-  if ((s.threshold_min !== null && v < s.threshold_min) || (s.threshold_max !== null && v > s.threshold_max)) return "sc-alert"
+  if ((s.threshold_min != null && v < s.threshold_min) || (s.threshold_max != null && v > s.threshold_max)) return "sc-alert"
   return ""
 }
 function gaugePercent(s: SensorInfo): number {
   if (!s.current_value) return 0
   const v = s.current_value.value
-  if (s.threshold_min !== null && s.threshold_max !== null) {
+  if (s.threshold_min != null && s.threshold_max != null) {
     const range = s.threshold_max - s.threshold_min
     if (range === 0) return 50
     return Math.min(100, Math.max(0, (v - s.threshold_min) / range * 100))

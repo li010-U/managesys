@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="monitor-dashboard">
     <!-- Page Header -->
     <div class="page-header">
@@ -171,7 +171,7 @@ const offlineCount = computed(() => sensors.value.filter(s => s.status === "offl
 const alertCount = computed(() => sensors.value.filter(s => {
   if (!s.current_value) return false
   const v = s.current_value.value
-  return (s.threshold_min !== null && v < s.threshold_min) || (s.threshold_max !== null && v > s.threshold_max)
+  return (s.threshold_min != null && v < s.threshold_min) || (s.threshold_max != null && v > s.threshold_max)
 }).length)
 
 const filteredSensors = computed(() => {
@@ -196,14 +196,14 @@ function unitText(type: string) {
 function valueColor(s: SensorInfo): string {
   if (!s.current_value) return "#999"
   const v = s.current_value.value
-  if (s.threshold_min !== null && v < s.threshold_min) return "#3498db"
-  if (s.threshold_max !== null && v > s.threshold_max) return "#e74c3c"
+  if (s.threshold_min != null && v < s.threshold_min) return "#3498db"
+  if (s.threshold_max != null && v > s.threshold_max) return "#e74c3c"
   return "#27ae60"
 }
 function isAlerting(s: SensorInfo): boolean {
   if (!s.current_value) return false
   const v = s.current_value.value
-  return (s.threshold_min !== null && v < s.threshold_min) || (s.threshold_max !== null && v > s.threshold_max)
+  return (s.threshold_min != null && v < s.threshold_min) || (s.threshold_max != null && v > s.threshold_max)
 }
 function fmtTime(t: string) {
   try { const d = new Date(t); return d.getFullYear()+"/"+(d.getMonth()+1)+"/"+d.getDate()+" "+d.getHours().toString().padStart(2,"0")+":"+d.getMinutes().toString().padStart(2,"0") } catch { return t }

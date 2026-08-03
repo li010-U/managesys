@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="work-order-container">
     <!-- 统计卡片 -->
     <el-row :gutter="20" class="stats-row">
@@ -197,7 +197,7 @@
                 <el-option
                   v-for="device in devices"
                   :key="device.id"
-                  :label=\"\\ (\)\\"
+                  :label="`${device.name} (${device.asset_number})`"
                   :value="device.id"
                 />
               </el-select>
@@ -229,7 +229,7 @@
                 <el-option
                   v-for="user in assignableUsers"
                   :key="user.id"
-                  :label=\"\\ (\)\\"
+                  :label="`${user.username} (${user.real_name})`"
                   :value="user.id"
                 />
               </el-select>
@@ -386,7 +386,7 @@
             <el-option
               v-for="user in assignableUsers"
               :key="user.id"
-              :label=\"\\ (\)\\"
+              :label="`${user.username} (${user.real_name})`"
               :value="user.id"
             />
           </el-select>
@@ -470,13 +470,13 @@ import {
   getWorkOrderCategories,
   getAssignableUsers
 } from '@/api/workOrder'
-import { getDeviceList } from '@/api/device'
-import { getFacilityList } from '@/api/facility'
+import { getDevicesApi } from '@/api/device'
+import { getAllRoomsApi } from '@/api/facility'
 import { useAuthStore } from '@/stores/auth'
 
 const authStore = useAuthStore()
 const userId = computed(() => authStore.user?.id)
-const isAdmin = computed(() => authStore.user?.is_superuser)
+const isAdmin = computed(() => authStore.user?.is_super_admin)
 
 // 统计数据
 const stats = ref({
@@ -603,13 +603,13 @@ const loadOptions = async () => {
     const [catRes, userRes, deviceRes, facilityRes] = await Promise.all([
       getWorkOrderCategories(),
       getAssignableUsers(),
-      getDeviceList({ page_size: 1000 }),
-      getFacilityList({ page_size: 1000 })
+      getDevicesApi({ page: 1, page_size: 1000 }),
+      getAllRoomsApi()
     ])
     categories.value = catRes.data || []
     assignableUsers.value = userRes.data || []
-    devices.value = deviceRes.data?.data || []
-    facilities.value = facilityRes.data?.data || []
+    devices.value = deviceRes.data.items || []
+    facilities.value = facilityRes.data || []
   } catch (e) {
     console.error(e)
   }

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page">
     <div class="page-header">
       <div>
@@ -311,7 +311,7 @@ async function fetchData() {
       page: page.value, page_size: pageSize.value,
       keyword: keyword.value || undefined,
       status: filterStatus.value || undefined,
-      device_type_id: filterType.value || undefined,
+      device_type_id: filterType.value ? Number(filterType.value) : undefined,
     });
     list.value = r.data.items;
     total.value = r.data.total;

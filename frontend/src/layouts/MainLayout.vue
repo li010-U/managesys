@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="app-container" :class="{ dark: themeStore.isDark }">
     <el-container>
       <el-aside width="200px" class="sidebar">
@@ -72,7 +72,6 @@
             <div class="theme-toggle">
               <el-switch 
                 v-model="themeStore.isDark" 
-                @change="themeStore.toggle()" 
                 inline-prompt 
                 active-icon="Moon"
                 inactive-icon="Sunny" 
@@ -170,11 +169,20 @@ function handleCommand(cmd: string) {
   background: var(--app-bg-page);
 }
 
-.main-container {
-  display: flex;
-  flex-direction: column;
+.app-container > .el-container {
+  height: 100%;
 }
 
+
+.main-container {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+/* 侧边栏 */
 /* 侧边栏 */
 .sidebar {
   background: var(--app-sidebar-bg) !important;
@@ -440,7 +448,10 @@ html.dark .tab-item.active {
 .app-main {
   padding: 20px;
   overflow-y: auto;
+  overflow-x: auto;
   background: var(--app-bg-page);
   flex: 1;
+  min-height: 0;
+  height: 100%;
 }
 </style>
