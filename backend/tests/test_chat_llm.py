@@ -62,3 +62,23 @@ def test_detect_repetition_normal_text():
     normal = "\u4eca\u65e5\u8fd0\u7ef4\u5efa\u8bae\u5982\u4e0b\uff1a\u4f20\u611f\u5668\u72b6\u6001\u826f\u597d\uff0c\u5171\u670968\u4e2a\u4f20\u611f\u5668\u5728\u7ebf\uff0c\u8fd0\u884c\u5e73\u7a33\u3002"
     assert _detect_repetition(normal) is False
     assert _trim_repetition(normal) == normal
+
+
+def test_detect_repetition_russian_doll():
+    from app.api.v1.chat import _detect_repetition, _trim_repetition
+    prefix = "\u5904\u7406\u4f20\u611f\u5668\u8d85\u9608\u503c\u544a\u8b66\uff0c\u8bf7\u6309\u4ee5\u4e0b\u6b65\u9aa4\u64cd\u4f5c\uff1a"
+    base = (prefix +
+            "1. \u786e\u8ba4\u544a\u8b66\uff1a\u5728\u544a\u8b66\u5217\u8868\u4e2d\u627e\u5230\u5bf9\u5e94\u4f20\u611f\u5668\u3002"
+            "2. \u73b0\u573a\u6838\u67e5\uff1a\u68c0\u67e5\u673a\u67dc\u6216\u673a\u623f\u73af\u5883\u3002"
+            "3. \u5904\u7f6e\u4e0e\u8bb0\u5f55\uff1a\u6d3e\u53d1\u5de5\u5355\u3002"
+            "\u5f53\u524d\u7cfb\u7edf\u65e0\u8d85\u9608\u503c\u5f02\u5e38\uff0c\u65e0\u9700\u7d27\u6025\u64cd\u4f5c\u3002")
+    text = base
+    for _ in range(30):
+        text = prefix + text
+    assert len(text) > 300
+    assert _detect_repetition(text) is True
+    trimmed = _trim_repetition(text)
+    assert len(trimmed) < len(text)
+    # The Russian-doll re-states its own opening; the trimmed result must be dramatically shorter.
+    assert len(trimmed) <= 600
+

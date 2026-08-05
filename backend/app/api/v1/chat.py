@@ -162,38 +162,36 @@ def _guard_content(text: str) -> str:
 
 
 def _detect_repetition(text: str) -> bool:
-    """Rough detector for self-repeating (snowballing) output.
-
-    If the tail block recurs multiple times earlier in the text, treat it as
-    degenerate repetition so we can stop streaming early.
-    """
+    """Detect degenerate self-repeating (snowball / Russian-doll) output."""
     t = (text or "").strip()
     if len(t) < 300:
         return False
-    tail_len = 80
-    tail = t[-tail_len:]
-    count = 0
-    idx = 0
-    while True:
-        n = t.find(tail, idx)
-        if n == -1:
-            break
-        count += 1
-        idx = n + tail_len
-        if count >= 3:
-            return True
-    return False
+    # 1) The exact opening phrase recurs many times -> re-anchored repetition.
+    if t.count(t[:40]) >= 4:
+        return True
+    # 2) The exact tail recurs multiple times.
+    tail = t[-70:]
+    return bool(tail) and t.count(tail) >= 3
 
 
 def _trim_repetition(text: str) -> str:
-    """Cut a self-repeating output at the point it starts repeating."""
+    """Collapse a self-repeating reply to one clean unit."""
     t = (text or "").strip()
     if not _detect_repetition(t):
         return t
-    tail_len = 80
-    tail = t[-tail_len:]
+    # Prefer the latest fresh (non-reused) block -> keeps one full unit.
+    blen = 80
+    start = 0
+    for s in range(len(t) - blen + 1):
+        if t.count(t[s : s + blen]) == 1:
+            start = s
+            break
+    if start > 0:
+        return t[start:].rstrip()
+    # Otherwise cut at the second occurrence of the recurring tail.
+    tail = t[-70:]
     first = t.find(tail)
-    second = t.find(tail, first + tail_len)
+    second = t.find(tail, first + len(tail)) if first != -1 else -1
     if second != -1:
         return t[:second].rstrip()
     return t
@@ -476,13 +474,16 @@ async def send_message_stream(
             # ---- 流式输出（真实 LLM 或 mock 回退），含心跳保活 ----
             full_content = ""
             last_tick = asyncio.get_event_loop().time()
+            next_check = 300
             try:
                 async for piece in _stream_llm_or_mock(messages, req.content):
                     if await request.is_disconnected():
                         return
                     full_content += piece
-                    if _detect_repetition(full_content):
-                        break
+                    if len(full_content) >= next_check:
+                        next_check = len(full_content) + 50
+                        if _detect_repetition(full_content):
+                            break
                     yield f"data: {piece}\n\n"
                     now = asyncio.get_event_loop().time()
                     if now - last_tick >= 15:
