@@ -92,6 +92,9 @@ async def _load_history_content(db, conv_id: int) -> str:
     parts = []
     for m in msgs[-6:]:
         content = m.content or ""
+        if m.role == "assistant":
+            # 清洗历史中已存的反复回复，避免把套娃再回喂给模型
+            content = _trim_repetition(content)
         if len(content) > 600:
             content = content[:600] + "...[已截断]"
         parts.append(f"{m.role}: {content}")
@@ -164,7 +167,7 @@ def _guard_content(text: str) -> str:
 def _detect_repetition(text: str) -> bool:
     """Detect degenerate self-repeating (snowball / Russian-doll) output."""
     t = (text or "").strip()
-    if len(t) < 300:
+    if len(t) < 150:
         return False
     # 1) The exact opening phrase recurs many times -> re-anchored repetition.
     if t.count(t[:40]) >= 4:
@@ -175,26 +178,23 @@ def _detect_repetition(text: str) -> bool:
 
 
 def _trim_repetition(text: str) -> str:
-    """Collapse a self-repeating reply to one clean unit."""
+    """Collapse a self-repeating (snowball / Russian-doll) reply to one clean unit."""
     t = (text or "").strip()
     if not _detect_repetition(t):
         return t
-    # Prefer the latest fresh (non-reused) block -> keeps one full unit.
-    blen = 80
-    start = 0
-    for s in range(len(t) - blen + 1):
-        if t.count(t[s : s + blen]) == 1:
-            start = s
+    for start in range(len(t)):
+        rest = t[start:]
+        if len(rest) < 90:
             break
-    if start > 0:
-        return t[start:].rstrip()
-    # Otherwise cut at the second occurrence of the recurring tail.
-    tail = t[-70:]
-    first = t.find(tail)
-    second = t.find(tail, first + len(tail)) if first != -1 else -1
-    if second != -1:
-        return t[:second].rstrip()
+        rep = False
+        if rest.count(rest[:40]) >= 4:
+            rep = True
+        elif rest[-40:] and rest.count(rest[-40:]) >= 3:
+            rep = True
+        if not rep:
+            return rest.rstrip()
     return t
+
 
 
 async def _save_assistant_reply(conv_id: int, content: str) -> None:
@@ -381,7 +381,7 @@ async def send_message(
     messages.append({"role": "user", "content": req.content})
 
     try:
-        ai_content = _guard_content(await llm_service.chat(messages))
+        ai_content = _guard_content(_trim_repetition(await llm_service.chat(messages)))
     except LLMNotConfiguredError:
         ai_content = get_mock_response(req.content)
     except Exception:
@@ -474,14 +474,14 @@ async def send_message_stream(
             # ---- 流式输出（真实 LLM 或 mock 回退），含心跳保活 ----
             full_content = ""
             last_tick = asyncio.get_event_loop().time()
-            next_check = 300
+            next_check = 150
             try:
                 async for piece in _stream_llm_or_mock(messages, req.content):
                     if await request.is_disconnected():
                         return
                     full_content += piece
                     if len(full_content) >= next_check:
-                        next_check = len(full_content) + 50
+                        next_check = len(full_content) + 40
                         if _detect_repetition(full_content):
                             break
                     yield f"data: {piece}\n\n"

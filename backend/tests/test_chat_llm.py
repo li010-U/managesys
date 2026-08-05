@@ -82,3 +82,21 @@ def test_detect_repetition_russian_doll():
     # The Russian-doll re-states its own opening; the trimmed result must be dramatically shorter.
     assert len(trimmed) <= 600
 
+
+def test_trim_repetition_yields_clean_russian_doll():
+    from app.api.v1.chat import _detect_repetition, _trim_repetition
+    prefix = "\u5904\u7406\u4f20\u611f\u5668\u8d85\u9608\u503c\u544a\u8b66\uff0c\u5efa\u8bae\u6309\u4ee5\u4e0b\u6b65\u9aa4\u64cd\u4f5c\uff1a"
+    body = ("1. \u786e\u8ba4\u544a\u8b66\uff1a\u6838\u5bf9\u76d1\u6d4b\u503c\u3002"
+            "2. \u73b0\u573a\u6838\u67e5\uff1a\u68c0\u67e5\u673a\u67dc\u73af\u5883\u3002"
+            "3. \u5904\u7f6e\u4e0e\u590d\u4f4d\uff1a\u82e5\u6545\u969c\u66f4\u6362\u4f20\u611f\u5668\u3002"
+            "\u5f53\u524d\u7cfb\u7edf\u65e0\u5f02\u5e38\u3002")
+    text = body
+    for _ in range(40):
+        text = prefix + text
+    assert _detect_repetition(text) is True
+    cleaned = _trim_repetition(text)
+    # 必须有实质裁剪，并且裁剪后不再被判为重复
+    assert len(cleaned) < len(text)
+    assert _detect_repetition(cleaned) is False
+    assert len(cleaned) > 0
+
