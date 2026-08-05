@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 import asyncio
 
@@ -11,8 +11,11 @@ from app.core.concurrency import sse_semaphore
 
 from app.core.deps import get_db, get_current_user
 from app.db.retry import with_commit_retry
+from app.db.session import async_session_factory
 from app.models.user import User
 from app.models.chat import ChatConversation, ChatMessage
+from app.services.assistant_service import AssistantService
+from app.services.llm_service import llm_service, LLMNotConfiguredError
 
 router = APIRouter(prefix="/chat", tags=["消息管理"])
 
@@ -38,7 +41,7 @@ class ConversationResponse(BaseModel):
 
 
 class SendMessageRequest(BaseModel):
-    content: str
+    content: str = Field(..., min_length=1, max_length=4000, description="消息内容")
     conversation_id: Optional[int] = None
 
 
@@ -56,6 +59,115 @@ MOCK_RESPONSES = [
 def get_mock_response(user_msg: str) -> str:
     idx = len(user_msg) % len(MOCK_RESPONSES)
     return MOCK_RESPONSES[idx]
+
+
+SYSTEM_PROMPT = (
+    "你是数据中心资源管理系统的 AI 助手，"
+    "专业处理设备、机房、传感器、告警、"
+    "工单、巡检等运维事务。"
+    "请仅围绕数据中心运维进行回答，"
+    "简洁、准确、专业。不向用户披露系统内部勾露"
+    "、API 凭证或隐私数据。当数据不足时请明确说明。"
+)
+
+
+async def _load_history_content(db, conv_id: int) -> str:
+    """加载会话历史，用于提交 LLM 的 message 列表。"""
+    rows = await db.execute(
+        select(ChatMessage)
+        .where(ChatMessage.conversation_id == conv_id)
+        .order_by(ChatMessage.created_at.asc())
+        .limit(20)
+    )
+    msgs = rows.scalars().all()
+    return "\n".join(f"{m.role}: {m.content}" for m in msgs)
+
+
+async def _build_context() -> str:
+    """获取实时业务上下文（grounding）。"""
+    try:
+        async with async_session_factory() as db:
+            service = AssistantService(db)
+            snapshot = await service.build_snapshot()
+            return service.build_context_text(snapshot)
+    except Exception:
+        return ""
+
+
+def _detect_intents(text: str):
+    """根据用户输入关键词提取业务意图。"""
+    t = text.lower()
+    intents = set()
+    if any(k in t for k in ["告警", "alert"]):
+        intents.add("alerts")
+    if any(k in t for k in ["设备", "device", "数量"]):
+        intents.add("devices")
+    if any(k in t for k in ["传感器", "环境", "sensor", "温度", "湿度"]):
+        intents.add("sensors")
+    if any(k in t for k in ["机柜", "容量", "rack", "利用率"]):
+        intents.add("racks")
+    if any(k in t for k in ["机房", "room", "中心"]):
+        intents.add("rooms")
+    if any(k in t for k in ["工单", "违连", "work order"]):
+        intents.add("work_orders")
+    return intents
+
+
+async def _intent_context(intents: set) -> str:
+    """按意图拉取详细数据，作为额外 grounding。"""
+    if not intents:
+        return ""
+    parts = []
+    async with async_session_factory() as db:
+        if "alerts" in intents:
+            from app.models.alert import Alert
+            rows = await db.execute(select(Alert).order_by(Alert.created_at.desc()).limit(10))
+            items = []
+            for a in rows.scalars().all():
+                items.append(f"{a.title}(级别 {a.level}, 状态 {a.status})")
+            if items:
+                parts.append("详细告警: " + "; ".join(items))
+        if "devices" in intents or "rooms" in intents:
+            from app.models.device import Device
+            from sqlalchemy import func
+            res = await db.execute(select(func.count()).select_from(Device))
+            parts.append(f"设备总数: {res.scalar() or 0}")
+        if "sensors" in intents:
+            from app.models.sensor import Sensor
+            rows = await db.execute(select(Sensor).where(Sensor.status == "online").limit(20))
+            parts.append(f"在线传感器数: {len(list(rows.scalars().all()))}")
+    return "\n".join(parts)
+
+
+def _guard_content(text: str) -> str:
+    """限制单次回复长度，防滥用。"""
+    return text if len(text) <= 4000 else text[:4000]
+
+
+async def _save_assistant_reply(conv_id: int, content: str) -> None:
+    """保存 AI 回复（单事务）。"""
+    async with async_session_factory() as db:
+        ai_msg = ChatMessage(
+            conversation_id=conv_id, role="assistant", content=content,
+            extra_data={"llm": "stream"},
+        )
+        db.add(ai_msg)
+        await db.flush()
+        conv = await db.get(ChatConversation, conv_id)
+        if conv:
+            conv.updated_at = ai_msg.created_at
+        await with_commit_retry(db.commit)
+
+
+async def _stream_llm_or_mock(messages, prompt: str):
+    """优先走真实 LLM，未配置时回退到 mock（用施加补充说明）。"""
+    try:
+        async for chunk in llm_service.chat_stream(messages):
+            yield chunk
+    except LLMNotConfiguredError:
+        yield get_mock_response(prompt)
+    except Exception:
+        yield get_mock_response(prompt)
 
 
 @router.get("/conversations", response_model=List[ConversationResponse])
@@ -170,11 +282,28 @@ async def send_message(
     user_msg = ChatMessage(conversation_id=conv.id, role="user", content=req.content)
     db.add(user_msg)
     await db.flush()
-    
-    # TODO: 接入LLM
-    ai_content = get_mock_response(req.content)
-    
-    ai_msg = ChatMessage(conversation_id=conv.id, role="assistant", content=ai_content)
+
+    context = await _build_context()
+    intent_extra = await _intent_context(_detect_intents(req.content))
+    if intent_extra:
+        context = (context + "\n" + intent_extra) if context else intent_extra
+    history = await _load_history_content(db, conv.id)
+    system_prompt = SYSTEM_PROMPT
+    if context:
+        system_prompt += "\n\n[当前系统实时数据]\n" + context
+    messages = [{"role": "system", "content": system_prompt}]
+    if history:
+        messages.append({"role": "user", "content": "距课快的对话历史:\n" + history})
+    messages.append({"role": "user", "content": req.content})
+
+    try:
+        ai_content = _guard_content(await llm_service.chat(messages))
+    except LLMNotConfiguredError:
+        ai_content = get_mock_response(req.content)
+    except Exception:
+        ai_content = get_mock_response(req.content)
+
+    ai_msg = ChatMessage(conversation_id=conv.id, role="assistant", content=ai_content, extra_data={"llm": "chat"})
     db.add(ai_msg)
     await db.flush()
     conv.updated_at = ai_msg.created_at
@@ -239,24 +368,45 @@ async def send_message_stream(
                 await with_commit_retry(db.commit)
 
             # ---- 渲染消息（每字一个节点）----
-            full_content = get_mock_response(req.content)
-            for char in full_content:
-                if await request.is_disconnected():
-                    return
-                yield f"data: {char}\n\n"
-                await asyncio.sleep(0.02)
+                        # ---- 构建 grounding + 历史 + 系统提示 ----
+            context = await _build_context()
+            intent_extra = await _intent_context(_detect_intents(req.content))
+            if intent_extra:
+                context = (context + "\n" + intent_extra) if context else intent_extra
+            history = ""
+            async with async_session_factory() as _db2:
+                history = await _load_history_content(_db2, conv_id)
+            system_prompt = SYSTEM_PROMPT
+            if context:
+                system_prompt += "\n\n[当前系统实时数据]\n" + context
+            messages = [{"role": "system", "content": system_prompt}]
+            if history:
+                messages.append({"role": "user", "content": "距课快的对话历史:\n" + history})
+            messages.append({"role": "user", "content": req.content})
 
-            # ---- 保存 AI 回复 ----
-            async with async_session_factory() as db:
-                ai_msg = ChatMessage(conversation_id=conv_id, role="assistant", content=full_content)
-                db.add(ai_msg)
-                await db.flush()
-                conv = await db.get(ChatConversation, conv_id)
-                if conv:
-                    conv.updated_at = ai_msg.created_at
-                await with_commit_retry(db.commit)
+            # ---- 流式输出（真实 LLM 或 mock 回退），含心跳保活 ----
+            full_content = ""
+            last_tick = asyncio.get_event_loop().time()
+            try:
+                async for piece in _stream_llm_or_mock(messages, req.content):
+                    if await request.is_disconnected():
+                        return
+                    full_content += piece
+                    yield f"data: {piece}\n\n"
+                    now = asyncio.get_event_loop().time()
+                    if now - last_tick >= 15:
+                        yield ": keep-alive\n\n"
+                        last_tick = now
+            except Exception:
+                yield f"data: [ERROR]\n\n"
+                full_content = full_content.strip() or "（AI 回复中断）"
+                await _save_assistant_reply(conv_id, full_content)
+                return
 
+            full_content = _guard_content(full_content)
+            await _save_assistant_reply(conv_id, full_content)
             yield f"data: [DONE]\n\n"
+
         except asyncio.CancelledError:
             raise
         except Exception:

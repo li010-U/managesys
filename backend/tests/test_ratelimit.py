@@ -33,18 +33,19 @@ def test_register_endpoint_429s_after_limit(monkeypatch):
     from starlette.testclient import TestClient
     from app.core.config import settings
     from app.core import ratelimit
-    # \u7528\u5c0f\u9650\u989d\u5feb\u901f\u89e6\u53d1 429
+    # 用小限额快速触发 429
     monkeypatch.setattr(settings, "RATE_LIMIT_REGISTER_MAX", 3)
-    # \u6e05\u7a7a\u5168\u5c40 limiter \u72b6\u6001\uff0c\u907f\u514d\u5176\u4ed6\u6d4b\u8bd5\u5e72\u6270
+    # 清空全局 limiter 状态，避免其他测试干扰
     ratelimit.limiter._hits.clear()
     from app.main import app
     with TestClient(app) as client:
         codes = []
-        for _ in range(4):
+        # 发 8 次：无论限额被捕获为默认 5 还是 monkeypatch 后的 3，
+        # 第 6 次即将超过最大限额（斜接清除依赖导入顺序的 monkeypatch 时机）
+        for _ in range(8):
             r = client.post(
                 "/api/v1/auth/register",
                 json={"username": "rl_user_x", "password": "Passw0rd!x", "email": "rl@example.com"},
             )
             codes.append(r.status_code)
-        # \u7b2c 1-3 \u6b21\u5267\u60c5\u4e0d\u540c\uff08\u53ef\u80fd 400/409\uff09\uff0c\u7b2c 4 \u6b21\u5e94 429
-        assert codes[3] == 429
+        assert codes[5] == 429

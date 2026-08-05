@@ -41,49 +41,61 @@ export function sendMessageStreamApi(
   onDone: () => void,
   onError: (error: string) => void
 ) {
-  return new Promise<void>((resolve, reject) => {
-    const xhr = new XMLHttpRequest()
-    xhr.open("POST", "/api/v1/chat/messages/stream")
-    xhr.setRequestHeader("Content-Type", "application/json")
-    const token = localStorage.getItem("access_token")
-    if (token) xhr.setRequestHeader("Authorization", "Bearer " + token)
+  let aborted = false
+  const xhr = new XMLHttpRequest()
+  xhr.open("POST", "/api/v1/chat/messages/stream")
+  xhr.setRequestHeader("Content-Type", "application/json")
+  const token = localStorage.getItem("access_token")
+  if (token) xhr.setRequestHeader("Authorization", "Bearer " + token)
 
-    let buffer = ""
+  let buffer = ""
+  let doneSent = false
 
-    xhr.onprogress = () => {
-      buffer += xhr.responseText.slice(buffer.length)
-      const lines = buffer.split("\n")
-      buffer = lines.pop() || ""
-
-      for (const line of lines) {
-        if (line.startsWith("data: ")) {
-          const data = line.slice(6)
-          if (data === "[DONE]") onDone()
-          else if (data.trim()) onChunk(data)
+  xhr.onprogress = () => {
+    buffer += xhr.responseText.slice(buffer.length)
+    const lines = buffer.split("\n")
+    buffer = lines.pop() || ""
+    for (const line of lines) {
+      if (line.startsWith("data: ")) {
+        const data = line.slice(6)
+        if (data === "[DONE]") {
+          if (!doneSent) { doneSent = true; onDone() }
+        } else if (data === "[ERROR]") {
+          if (!doneSent) { doneSent = true; onError("AI ????????") }
+        } else if (data.trim()) {
+          onChunk(data)
         }
       }
     }
+  }
 
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        onDone()
-        resolve()
-      } else {
-        try {
-          const resp = JSON.parse(xhr.responseText)
-          onError(resp.detail || "请求失败")
-        } catch {
-          onError("请求失败")
-        }
-        reject(new Error(xhr.statusText))
+  xhr.onload = () => {
+    if (aborted) return
+    if (xhr.status >= 200 && xhr.status < 300) {
+      if (!doneSent) { doneSent = true; onDone() }
+    } else {
+      try {
+        const resp = JSON.parse(xhr.responseText)
+        onError(resp.detail || "????")
+      } catch {
+        onError("????")
       }
     }
+  }
+  xhr.onerror = () => {
+    if (aborted) return
+    onError("????")
+  }
 
-    xhr.onerror = () => {
-      onError("网络错误")
-      reject(new Error("Network error"))
-    }
-
+  try {
     xhr.send(JSON.stringify({ content, conversation_id: conversationId }))
-  })
+  } catch {
+    onError("????")
+  }
+
+  // 返回取消函数：停止生成
+  return function cancel() {
+    aborted = true
+    try { xhr.abort() } catch { /* ignore */ }
+  }
 }

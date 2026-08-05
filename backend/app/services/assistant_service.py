@@ -1,4 +1,4 @@
-﻿"""AI 桌宠助手 - 实时统计与智能提醒服务
+"""AI 桌宠助手 - 实时统计与智能提醒服务
 
 基于规则引擎聚合系统实时数据，生成主动提醒与建议。
 无需外部大模型依赖；如需接入 LLM，可在 generate_advisor 处扩展。
@@ -255,6 +255,37 @@ class AssistantService:
             )
 
         return reminders
+
+    def build_context_text(self, snapshot: Dict[str, Any]) -> str:
+        """生成业务上下文简要文本，作为 LLM 的 grounding 事实来源。"""
+        lines = []
+        s = snapshot.get("sensor", {})
+        alert = snapshot.get("alert_stats", {})
+        rack = snapshot.get("rack", {})
+        lines.append(f"设备数: {snapshot.get('device_count', 0)}; 机房数: {snapshot.get('room_count', 0)}")
+        lines.append(
+            f"传感器: 总 {s.get('total', 0)} 个, 在线 {s.get('online', 0)}, "
+            f"离线 {s.get('offline', 0)}, 超阈值异常 {s.get('abnormal', 0)}"
+        )
+        if s.get("abnormal_items"):
+            names = "、".join(i["name"] for i in s["abnormal_items"][:10])
+            lines.append(f"异常传感器: {names}")
+        lines.append(
+            f"告警: 总 {alert.get('total', 0)}, 待处理 {alert.get('new', 0)}, "
+            f"已确认 {alert.get('acknowledged', 0)}, 已解决 {alert.get('resolved', 0)}"
+        )
+        if snapshot.get("latest_alerts"):
+            alerts = "、".join(f"{a['title']}({a['level']})" for a in snapshot["latest_alerts"][:5])
+            lines.append(f"最新告警: {alerts}")
+        lines.append(
+            f"机柜: 总 {rack.get('total', 0)} 个, 已用 {rack.get('used_units', 0)}/"
+            f"{rack.get('capacity_units', 0)} 单元, 平均利用率 {rack.get('avg_usage', 0)}%"
+        )
+        if snapshot.get("high_usage_racks"):
+            hs = "、".join(f"{h['code']}({h['usage']}%)" for h in snapshot["high_usage_racks"][:8])
+            lines.append(f"高利用率(≥80%)机柜: {hs}")
+        return "\n".join(lines)
+
 
     def generate_advisor(self, snapshot: Dict[str, Any]) -> Dict[str, Any]:
         """生成一段综合的健康度评语与建议（规则聚合，可扩展为 LLM 生成）。"""

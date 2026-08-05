@@ -41,6 +41,14 @@
             </div>
           </div>
         </div>
+        <div class="quick-prompts" v-if="messages.length === 0 && !sending">
+          <div
+            v-for="(qp, qi) in QUICK_PROMPTS"
+            :key="qi"
+            class="quick-chip"
+            @click="useQuickPrompt(qp)"
+          >{{ qp }}</div>
+        </div>
         <div class="chat-input">
           <el-input 
             v-model="inputText" 
@@ -50,15 +58,24 @@
             resize="none"
             @keydown.enter.ctrl="sendMessage" 
           />
-          <el-button 
-            type="primary" 
-            :loading="sending" 
-            @click="sendMessage" 
-            :disabled="!inputText.trim()"
-            class="send-btn"
-          >
-            发送
-          </el-button>
+          <div class="input-actions">
+            <el-button v-if="sending" type="danger" plain @click="stopGenerating" class="send-btn">
+              停止
+            </el-button>
+            <el-button v-else type="primary" @click="sendMessage" :disabled="!inputText.trim()" class="send-btn">
+              发送
+            </el-button>
+            <el-button
+              v-if="messages.some(m => m.role === 'assistant')"
+              text
+              size="small"
+              class="regenerate-btn"
+              @click="regenerate"
+              :disabled="sending"
+            >
+              重答
+            </el-button>
+          </div>
         </div>
       </div>
     </div>
@@ -89,6 +106,13 @@ const messages = ref<ChatMessage[]>([])
 const currentConvId = ref<number | null>(null)
 const inputText = ref("")
 const sending = ref(false)
+let cancelStream: (() => void) | null = null
+const QUICK_PROMPTS = [
+  "当前机房状态如何？有无异常？",
+  "报告最新的设备告警",
+  "给出今天的运维建议",
+  "如何处理传感器超阈值？",
+]
 const messagesRef = ref<HTMLElement>()
 
 async function loadConversations() {
@@ -133,31 +157,69 @@ async function deleteConversation(id: number) {
   }
 }
 
-async function sendMessage() {
-  const text = inputText.value.trim()
+function sendUserMessage(text: string) {
   if (!text || sending.value) return
-  if (!currentConvId.value) await newConversation()
   sending.value = true
-  inputText.value = ""
   const userMsg: ChatMessage = { id: Date.now(), role: "user", content: text, created_at: new Date().toISOString() }
   messages.value.push(userMsg)
   scrollToBottom()
-  try {
-    await sendMessageStreamApi(text, currentConvId.value!, (chunk) => {
-      const lastMsg = messages.value[messages.value.length - 1]
-      if (lastMsg && lastMsg.role === "user") 
-        messages.value.push({ id: Date.now() + 1, role: "assistant", content: chunk, created_at: new Date().toISOString() })
-      else if (lastMsg && lastMsg.role === "assistant") 
-        lastMsg.content += chunk
-      scrollToBottom()
-    }, () => { sending.value = false; loadConversations() }, (error) => { 
-      sending.value = false; 
-      ElMessage.error(error || "发送失败") 
-    })
-  } catch (e: any) { 
-    sending.value = false; 
-    ElMessage.error(e.message || "发送失败") 
+  cancelStream = sendMessageStreamApi(text, currentConvId.value as number, (chunk) => {
+    const lastMsg = messages.value[messages.value.length - 1]
+    if (lastMsg && lastMsg.role === "user") {
+      messages.value.push({ id: Date.now() + 1, role: "assistant", content: chunk, created_at: new Date().toISOString() })
+    } else if (lastMsg && lastMsg.role === "assistant") {
+      lastMsg.content += chunk
+    }
+    scrollToBottom()
+  }, () => {
+    sending.value = false
+    cancelStream = null
+    loadConversations()
+  }, (error) => {
+    sending.value = false
+    cancelStream = null
+    ElMessage.error(error || "发送失败")
+  })
+}
+
+async function sendMessage() {
+  const text = inputText.value.trim()
+  if (!text || sending.value) return
+  inputText.value = ""
+  if (!currentConvId.value) {
+    try {
+      const res = await createConversationApi()
+      await loadConversations()
+      currentConvId.value = res.data.id
+      messages.value = []
+    } catch (e) {
+      ElMessage.error("创建会话失败")
+      return
+    }
   }
+  sendUserMessage(text)
+}
+
+function stopGenerating() {
+  if (cancelStream) { cancelStream(); cancelStream = null }
+  sending.value = false
+}
+
+function regenerate() {
+  if (sending.value) return
+  const lastUser = [...messages.value].reverse().find((m) => m.role === "user")
+  if (!lastUser) return
+  const idx = messages.value.findIndex((m) => m.content === lastUser.content && m.role === "user")
+  if (idx >= 0 && messages.value[idx + 1] && messages.value[idx + 1].role === "assistant") {
+    messages.value.splice(idx + 1, 1)
+  }
+  sendUserMessage(lastUser.content)
+}
+
+function useQuickPrompt(p: string) {
+  if (sending.value) return
+  inputText.value = p
+  sendMessage()
 }
 
 function scrollToBottom() { 
@@ -411,6 +473,35 @@ html.dark .msg-bubble :deep(code) {
 }
 .list-leave-to {
   opacity: 0;
+}
+.quick-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.quick-chip {
+  padding: 6px 12px;
+  border-radius: 16px;
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--app-border-light);
+  font-size: 12px;
+  color: var(--app-text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.quick-chip:hover {
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  border-color: var(--el-color-primary-light-5);
+}
+.input-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.regenerate-btn {
+  white-space: nowrap;
 }
 </style>
 
