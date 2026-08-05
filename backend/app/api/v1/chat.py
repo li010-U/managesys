@@ -277,11 +277,13 @@ async def execute_tool(
     output, so the model cannot mutate state without a human click.
     """
     try:
-        result = await ai_tools.execute(
-            db, req.tool, req.args, current_user.username
-        )
+        result = await ai_tools.execute(db, req.tool, req.args, current_user)
+    except ai_tools.PermissionDeniedError as exc:
+        return JSONResponse(status_code=403, content={"detail": str(exc)})
     except ValueError as exc:
-        return JSONResponse(status_code=400, content={"detail": str(exc)})
+        detail = str(exc)
+        code = 404 if "not found" in detail else 400
+        return JSONResponse(status_code=code, content={"detail": detail})
     except Exception:
         return JSONResponse(status_code=500, content={"detail": "tool execution failed"})
     return {"ok": True, "result": result}

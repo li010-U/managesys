@@ -237,37 +237,49 @@ function useQuickPrompt(p: string) {
 
 function describeProposal(p: ToolProposal): string {
   if (p.tool === "create_work_order") {
-    return "?????“" + String(p.args.title || "") + "”"
+    return "创建工单：“" + String(p.args.title || "") + "”"
   }
   if (p.tool === "handle_alert") {
-    const actionMap: Record<string, string> = {
-      acknowledge: "??",
-      resolve: "??",
-      ignore: "??"
-    }
-    return "???? #" + String(p.args.alert_id) + "?" + (actionMap[String(p.args.action_type)] || String(p.args.action_type)) + "?"
+    const m: Record<string, string> = { acknowledge: "确认", resolve: "解决", ignore: "忽略" }
+    return "处理告警 #" + String(p.args.alert_id) + "（" + (m[String(p.args.action_type)] || String(p.args.action_type)) + "）"
+  }
+  if (p.tool === "assign_work_order") {
+    return "分配工单 #" + String(p.args.order_id) + "给" + String(p.args.assignee_username || "")
+  }
+  if (p.tool === "close_work_order") {
+    return "关闭工单 #" + String(p.args.order_id)
+  }
+  if (p.tool === "verify_work_order") {
+    return "验收工单 #" + String(p.args.order_id) + "（" + (String(p.args.accept) === "true" ? "通过" : "驳回") + "）"
+  }
+  if (p.tool === "mount_device") {
+    return "挂载设备 #" + String(p.args.device_id) + "到机柜 " + String(p.args.rack_id || "")
+  }
+  if (p.tool === "unmount_device") {
+    return "卸载设备 #" + String(p.args.device_id)
+  }
+  if (p.tool === "create_alert_rule") {
+    return "添加告警规则：" + String(p.args.name || "")
   }
   return p.tool
-}
-
-async function confirmProposal() {
+}async function confirmProposal() {
   if (!pendingProposal.value) return
   const proposal = pendingProposal.value
   pendingProposal.value = null
   try {
     const res = await executeToolApi(proposal.tool, proposal.args)
     const r = (res.data as { result?: Record<string, unknown> })?.result || {}
-    ElMessage.success("???")
+    ElMessage.success("已执行")
     messages.value.push({
       id: Date.now(),
       role: "assistant",
-      content: "??????" + describeProposal(proposal) + (Object.keys(r).length ? " " + JSON.stringify(r) : ""),
+      content: "已确认执行。" + describeProposal(proposal) + (Object.keys(r).length ? " " + JSON.stringify(r) : ""),
       created_at: new Date().toISOString()
     })
     scrollToBottom()
     loadConversations()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || "????")
+    ElMessage.error(e?.response?.data?.detail || "执行失败")
     pendingProposal.value = proposal
   }
 }
