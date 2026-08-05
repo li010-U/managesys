@@ -100,3 +100,49 @@ def test_trim_repetition_yields_clean_russian_doll():
     assert _detect_repetition(cleaned) is False
     assert len(cleaned) > 0
 
+
+def test_looks_misdecoded_english():
+    from app.api.v1.chat import _looks_misdecoded_english
+    cn = "\u5982\u4f55\u5904\u7406\u4f20\u611f\u5668\u8d85\u9608\u503c\u544a\u8b66"
+    # 英文误判(\u4e71码)回复 => True
+    assert _looks_misdecoded_english(cn, "It looks like you have sent a string of question marks!") is True
+    # 正常中文回复 => False
+    assert _looks_misdecoded_english(cn, "\u5904\u7406\u4f20\u611f\u5668\u8d85\u9608\u503c\u544a\u8b66\uff0c\u5efa\u8bae\u6309\u4ee5\u4e0b\u6b65\u9aa4\u64cd\u4f5c\u3002") is False
+    # 非中文输入不判定
+    assert _looks_misdecoded_english("hello world", "anything at all") is False
+
+
+def test_stream_falls_back_to_chinese_mock_when_model_garbles(monkeypatch):
+    import asyncio
+    import app.api.v1.chat as chatmod
+
+    cn = "\u5982\u4f55\u5904\u7406\u4f20\u611f\u5668\u8d85\u9608\u503c\u544a\u8b66"
+
+    async def collect(ag):
+        parts = []
+        async for piece in ag:
+            parts.append(piece)
+        return "".join(parts)
+
+    async def fake_bad(messages):
+        yield "It looks like you have sent a string of question marks! "
+        yield "Did you have a question? "
+
+    async def run_bad():
+        monkeypatch.setattr(chatmod.llm_service, "chat_stream", fake_bad)
+        return await collect(chatmod._stream_llm_or_mock([], cn))
+
+    got = asyncio.run(run_bad())
+    assert "question marks" not in got
+    assert "\u6536\u5230" in got or "\u8c22\u8c22" in got or "\u5f53\u524d" in got  # 中文 mock
+
+    async def fake_good(messages):
+        yield "\u5904\u7406\u4f20\u611f\u5668\u8d85\u9608\u503c\u544a\u8b66\uff0c\u5efa\u8bae"
+        yield "\u6309\u4ee5\u4e0b\u6b65\u9aa4\u64cd\u4f5c\u3002"
+
+    async def run_good():
+        monkeypatch.setattr(chatmod.llm_service, "chat_stream", fake_good)
+        return await collect(chatmod._stream_llm_or_mock([], cn))
+
+    got2 = asyncio.run(run_good())
+    assert "\u8d85\u9608\u503c" in got2

@@ -212,15 +212,49 @@ async def _save_assistant_reply(conv_id: int, content: str) -> None:
         await with_commit_retry(db.commit)
 
 
+def _looks_misdecoded_english(user_msg: str, reply: str) -> bool:
+    """用户输入为中文，但模型回复主要是英文语句，
+    说明模型未正确解码中文（如把中文当成乱码）。"""
+    if not reply or not reply.strip():
+        return True
+    def has_han(s: str) -> bool:
+        return any("\u4e00" <= c <= "\u9fff" for c in s)
+    if not has_han(user_msg or ""):
+        return False
+    han = sum(1 for c in reply if "\u4e00" <= c <= "\u9fff")
+    alpha = sum(1 for c in reply if c.isalpha() and ord(c) < 128)
+    # 英文明显多于中文 => 误判乱码
+    return alpha > 0 and alpha > han * 2
+
+
 async def _stream_llm_or_mock(messages, prompt: str):
-    """优先走真实 LLM，未配置时回退到 mock（用施加补充说明）。"""
+    """优先走真实 LLM，未配置/异常/误判乱码时回退到中文 mock。"""
+    buffered = ""
+    decided = False
     try:
         async for chunk in llm_service.chat_stream(messages):
+            if not decided:
+                buffered += chunk
+                if len(buffered) >= 40:
+                    # 中文输入但开始吐出英文语句 => 模型乱码，改发中文 mock
+                    if _looks_misdecoded_english(prompt, buffered):
+                        yield get_mock_response(prompt)
+                        return
+                    # 正常: 先报存的前缀，再恢复逐片融出
+                    yield buffered
+                    decided = True
+                continue
             yield chunk
     except LLMNotConfiguredError:
         yield get_mock_response(prompt)
     except Exception:
         yield get_mock_response(prompt)
+    if not decided and buffered:
+        # 整段不足40个字的短回复
+        if _looks_misdecoded_english(prompt, buffered):
+            yield get_mock_response(prompt)
+        else:
+            yield buffered
 
 
 @router.get("/conversations", response_model=List[ConversationResponse])
@@ -385,6 +419,8 @@ async def send_message(
     except LLMNotConfiguredError:
         ai_content = get_mock_response(req.content)
     except Exception:
+        ai_content = get_mock_response(req.content)
+    if _looks_misdecoded_english(req.content, ai_content):
         ai_content = get_mock_response(req.content)
 
     ai_msg = ChatMessage(conversation_id=conv.id, role="assistant", content=ai_content, extra_data={"llm": "chat"})
