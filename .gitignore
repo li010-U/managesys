@@ -56,6 +56,7 @@ frontend/clean_styles.py
 # 调试截图 / 日志 / 杂项
 frontend/_dbg_*.png
 backend/uvicorn*.err
+backend/uvicorn*.out
 frontend/vite*.err
 temp_script.txt
 temp_srs.txt
