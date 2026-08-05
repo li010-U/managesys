@@ -1,11 +1,23 @@
-"""Work Order Management API"""
+﻿"""Work Order Management API"""
 from datetime import datetime, date
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_db, get_current_user
+from app.core.deps import get_db, get_current_user, require_permission
+from app.db.retry import with_commit_retry
+from app.db.compat_sql import exec_sql
 from app.models import User
+from app.schemas.work_order import (
+    WorkOrderCategoryCreate,
+    WorkOrderCreate,
+    WorkOrderUpdate,
+    WorkOrderAssign,
+    WorkOrderProcess,
+    WorkOrderVerify,
+    WorkOrderClose,
+    WorkOrderCommentCreate,
+)
 
 router = APIRouter(prefix="/work-orders", tags=["Work Order"])
 
@@ -16,30 +28,31 @@ def generate_order_no():
 
 # ============ Work Order Categories ============
 @router.get("/categories", summary="Get work order categories")
-async def get_categories(db: AsyncSession = Depends(get_db)):
-    result = await db.execute("SELECT * FROM work_order_categories ORDER BY sort, id")
-    return {"data": [dict(r) for r in result.fetchall()]}
+async def get_categories(db: AsyncSession = Depends(get_db), _current_user: User = Depends(require_permission("work:view"))):
+    result = await exec_sql(db, "SELECT * FROM work_order_categories ORDER BY sort, id")
+    return {"data": [dict(r._mapping) for r in result.fetchall()]}
 
 
 @router.post("/categories", summary="Create category")
 async def create_category(
-    data: dict,
+    data: WorkOrderCategoryCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("work:create"))
 ):
-    name = data.get("name", "")
-    code = data.get("code", "")
-    icon = data.get("icon", "")
-    sort = data.get("sort", 0)
+    name = data.name
+    code = data.code
+    icon = data.icon
+    sort = data.sort
     
-    await db.execute(
+    await exec_sql(db, 
         "INSERT INTO work_order_categories (name, code, icon, sort) VALUES (?, ?, ?, ?)",
         (name, code, icon, sort)
     )
-    await db.commit()
+    await with_commit_retry(db.commit)
     
-    result = await db.execute("SELECT * FROM work_order_categories WHERE code = ?", (code,))
-    return {"data": dict(result.fetchone())}
+    result = await exec_sql(db, "SELECT * FROM work_order_categories WHERE code = ?", (code,))
+    return {"data": dict(result.fetchone()._mapping)}
 
 
 # ============ Work Orders ============
@@ -51,7 +64,7 @@ async def get_work_orders(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_permission("work:view"))
 ):
     conditions = []
     params = []
@@ -79,13 +92,13 @@ async def get_work_orders(
         LEFT JOIN users creator ON w.creator_id = creator.id
         LEFT JOIN users assignee ON w.assignee_id = assignee.id
         LEFT JOIN devices d ON w.device_id = d.id
-        LEFT JOIN facilities f ON w.facility_id = f.id
+        LEFT JOIN rooms f ON w.facility_id = f.id
         WHERE {where_clause}
         ORDER BY w.created_at DESC
         LIMIT {page_size} OFFSET {offset}
     """
     
-    result = await db.execute(sql, tuple(params))
+    result = await exec_sql(db, sql, tuple(params))
     rows = result.fetchall()
     
     return {
@@ -106,42 +119,37 @@ async def get_work_orders(
 @router.get("/stats", summary="Get work order stats")
 async def get_stats(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_permission("work:view"))
 ):
-    result = await db.execute("SELECT COUNT(*) as cnt FROM work_orders")
-    total = result.fetchone().cnt
-    
-    result = await db.execute("SELECT COUNT(*) as cnt FROM work_orders WHERE status = 'pending'")
-    pending = result.fetchone().cnt
-    
-    result = await db.execute("SELECT COUNT(*) as cnt FROM work_orders WHERE status IN ('assigned', 'processing')")
-    processing = result.fetchone().cnt
-    
-    result = await db.execute("SELECT COUNT(*) as cnt FROM work_orders WHERE status = 'completed'")
-    completed = result.fetchone().cnt
-    
-    result = await db.execute("SELECT COUNT(*) as cnt FROM work_orders WHERE status = 'closed'")
-    closed = result.fetchone().cnt
-    
-    result = await db.execute("SELECT COUNT(*) as cnt FROM work_orders WHERE assignee_id = ? AND status = 'assigned'", (current_user.id,))
-    my_pending = result.fetchone().cnt
-    
+    status_row = (await exec_sql(db, "SELECT status, COUNT(*) as cnt FROM work_orders GROUP BY status")).fetchall()
+    counts = {row.status: row.cnt for row in status_row}
+    total = sum(counts.values())
+    pending = counts.get("pending", 0)
+    processing = counts.get("assigned", 0) + counts.get("processing", 0)
+    completed = counts.get("completed", 0)
+    closed = counts.get("closed", 0)
+
+    mine_row = (await exec_sql(db, "SELECT status, COUNT(*) as cnt FROM work_orders WHERE assignee_id = ? GROUP BY status", (current_user.id,))).fetchall()
+    mine = {row.status: row.cnt for row in mine_row}
+    my_pending = mine.get("assigned", 0)
+    my_processing = mine.get("processing", 0)
+
     return {
         "data": {
             "total": total, "pending": pending, "processing": processing,
             "completed": completed, "closed": closed,
-            "my_pending": my_pending, "my_processing": 0
+            "my_pending": my_pending, "my_processing": my_processing
         }
     }
 
-
+# ============ Work Order Detail ============
 @router.get("/{work_order_id}", summary="Get work order detail")
 async def get_work_order(
     work_order_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_permission("work:view"))
 ):
-    result = await db.execute("""
+    result = await exec_sql(db, """
         SELECT w.*, c.name as category_name,
                creator.username as creator_name,
                assignee.username as assignee_name,
@@ -152,23 +160,22 @@ async def get_work_order(
         LEFT JOIN users creator ON w.creator_id = creator.id
         LEFT JOIN users assignee ON w.assignee_id = assignee.id
         LEFT JOIN devices d ON w.device_id = d.id
-        LEFT JOIN facilities f ON w.facility_id = f.id
+        LEFT JOIN rooms f ON w.facility_id = f.id
         WHERE w.id = ?
     """, (work_order_id,))
     order = result.fetchone()
     if not order:
         raise HTTPException(404, "Work order not found")
-    
-    # Get comments
-    comment_result = await db.execute("""
+
+    comment_result = await exec_sql(db, """
         SELECT wc.*, u.username as user_name
         FROM work_order_comments wc
         LEFT JOIN users u ON wc.user_id = u.id
         WHERE wc.work_order_id = ?
         ORDER BY wc.created_at
     """, (work_order_id,))
-    comments = [dict(r) for r in comment_result.fetchall()]
-    
+    comments = [dict(r._mapping) for r in comment_result.fetchall()]
+
     return {
         "data": {
             "id": order.id, "order_no": order.order_no, "title": order.title,
@@ -191,87 +198,88 @@ async def get_work_order(
 
 @router.post("", summary="Create work order")
 async def create_work_order(
-    data: dict,
+    data: WorkOrderCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("work:create"))
 ):
     order_no = generate_order_no()
-    title = data.get("title", "")
-    description = data.get("description", "")
-    category_id = data.get("category_id")
-    priority = data.get("priority", "normal")
-    device_id = data.get("device_id")
-    facility_id = data.get("facility_id")
-    assignee_id = data.get("assignee_id")
-    plan_date = data.get("plan_date")
-    estimated_hours = data.get("estimated_hours")
-    
+    title = data.title
+    description = data.description
+    category_id = data.category_id
+    priority = data.priority
+    device_id = data.device_id
+    facility_id = data.facility_id
+    assignee_id = data.assignee_id
+    plan_date = data.plan_date
+    estimated_hours = data.estimated_hours
+
     status = "assigned" if assignee_id else "pending"
-    
-    await db.execute("""
+
+    await exec_sql(db, """
         INSERT INTO work_orders (order_no, title, description, category_id, priority, device_id, facility_id, assignee_id, plan_date, estimated_hours, status, creator_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (order_no, title, description, category_id, priority, device_id, facility_id, assignee_id, plan_date, estimated_hours, status, current_user.id))
-    await db.commit()
-    
-    result = await db.execute("SELECT id FROM work_orders WHERE order_no = ?", (order_no,))
+    await with_commit_retry(db.commit)
+
+    result = await exec_sql(db, "SELECT id FROM work_orders WHERE order_no = ?", (order_no,))
     order_id = result.fetchone().id
-    
+
     return await get_work_order(order_id, db, current_user)
 
 
 @router.put("/{work_order_id}", summary="Update work order")
 async def update_work_order(
     work_order_id: int,
-    data: dict,
+    data: WorkOrderUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("work:edit"))
 ):
-    result = await db.execute("SELECT status FROM work_orders WHERE id = ?", (work_order_id,))
+    result = await exec_sql(db, "SELECT status FROM work_orders WHERE id = ?", (work_order_id,))
     order = result.fetchone()
     if not order:
         raise HTTPException(404, "Work order not found")
     if order.status in ["completed", "closed"]:
         raise HTTPException(400, "Cannot update completed or closed work order")
-    
+
     updates = []
     params = []
-    for key in ["title", "description", "priority", "plan_date", "estimated_hours"]:
-        if key in data and data[key] is not None:
+    for key, value in data.model_dump(exclude_unset=True).items():
+        if value is not None:
             updates.append(f"{key} = ?")
-            params.append(data[key])
-    
+            params.append(value)
+
     if updates:
         params.append(work_order_id)
-        await db.execute(f"UPDATE work_orders SET {', '.join(updates)} WHERE id = ?", tuple(params))
-        await db.commit()
-    
+        await exec_sql(db, f"UPDATE work_orders SET {', '.join(updates)} WHERE id = ?", tuple(params))
+        await with_commit_retry(db.commit)
+
     return await get_work_order(work_order_id, db, current_user)
 
 
 @router.post("/{work_order_id}/assign", summary="Assign work order")
 async def assign_work_order(
     work_order_id: int,
-    data: dict,
+    data: WorkOrderAssign,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("work:edit"))
 ):
-    assignee_id = data.get("assignee_id")
+    assignee_id = data.assignee_id
     if not assignee_id:
         raise HTTPException(400, "Assignee is required")
-    
-    await db.execute(
+
+    await exec_sql(db,
         "UPDATE work_orders SET assignee_id = ?, status = 'assigned' WHERE id = ?",
         (assignee_id, work_order_id)
     )
-    await db.commit()
-    
-    await db.execute(
+    await exec_sql(db,
         "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
         (work_order_id, current_user.id, "Work order assigned", "process")
     )
-    await db.commit()
-    
+    await with_commit_retry(db.commit)
+
     return await get_work_order(work_order_id, db, current_user)
 
 
@@ -279,150 +287,178 @@ async def assign_work_order(
 async def start_work_order(
     work_order_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("work:edit"))
 ):
-    await db.execute(
-        "UPDATE work_orders SET status = 'processing', start_time = datetime('now') WHERE id = ?",
+    row = (await exec_sql(db, "SELECT assignee_id, status FROM work_orders WHERE id = ?", (work_order_id,))).fetchone()
+    if not row:
+        raise HTTPException(404, "Work order not found")
+    if row.status not in {"assigned", "pending"}:
+        raise HTTPException(400, "Cannot start work order in status '{0}'".format(row.status))
+    if row.assignee_id is not None and row.assignee_id != current_user.id and not current_user.is_super_admin:
+        raise HTTPException(403, "Only the assignee can start this work order")
+
+    await exec_sql(db,
+        "UPDATE work_orders SET status = 'processing', start_time = CURRENT_TIMESTAMP WHERE id = ?",
         (work_order_id,)
     )
-    await db.commit()
-    
-    await db.execute(
+    await exec_sql(db,
         "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
         (work_order_id, current_user.id, "Started processing", "process")
     )
-    await db.commit()
-    
+    await with_commit_retry(db.commit)
+
     return await get_work_order(work_order_id, db, current_user)
 
 
 @router.post("/{work_order_id}/complete", summary="Complete work order")
 async def complete_work_order(
     work_order_id: int,
-    data: dict,
+    data: WorkOrderProcess,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("work:edit"))
 ):
-    result = data.get("result", "")
-    actual_hours = data.get("actual_hours")
-    
-    sql = "UPDATE work_orders SET status = 'pending_verify', result = ?, end_time = datetime('now') WHERE id = ?"
-    await db.execute(sql, (result, work_order_id))
-    if actual_hours:
-        await db.execute("UPDATE work_orders SET actual_hours = ? WHERE id = ?", (actual_hours, work_order_id))
-    await db.commit()
-    
-    await db.execute(
+    result = data.result
+    actual_hours = data.actual_hours
+
+    row = (await exec_sql(db, "SELECT assignee_id, status FROM work_orders WHERE id = ?", (work_order_id,))).fetchone()
+    if not row:
+        raise HTTPException(404, "Work order not found")
+    if row.status != "processing":
+        raise HTTPException(400, "Cannot complete work order in status '{0}'".format(row.status))
+    if row.assignee_id is not None and row.assignee_id != current_user.id and not current_user.is_super_admin:
+        raise HTTPException(403, "Only the assignee can complete this work order")
+
+    await exec_sql(db, "UPDATE work_orders SET status = 'pending_verify', result = ?, end_time = CURRENT_TIMESTAMP, actual_hours = ? WHERE id = ?",
+        (result, actual_hours or 0, work_order_id))
+    await exec_sql(db,
         "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
-        (work_order_id, current_user.id, f"Completed: {result}", "verify")
+        (work_order_id, current_user.id, "Completed: {0}".format(result), "verify")
     )
-    await db.commit()
-    
+    await with_commit_retry(db.commit)
+
     return await get_work_order(work_order_id, db, current_user)
 
 
 @router.post("/{work_order_id}/verify", summary="Verify work order")
 async def verify_work_order(
     work_order_id: int,
-    data: dict,
+    data: WorkOrderVerify,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("work:edit"))
 ):
-    accept = data.get("accept", True)
-    satisfaction = data.get("satisfaction", 5)
-    feedback = data.get("feedback", "")
-    
+    accept = data.accept
+    satisfaction = data.satisfaction
+    feedback = data.feedback
+
+    row = (await exec_sql(db, "SELECT creator_id, status FROM work_orders WHERE id = ?", (work_order_id,))).fetchone()
+    if not row:
+        raise HTTPException(404, "Work order not found")
+    if row.status != "pending_verify":
+        raise HTTPException(400, "Cannot verify work order in status '{0}'".format(row.status))
+    if row.creator_id != current_user.id and not current_user.is_super_admin:
+        raise HTTPException(403, "Only the creator can verify this work order")
+
     new_status = "completed" if accept else "processing"
-    
-    await db.execute(
-        "UPDATE work_orders SET status = ?, satisfaction = ?, feedback = ? WHERE id = ?",
-        (new_status, satisfaction, feedback, work_order_id)
-    )
-    await db.commit()
-    
+    await exec_sql(db, "UPDATE work_orders SET status = ?, satisfaction = ?, feedback = ? WHERE id = ?",
+        (new_status, satisfaction, feedback, work_order_id))
+
     content = "Verified and accepted" if accept else "Verification failed, needs rework"
-    await db.execute(
+    await exec_sql(db,
         "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
         (work_order_id, current_user.id, content, "verify")
     )
-    await db.commit()
-    
+    await with_commit_retry(db.commit)
+
     return await get_work_order(work_order_id, db, current_user)
 
 
 @router.post("/{work_order_id}/close", summary="Close work order")
 async def close_work_order(
     work_order_id: int,
-    data: dict,
+    data: WorkOrderClose,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("work:edit"))
 ):
-    await db.execute("UPDATE work_orders SET status = 'closed' WHERE id = ?", (work_order_id,))
-    await db.commit()
-    
-    remark = data.get("remark", "")
-    await db.execute(
+    row = (await exec_sql(db, "SELECT creator_id, status FROM work_orders WHERE id = ?", (work_order_id,))).fetchone()
+    if not row:
+        raise HTTPException(404, "Work order not found")
+    if row.status != "completed":
+        raise HTTPException(400, "Cannot close work order in status '{0}'".format(row.status))
+    if row.creator_id != current_user.id and not current_user.is_super_admin:
+        raise HTTPException(403, "Only the creator can close this work order")
+
+    remark = data.remark or ""
+    await exec_sql(db, "UPDATE work_orders SET status = 'closed' WHERE id = ?", (work_order_id,))
+    await exec_sql(db,
         "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
-        (work_order_id, current_user.id, f"Closed: {remark}", "close")
+        (work_order_id, current_user.id, "Closed: {0}".format(remark), "close")
     )
-    await db.commit()
-    
+    await with_commit_retry(db.commit)
+
     return await get_work_order(work_order_id, db, current_user)
 
 
 @router.post("/{work_order_id}/comments", summary="Add comment")
 async def add_comment(
     work_order_id: int,
-    data: dict,
+    data: WorkOrderCommentCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("work:edit"))
 ):
-    content = data.get("content", "")
-    comment_type = data.get("comment_type", "normal")
-    
-    await db.execute(
+    content = data.content
+    comment_type = data.comment_type
+
+    await exec_sql(db,
         "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
         (work_order_id, current_user.id, content, comment_type)
     )
-    await db.commit()
-    
-    result = await db.execute("SELECT * FROM work_order_comments ORDER BY id DESC LIMIT 1")
-    return {"data": dict(result.fetchone())}
+    await with_commit_retry(db.commit)
+
+    result = await exec_sql(db, "SELECT * FROM work_order_comments ORDER BY id DESC LIMIT 1")
+    return {"data": dict(result.fetchone()._mapping)}
 
 
 @router.get("/users/list", summary="Get assignable users")
 async def get_assignable_users(
     keyword: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    _current_user: User = Depends(require_permission("work:view"))
 ):
     if keyword:
-        result = await db.execute(
-            "SELECT id, username, real_name, email FROM users WHERE status = 'active' AND (username LIKE ? OR real_name LIKE ?) ORDER BY id",
-            (f"%{keyword}%", f"%{keyword}%")
+        result = await exec_sql(db,
+            "SELECT id, username, real_name, email FROM users WHERE is_active = ? AND (username LIKE ? OR real_name LIKE ?) ORDER BY id",
+            (True, "%{0}%".format(keyword), "%{0}%".format(keyword))
         )
     else:
-        result = await db.execute(
-            "SELECT id, username, real_name, email FROM users WHERE status = 'active' ORDER BY id"
+        result = await exec_sql(db,
+            "SELECT id, username, real_name, email FROM users WHERE is_active = ? ORDER BY id",
+            (True,)
         )
-    return {'data': [dict(r) for r in result.fetchall()]}
+    return {'data': [dict(r._mapping) for r in result.fetchall()]}
 
 
 @router.delete("/{work_order_id}", summary="Delete work order")
 async def delete_work_order(
     work_order_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("work:delete"))
 ):
-    result = await db.execute("SELECT status, creator_id FROM work_orders WHERE id = ?", (work_order_id,))
+    result = await exec_sql(db, "SELECT status, creator_id FROM work_orders WHERE id = ?", (work_order_id,))
     order = result.fetchone()
     if not order:
         raise HTTPException(404, "Work order not found")
-    if order.creator_id != current_user.id:
+    if order.creator_id != current_user.id and not current_user.is_super_admin:
         raise HTTPException(403, "Only creator can delete")
     if order.status not in ["pending", "closed"]:
         raise HTTPException(400, "Can only delete pending or closed work orders")
-    
-    await db.execute("DELETE FROM work_orders WHERE id = ?", (work_order_id,))
-    await db.commit()
+
+    await exec_sql(db, "DELETE FROM work_order_comments WHERE work_order_id = ?", (work_order_id,))
+    await exec_sql(db, "DELETE FROM work_orders WHERE id = ?", (work_order_id,))
+    await with_commit_retry(db.commit)
     return {"message": "Deleted successfully"}

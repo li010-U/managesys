@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.py[cod]
 venv/
@@ -29,3 +29,33 @@ backend/__pycache__/
 # Frontend build
 frontend/dist/
 frontend/.env.local
+
+# 临时/调试脚本与产物（不入库）
+# 数据库运行时侧文件
+*.db-shm
+*.db-wal
+*.db.bak*
+backend/data/*.db-*
+
+# 一次性调试/巡检脚本
+backend/_*.py
+backend/check_*.py
+backend/fix_*.py
+backend/test_*.py
+backend/verify_*.py
+frontend/test_*.py
+frontend/_*.py
+frontend/add_*.py
+frontend/fix_*.py
+frontend/check_*.py
+frontend/update_rack.py
+frontend/debug_rack.py
+frontend/apply_changes.py
+frontend/clean_styles.py
+
+# 调试截图 / 日志 / 杂项
+frontend/_dbg_*.png
+backend/uvicorn*.err
+frontend/vite*.err
+temp_script.txt
+temp_srs.txt

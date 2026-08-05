@@ -1,8 +1,8 @@
-"""告警管理 API 路由"""
+﻿"""告警管理 API 路由"""
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_db, get_current_user
+from app.core.deps import get_db, get_current_user, require_permission
 from app.models.user import User
 from app.services.alert_service import AlertRuleService, AlertService
 from app.schemas.alert import (
@@ -22,7 +22,7 @@ async def list_alert_rules(
     keyword: str = Query(None),
     enabled: bool = Query(None),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("monitor:view_alerts")),
 ):
     service = AlertRuleService(db)
     items, total = await service.get_list(page, page_size, keyword, enabled)
@@ -39,6 +39,7 @@ async def create_alert_rule(
     req: AlertRuleCreate,
     db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("monitor:config_rule"))
 ):
     service = AlertRuleService(db)
     try:
@@ -55,6 +56,7 @@ async def update_alert_rule(
     req: AlertRuleUpdate,
     db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("monitor:config_rule"))
 ):
     service = AlertRuleService(db)
     obj = await service.update(rule_id, req)
@@ -71,6 +73,7 @@ async def delete_alert_rule(
     rule_id: int,
     db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("monitor:config_rule"))
 ):
     service = AlertRuleService(db)
     if not await service.delete(rule_id):
@@ -90,7 +93,7 @@ async def list_alerts(
     status: str = Query(None),
     target_type: str = Query(None),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("monitor:view_alerts")),
 ):
     service = AlertService(db)
     items, total = await service.get_list(page, page_size, keyword, level, status, target_type)
@@ -106,7 +109,7 @@ async def list_alerts(
 @router.get("/stats")
 async def alert_stats(
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("monitor:view_alerts")),
 ):
     service = AlertService(db)
     return await service.get_stats()
@@ -118,6 +121,7 @@ async def handle_alert(
     req: AlertHandleRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("monitor:handle_alert"))
 ):
     service = AlertService(db)
     alert = await service.handle(alert_id, req.model_dump(), current_user.username)
@@ -132,6 +136,7 @@ async def create_alert(
     req: dict,
     db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("monitor:handle_alert"))
 ):
     service = AlertService(db)
     obj = await service.create(req)

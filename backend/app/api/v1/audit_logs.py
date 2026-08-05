@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_db, get_current_user
+from app.core.deps import get_db, get_current_user, require_permission
 from app.models.user import User
 from app.schemas.audit_log import AuditLogResponse, AuditLogPageResponse
 from app.services.audit_service import AuditService
@@ -23,7 +23,7 @@ async def list_audit_logs(
     start_date: Optional[datetime] = Query(None, description="开始时间"),
     end_date: Optional[datetime] = Query(None, description="结束时间"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("audit:view")),
 ):
     """获取审计日志列表（分页+多条件筛选）"""
     service = AuditService(db)
@@ -48,7 +48,7 @@ async def list_audit_logs(
 async def get_audit_log(
     log_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("audit:view")),
 ):
     """获取审计日志详情"""
     service = AuditService(db)

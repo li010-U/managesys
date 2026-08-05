@@ -1,8 +1,8 @@
-"""传感器管理 API 路由"""
+﻿"""传感器管理 API 路由"""
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_db, get_current_user
+from app.core.deps import get_db, get_current_user, require_permission
 from app.models.user import User
 from app.services.sensor_service import SensorService
 from app.schemas.sensor import (
@@ -20,7 +20,7 @@ async def list_sensors(
     sensor_type: str = Query(None),
     keyword: str = Query(None),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("device:view")),
 ):
     service = SensorService(db)
     items, total = await service.get_list(page, page_size, room_id, sensor_type, keyword)
@@ -37,7 +37,7 @@ async def list_sensors(
 async def list_all_sensors(
     room_id: int = Query(None),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("device:view")),
 ):
     service = SensorService(db)
     items = await service.get_all(room_id)
@@ -54,7 +54,7 @@ async def list_all_sensors(
 async def get_sensor(
     sensor_id: int,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("device:view")),
 ):
     service = SensorService(db)
     s = await service.get_by_id(sensor_id)
@@ -71,6 +71,7 @@ async def create_sensor(
     req: SensorCreate,
     db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("device:create"))
 ):
     service = SensorService(db)
     try:
@@ -89,6 +90,7 @@ async def update_sensor(
     req: SensorUpdate,
     db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("device:edit"))
 ):
     service = SensorService(db)
     s = await service.update(sensor_id, req)
@@ -105,6 +107,7 @@ async def delete_sensor(
     sensor_id: int,
     db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("device:delete"))
 ):
     service = SensorService(db)
     if not await service.delete(sensor_id):
@@ -117,7 +120,7 @@ async def get_sensor_data(
     sensor_id: int,
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("device:view")),
 ):
     service = SensorService(db)
     data = await service.get_recent_data(sensor_id, limit)
@@ -130,6 +133,7 @@ async def record_sensor_data(
     value: float = Query(...),
     db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("monitor:handle_alert"))
 ):
     service = SensorService(db)
     sd = await service.record_data(sensor_id, value)

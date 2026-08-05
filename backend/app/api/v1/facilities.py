@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_db, get_current_user
+from app.core.deps import get_db, get_current_user, require_permission
 from app.models.user import User
 from app.services.facility_service import DataCenterService, RoomService, RackService
 from app.schemas.facility import (
@@ -31,7 +31,7 @@ async def list_data_centers(
     page_size: int = Query(10, ge=1, le=100),
     keyword: str = Query(None),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("room:view")),
 ):
     service = DataCenterService(db)
     items, total = await service.get_list(page, page_size, keyword)
@@ -46,7 +46,7 @@ async def list_data_centers(
 @router.get("/data-centers/all", response_model=list[DataCenterResponse])
 async def list_all_data_centers(
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("room:view")),
 ):
     service = DataCenterService(db)
     items, _ = await service.get_list(page=1, page_size=1000)
@@ -62,7 +62,7 @@ async def list_all_data_centers(
 async def get_data_center(
     dc_id: int,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("room:view")),
 ):
     service = DataCenterService(db)
     dc = await service.get_by_id(dc_id)
@@ -79,6 +79,7 @@ async def create_data_center(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("room:create"))
 ):
     service = DataCenterService(db)
     try:
@@ -97,6 +98,7 @@ async def update_data_center(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("room:edit"))
 ):
     service = DataCenterService(db)
     dc = await service.update(dc_id, req, current_user.username, get_client_ip(request))
@@ -113,6 +115,7 @@ async def delete_data_center(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("room:delete"))
 ):
     service = DataCenterService(db)
     if not await service.delete(dc_id, current_user.username, get_client_ip(request)):
@@ -129,7 +132,7 @@ async def list_rooms(
     keyword: str = Query(None),
     data_center_id: int = Query(None),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("room:view")),
 ):
     service = RoomService(db)
     items, total = await service.get_list(page, page_size, keyword, data_center_id)
@@ -146,7 +149,7 @@ async def list_rooms(
 async def list_all_rooms(
     data_center_id: int = Query(None),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("room:view")),
 ):
     service = RoomService(db)
     items, _ = await service.get_list(page=1, page_size=1000, data_center_id=data_center_id)
@@ -163,7 +166,7 @@ async def list_all_rooms(
 async def get_room(
     room_id: int,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("room:view")),
 ):
     service = RoomService(db)
     room = await service.get_by_id(room_id)
@@ -181,6 +184,7 @@ async def create_room(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("room:create"))
 ):
     service = RoomService(db)
     try:
@@ -201,6 +205,7 @@ async def update_room(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("room:edit"))
 ):
     service = RoomService(db)
     room = await service.update(room_id, req, current_user.username, get_client_ip(request))
@@ -218,6 +223,7 @@ async def delete_room(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("room:delete"))
 ):
     service = RoomService(db)
     if not await service.delete(room_id, current_user.username, get_client_ip(request)):
@@ -234,7 +240,7 @@ async def list_racks(
     keyword: str = Query(None),
     room_id: int = Query(None),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("rack:view")),
 ):
     service = RackService(db)
     items, total = await service.get_list(page, page_size, keyword, room_id)
@@ -251,7 +257,7 @@ async def list_racks(
 async def list_all_racks(
     room_id: int = Query(None),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("rack:view")),
 ):
     service = RackService(db)
     items, _ = await service.get_list(page=1, page_size=1000, room_id=room_id)
@@ -268,7 +274,7 @@ async def list_all_racks(
 async def get_rack(
     rack_id: int,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("rack:view")),
 ):
     service = RackService(db)
     rack = await service.get_by_id(rack_id)
@@ -286,6 +292,7 @@ async def create_rack(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("rack:create"))
 ):
     service = RackService(db)
     try:
@@ -306,6 +313,7 @@ async def update_rack(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("rack:edit"))
 ):
     service = RackService(db)
     rack = await service.update(rack_id, req, current_user.username, get_client_ip(request))
@@ -323,6 +331,7 @@ async def delete_rack(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("rack:delete"))
 ):
     service = RackService(db)
     if not await service.delete(rack_id, current_user.username, get_client_ip(request)):

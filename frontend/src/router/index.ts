@@ -1,4 +1,4 @@
-﻿import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import NProgress from 'nprogress'
 import { useAuthStore } from '../stores/auth'
@@ -50,13 +50,13 @@ const routes: RouteRecordRaw[] = [
         path: 'workorder/list',
         name: 'WorkOrderList',
         component: () => import('../views/workorder/WorkOrderView.vue'),
-        meta: { title: '运维工单', icon: 'Tickets', permission: '' },
+        meta: { title: '运维工单', icon: 'Tickets', permission: 'work:view' },
       },
       {
         path: 'inspection',
         name: 'Inspection',
         component: () => import('../views/inspection/InspectionView.vue'),
-        meta: { title: '设备巡检', icon: 'DocumentChecked', permission: '' },
+        meta: { title: '设备巡检', icon: 'DocumentChecked', permission: 'inspection:view' },
       },
       {
         path: 'room/facility',
@@ -129,19 +129,53 @@ const routes: RouteRecordRaw[] = [
   },
 ]
 
+// 记录进行中的导航数量，保证 start()/done() 始终配对，
+// 快速连续点击菜单时不会卡在加载进度状态。
+let pendingNavCount = 0
+
+function beginNavigation() {
+  pendingNavCount++
+  NProgress.start()
+}
+
+function finishNavigation() {
+  pendingNavCount = Math.max(0, pendingNavCount - 1)
+  if (pendingNavCount === 0) {
+    NProgress.done()
+  }
+}
+
 const router = createRouter({
   history: createWebHistory(),
   routes,
 })
 
-router.beforeEach((to, _from, next) => {
-  NProgress.start()
+router.beforeEach(async (to, _from, next) => {
+  beginNavigation()
+
+  // 通知全局请求层：路由开始切换，中止上一个页面的在途请求，
+  // 避免快速连续点击功能时旧请求残留导致新页面加载异常。
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('app:navigate'))
+  }
 
   const authStore = useAuthStore()
 
   if (to.meta.requiresAuth !== false && !authStore.isAuthenticated) {
     next('/login')
     return
+  }
+
+  // 已登录但用户信息尚未加载（如刷新页面）：先拉取一次用户信息，
+  // 避免权限校验失败被误跳 /403、用户名缺失等刷新后的不稳定现象。
+  if (authStore.isAuthenticated && !authStore.user) {
+    try {
+      await authStore.fetchUserInfo()
+    } catch {
+      // token 失效等情况：axios 拦截器会处理提示，这里回到登录页
+      next('/login')
+      return
+    }
   }
 
   if (to.path === '/login' && authStore.isAuthenticated) {
@@ -160,8 +194,14 @@ router.beforeEach((to, _from, next) => {
   next()
 })
 
-router.afterEach(() => {
-  NProgress.done()
+router.afterEach((_to, _from, failure) => {
+  // 无论成功、被重定向还是导航被中止，都结束本次导航的进度
+  finishNavigation()
+})
+
+router.onError((_error) => {
+  finishNavigation()
 })
 
 export default router
+

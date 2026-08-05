@@ -1,7 +1,8 @@
 """告警 Service"""
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc, or_
+from sqlalchemy import select, func, desc, or_, case
 from app.models.alert import AlertRule, Alert, AlertAction
+from app.db.retry import with_commit_retry
 
 class AlertRuleService:
     def __init__(self, db: AsyncSession):
@@ -26,7 +27,7 @@ class AlertRuleService:
     async def create(self, data):
         obj = AlertRule(**data.model_dump())
         self.db.add(obj)
-        await self.db.commit()
+        await with_commit_retry(self.db.commit)
         await self.db.refresh(obj)
         return obj
 
@@ -36,7 +37,7 @@ class AlertRuleService:
             return None
         for k, v in data.model_dump(exclude_unset=True).items():
             setattr(obj, k, v)
-        await self.db.commit()
+        await with_commit_retry(self.db.commit)
         await self.db.refresh(obj)
         return obj
 
@@ -45,7 +46,7 @@ class AlertRuleService:
         if not obj:
             return False
         await self.db.delete(obj)
-        await self.db.commit()
+        await with_commit_retry(self.db.commit)
         return True
 
 
@@ -63,7 +64,23 @@ class AlertService:
             q = q.where(Alert.status == status)
         if target_type:
             q = q.where(Alert.target_type == target_type)
-        q = q.order_by(desc(Alert.created_at))
+        status_order = case(
+            (Alert.status == "new", 3),
+            (Alert.status == "acknowledged", 2),
+            (Alert.status == "resolved", 1),
+            else_=0,
+        )
+        level_order = case(
+            (Alert.level == "emergency", 3),
+            (Alert.level == "serious", 2),
+            (Alert.level == "general", 1),
+            else_=0,
+        )
+        q = q.order_by(
+            status_order.desc(),
+            level_order.desc(),
+            desc(Alert.created_at),
+        )
         total = (await self.db.execute(select(func.count()).select_from(q.subquery()))).scalar() or 0
         q = q.offset((page - 1) * page_size).limit(page_size)
         items = (await self.db.execute(q)).scalars().all()
@@ -76,7 +93,7 @@ class AlertService:
     async def create(self, data: dict):
         obj = Alert(**data)
         self.db.add(obj)
-        await self.db.commit()
+        await with_commit_retry(self.db.commit)
         await self.db.refresh(obj)
         return obj
 
@@ -98,7 +115,7 @@ class AlertService:
             alert.status = "resolved"
         elif data["action_type"] == "ignore":
             alert.status = "ignored"
-        await self.db.commit()
+        await with_commit_retry(self.db.commit)
         await self.db.refresh(alert)
         return alert
 
@@ -109,3 +126,4 @@ class AlertService:
         resolved = (await self.db.execute(select(func.count()).select_from(Alert).where(Alert.status == "resolved"))).scalar() or 0
         ignored = (await self.db.execute(select(func.count()).select_from(Alert).where(Alert.status == "ignored"))).scalar() or 0
         return {"total": total, "new": new_count, "acknowledged": acknowledged, "resolved": resolved, "ignored": ignored}
+

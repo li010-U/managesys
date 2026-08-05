@@ -26,6 +26,12 @@ from app.models.business_system import BusinessSystem, DeploymentRelation, Syste
 # ===== AI 对话 (Week 4) =====
 from app.models.chat import ChatConversation, ChatMessage
 
+# ===== 工单管理 =====
+from app.models.work_order import WorkOrderCategory, WorkOrder, WorkOrderComment, WorkOrderAttachment
+
+# ===== 设备巡检 =====
+from app.models.inspection import InspectionTemplate, InspectionPlan, InspectionTask, InspectionRecord, InspectionIssue
+
 __all__ = [
     # Base
     "Base",
@@ -53,4 +59,10 @@ __all__ = [
 
     # AI 对话
     "ChatConversation", "ChatMessage",
+
+    # 工单管理
+    "WorkOrderCategory", "WorkOrder", "WorkOrderComment", "WorkOrderAttachment",
+
+    # 设备巡检
+    "InspectionTemplate", "InspectionPlan", "InspectionTask", "InspectionRecord", "InspectionIssue",
 ]

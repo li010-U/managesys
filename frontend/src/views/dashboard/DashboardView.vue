@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="dashboard">
     <el-card class="welcome-banner" :body-style="{ padding: 0 }">
       <div class="welcome-content">
@@ -98,10 +98,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from "vue"
+import { computed, ref, markRaw, onMounted, onUnmounted } from "vue"
 import { useRouter } from "vue-router"
 import { useAuthStore } from "../../stores/auth"
 import { Cpu, OfficeBuilding, WarningFilled, Monitor, Setting, UserFilled } from "@element-plus/icons-vue"
+import { getDevicesApi } from "../../api/device"
+import { getRoomsApi, getRacksApi } from "../../api/facility"
+import { getAlertStatsApi } from "../../api/alert"
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -128,10 +131,10 @@ const greeting = computed(() => {
 const activities = ref<{ text: string; time: string; color: string }[]>([])
 
 const stats = ref([
-  { label: "设备总数", value: 0, animatedValue: 0, icon: Cpu, bg: "linear-gradient(135deg, #1a5276, #2980b9)", trend: "待接入数据", trendColor: "#909399", target: 0 },
-  { label: "机房数量", value: 0, animatedValue: 0, icon: OfficeBuilding, bg: "linear-gradient(135deg, #1b7a5a, #27ae60)", trend: "待接入数据", trendColor: "#909399", target: 0 },
-  { label: "机柜数量", value: 0, animatedValue: 0, icon: Monitor, bg: "linear-gradient(135deg, #7d3c98, #9b59b6)", trend: "待接入数据", trendColor: "#909399", target: 0 },
-  { label: "告警数量", value: 0, animatedValue: 0, icon: WarningFilled, bg: "linear-gradient(135deg, #c0392b, #e74c3c)", trend: "暂无告警", trendColor: "#67C23A", target: 0 },
+  { label: "设备总数", value: 0, animatedValue: 0, icon: markRaw(Cpu), bg: "linear-gradient(135deg, #1a5276, #2980b9)", trend: "待接入数据", trendColor: "#909399", target: 0 },
+  { label: "机房数量", value: 0, animatedValue: 0, icon: markRaw(OfficeBuilding), bg: "linear-gradient(135deg, #1b7a5a, #27ae60)", trend: "待接入数据", trendColor: "#909399", target: 0 },
+  { label: "机柜数量", value: 0, animatedValue: 0, icon: markRaw(Monitor), bg: "linear-gradient(135deg, #7d3c98, #9b59b6)", trend: "待接入数据", trendColor: "#909399", target: 0 },
+  { label: "告警数量", value: 0, animatedValue: 0, icon: markRaw(WarningFilled), bg: "linear-gradient(135deg, #c0392b, #e74c3c)", trend: "暂无告警", trendColor: "#67C23A", target: 0 },
 ])
 
 const quickLinks = [
@@ -140,6 +143,39 @@ const quickLinks = [
   { label: "环境监测", desc: "温湿度监控", icon: "DataAnalysis", bg: "linear-gradient(135deg, #f39c12, #e67e22)", action: () => router.push("/environment") },
   { label: "监控看板", desc: "可视化监控", icon: "TrendCharts", bg: "linear-gradient(135deg, #9b59b6, #8e44ad)", action: () => router.push("/monitor/dashboard") },
 ]
+
+async function loadStats() {
+  try {
+    const [devicePage, roomPage, rackPage, alertStats] = await Promise.all([
+      getDevicesApi({ page: 1, page_size: 1 }),
+      getRoomsApi({ page: 1, page_size: 1 }),
+      getRacksApi({ page: 1, page_size: 1 }),
+      getAlertStatsApi(),
+    ])
+    const deviceTotal = devicePage?.data?.total ?? 0
+    const roomTotal = roomPage?.data?.total ?? 0
+    const rackTotal = rackPage?.data?.total ?? 0
+    const alertTotal = alertStats?.data?.total ?? 0
+    const alertNew = alertStats?.data?.new ?? 0
+    stats.value = stats.value.map((s) => {
+      if (s.label === "\u8bbe\u5907\u603b\u6570") {
+        s.value = deviceTotal; s.target = deviceTotal; s.trend = `${deviceTotal} \u9879\u7eb3\u5165\u53f0\u8d26`; s.trendColor = "#409EFF"
+      } else if (s.label === "\u673a\u623f\u6570\u91cf") {
+        s.value = roomTotal; s.target = roomTotal; s.trend = `${roomTotal} \u5904\u673a\u623f\u7ba1\u7406`; s.trendColor = "#409EFF"
+      } else if (s.label === "\u673a\u67dc\u6570\u91cf") {
+        s.value = rackTotal; s.target = rackTotal; s.trend = `${rackTotal} \u4e2a\u673a\u67dc`; s.trendColor = "#409EFF"
+      } else if (s.label === "\u544a\u8b66\u6570\u91cf") {
+        s.value = alertTotal; s.target = alertTotal
+        if (alertNew > 0) { s.trend = `${alertNew} \u6761\u672a\u5904\u7406`; s.trendColor = "#E74C3C" }
+        else { s.trend = "\u6682\u65e0\u672a\u5904\u7406\u544a\u8b66"; s.trendColor = "#67C23A" }
+      }
+      return s
+    })
+    stats.value.forEach((s) => animateValue(s))
+  } catch (e) {
+    // load failed
+  }
+}
 
 function updateTime() {
   const now = new Date()
@@ -165,6 +201,7 @@ function animateValue(card: { value: number; animatedValue: number; target: numb
 onMounted(() => {
   updateTime()
   timer = setInterval(updateTime, 1000)
+  loadStats()
   stats.value.forEach(s => animateValue(s))
 })
 

@@ -1,7 +1,7 @@
-"""设备巡检相关模型"""
+﻿"""设备巡检相关模型"""
 from datetime import datetime, date
 from typing import Optional, List
-from sqlalchemy import String, Integer, DateTime, Float, Text, ForeignKey, Boolean, JSON
+from sqlalchemy import String, Integer, DateTime, Float, Text, ForeignKey, Boolean, JSON, Date
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from app.db.base import Base
@@ -37,7 +37,7 @@ class InspectionPlan(Base):
     day_of_month: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="每月几号执行")
     execute_time: Mapped[str] = mapped_column(String(8), default="09:00", comment="执行时间 HH:MM")
     
-    facility_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("facilities.id", ondelete="SET NULL"), nullable=True, comment="关联机房")
+    facility_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("rooms.id", ondelete="SET NULL"), nullable=True, comment="关联机房")
     template_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("inspection_templates.id", ondelete="SET NULL"), nullable=True, comment="关联模板")
     
     assignee_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, comment="巡检人")
@@ -50,7 +50,7 @@ class InspectionPlan(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     template: Mapped[Optional["InspectionTemplate"]] = relationship("InspectionTemplate", lazy="selectin")
-    facility: Mapped[Optional["Facility"]] = relationship("Facility", lazy="selectin")
+    facility: Mapped[Optional["Room"]] = relationship("Room", lazy="selectin")
     assignee: Mapped[Optional["User"]] = relationship("User", lazy="selectin")
 
     def __repr__(self) -> str:
@@ -65,7 +65,7 @@ class InspectionTask(Base):
     plan_id: Mapped[int] = mapped_column(Integer, ForeignKey("inspection_plans.id", ondelete="CASCADE"), nullable=False, comment="关联计划")
     plan_name: Mapped[str] = mapped_column(String(128), nullable=False, comment="计划名称快照")
     
-    facility_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("facilities.id", ondelete="SET NULL"), nullable=True, comment="关联机房")
+    facility_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("rooms.id", ondelete="SET NULL"), nullable=True, comment="关联机房")
     
     status: Mapped[str] = mapped_column(String(16), default="pending", comment="状态: pending/in_progress/completed/overdue")
     priority: Mapped[str] = mapped_column(String(16), default="normal", comment="优先级")
@@ -86,7 +86,7 @@ class InspectionTask(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     plan: Mapped["InspectionPlan"] = relationship("InspectionPlan", lazy="selectin")
-    facility: Mapped[Optional["Facility"]] = relationship("Facility", lazy="selectin")
+    facility: Mapped[Optional["Room"]] = relationship("Room", lazy="selectin")
     assignee: Mapped[Optional["User"]] = relationship("User", lazy="selectin")
     records: Mapped[List["InspectionRecord"]] = relationship("InspectionRecord", back_populates="task", lazy="selectin", cascade="all, delete-orphan")
 

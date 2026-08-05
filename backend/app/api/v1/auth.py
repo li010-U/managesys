@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.deps import get_db, get_current_user
+from app.core.ratelimit import rate_limit
 from app.models.user import User
 from app.schemas.auth import (
     LoginRequest, TokenResponse, RegisterRequest,
@@ -29,7 +30,12 @@ async def get_captcha():
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
+async def login(
+    req: LoginRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _rate: None = Depends(rate_limit(settings.RATE_LIMIT_LOGIN_MAX, settings.RATE_LIMIT_WINDOW_SECONDS, "login"))
+):
     """用户登录"""
     # 验证码校验
     if settings.ENABLE_CAPTCHA:
@@ -48,7 +54,11 @@ async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(
 
 
 @router.post("/register", response_model=UserResponse)
-async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
+async def register(
+    req: RegisterRequest,
+    db: AsyncSession = Depends(get_db),
+    _rate: None = Depends(rate_limit(settings.RATE_LIMIT_REGISTER_MAX, settings.RATE_LIMIT_WINDOW_SECONDS, "register"))
+):
     """用户注册"""
     service = AuthService(db)
     try:

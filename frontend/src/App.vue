@@ -1,20 +1,13 @@
 <template>
   <router-view v-slot="{ Component, route }">
-    <transition name="page-fade" mode="out-in">
+    <transition name="page-fade">
       <component :is="Component" :key="route.path" />
     </transition>
   </router-view>
 </template>
 
 <script setup lang="ts">
-import { watch } from 'vue'
-import { useRoute } from 'vue-router'
-import NProgress from 'nprogress'
-
-const route = useRoute()
-
-// 路由切换时自动关闭 NProgress
-watch(() => route.path, () => {
-  NProgress.done()
-})
+// 路由进度条由 router/index.ts 统一管理，保证快速连续切换时 start/done 配对
 </script>
+
+

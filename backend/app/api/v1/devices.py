@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_db, get_current_user
+from app.core.deps import get_db, get_current_user, require_permission, require_any_permission
 from app.models.user import User
 from app.services.device_service import DeviceTypeService, DeviceService
 from app.schemas.device import (
@@ -33,7 +33,7 @@ async def list_device_types(
     keyword: str = Query(None),
     category: str = Query(None),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("device:view")),
 ):
     service = DeviceTypeService(db)
     items, total = await service.get_list(page, page_size, keyword, category)
@@ -46,7 +46,7 @@ async def list_device_types(
 @router.get("/types/all", response_model=list[DeviceTypeResponse])
 async def list_all_device_types(
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("device:view")),
 ):
     service = DeviceTypeService(db)
     items = await service.get_all()
@@ -57,7 +57,7 @@ async def list_all_device_types(
 async def get_device_type(
     dt_id: int,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("device:view")),
 ):
     service = DeviceTypeService(db)
     dt = await service.get_by_id(dt_id)
@@ -74,6 +74,7 @@ async def create_device_type(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("device:create"))
 ):
     service = DeviceTypeService(db)
     try:
@@ -94,6 +95,7 @@ async def update_device_type(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("device:edit"))
 ):
     service = DeviceTypeService(db)
     dt = await service.update(
@@ -115,6 +117,7 @@ async def update_device_type_thresholds(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("device:edit"))
 ):
     """更新设备类型传感器阈值配置"""
     service = DeviceTypeService(db)
@@ -136,6 +139,7 @@ async def delete_device_type(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("device:delete"))
 ):
     service = DeviceTypeService(db)
     try:
@@ -161,7 +165,7 @@ async def list_devices(
     rack_id: int = Query(None),
     status: str = Query(None),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("device:view")),
 ):
     service = DeviceService(db)
     items, total = await service.get_list(page, page_size, keyword, device_type_id, rack_id, status)
@@ -180,7 +184,7 @@ async def list_devices(
 async def get_device(
     device_id: int,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("device:view")),
 ):
     service = DeviceService(db)
     d = await service.get_by_id(device_id)
@@ -200,6 +204,7 @@ async def create_device(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("device:create"))
 ):
     service = DeviceService(db)
     try:
@@ -225,6 +230,7 @@ async def update_device(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("device:edit"))
 ):
     service = DeviceService(db)
     d = await service.update(
@@ -248,6 +254,7 @@ async def delete_device(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("device:delete"))
 ):
     service = DeviceService(db)
     if not await service.delete(
@@ -268,6 +275,7 @@ async def change_device_status(
     request: Request = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _ = Depends(require_any_permission("device:mount", "device:unmount", "device:edit"))
 ):
     service = DeviceService(db)
     client_ip = get_client_ip(request) if request else None
@@ -285,7 +293,7 @@ async def change_device_status(
 async def get_device_lifecycles(
     device_id: int,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("device:view")),
 ):
     service = DeviceService(db)
     lcs = await service.get_lifecycles(device_id)

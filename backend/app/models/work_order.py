@@ -36,7 +36,7 @@ class WorkOrder(Base):
     
     # 关联信息
     device_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("devices.id", ondelete="SET NULL"), nullable=True, comment="关联设备")
-    facility_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("facilities.id", ondelete="SET NULL"), nullable=True, comment="关联机房")
+    facility_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("rooms.id", ondelete="SET NULL"), nullable=True, comment="关联机房")
     
     # 流程信息
     status: Mapped[str] = mapped_column(String(16), default="pending", comment="状态: pending/assigned/processing/pending_verify/completed/closed")
@@ -62,7 +62,7 @@ class WorkOrder(Base):
     
     category: Mapped[Optional["WorkOrderCategory"]] = relationship("WorkOrderCategory", lazy="selectin")
     device: Mapped[Optional["Device"]] = relationship("Device", lazy="selectin")
-    facility: Mapped[Optional["Facility"]] = relationship("Facility", lazy="selectin")
+    facility: Mapped[Optional["Room"]] = relationship("Room", lazy="selectin")
     creator: Mapped["User"] = relationship("User", foreign_keys=[creator_id], lazy="selectin")
     assignee: Mapped[Optional["User"]] = relationship("User", foreign_keys=[assignee_id], lazy="selectin")
     comments: Mapped[List["WorkOrderComment"]] = relationship("WorkOrderComment", back_populates="work_order", lazy="selectin", cascade="all, delete-orphan")

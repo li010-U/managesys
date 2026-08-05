@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_db, get_current_user
+from app.core.deps import get_db, get_current_user, require_permission
 from app.models.user import User
 from app.schemas.role import RoleResponse, RoleCreateRequest, RoleUpdateRequest, PermissionInfo
 from app.services.role_service import RoleService
@@ -24,7 +24,7 @@ def get_client_ip(request: Request) -> str:
 @router.get("", response_model=list[RoleResponse])
 async def list_roles(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("role:view")),
 ):
     """获取所有角色"""
     service = RoleService(db)
@@ -36,7 +36,7 @@ async def list_roles(
 async def get_role(
     role_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("role:view")),
 ):
     """获取角色详情"""
     service = RoleService(db)
@@ -120,7 +120,7 @@ async def delete_role(
 @router.get("/permissions/list", response_model=list[PermissionInfo])
 async def list_permissions(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("role:view")),
 ):
     """获取所有权限列表"""
     service = PermissionService(db)

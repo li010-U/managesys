@@ -9,6 +9,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
 from app.core.config import settings
+from app.core.concurrency import sse_semaphore
+from app.core.middleware import ConcurrencyLimitMiddleware
 from app.api.v1 import router as api_router
 from app.db.base import Base
 from app.db.session import engine, async_session_factory
@@ -48,7 +50,8 @@ async def _seed_default_facility():
 
 async def _init_builtin_data():
     """初始化内置角色和权限数据（幂等）"""
-    from app.models.role import Role, Permission
+    from app.models.role import Role
+    from app.models.permission import Permission
     from app.models.user import User
     from app.core.security import hash_password
 
@@ -95,6 +98,14 @@ async def _init_builtin_data():
                 ("编辑角色", "role:edit", "账号管理"),
                 ("删除角色", "role:delete", "账号管理"),
                 ("查看审计日志", "audit:view", "账号管理"),
+                ("创建工单", "work:create", "运维工单"),
+                ("处理工单", "work:edit", "运维工单"),
+                ("删除工单", "work:delete", "运维工单"),
+                ("查看工单", "work:view", "运维工单"),
+                ("创建巡检", "inspection:create", "设备巡检"),
+                ("处理巡检", "inspection:edit", "设备巡检"),
+                ("删除巡检", "inspection:delete", "设备巡检"),
+                ("查看巡检", "inspection:view", "设备巡检"),
             ]
 
             permissions = {}
@@ -113,11 +124,13 @@ async def _init_builtin_data():
                   "rack:view", "rack:create", "rack:edit", "rack:delete",
                   "device:view", "device:create", "device:edit", "device:delete",
                   "device:mount", "device:unmount", "monitor:view_dashboard",
-                  "monitor:view_alerts", "monitor:handle_alert"]),
+                  "monitor:view_alerts", "monitor:handle_alert",
+                  "work:create", "work:edit", "work:delete",
+                  "inspection:create", "inspection:edit", "inspection:delete"]),
                 ("运维人员", "operator", "日常运维操作权限", False,
                  ["room:view", "rack:view",
                   "device:view", "device:mount", "device:unmount",
-                  "monitor:view_dashboard", "monitor:view_alerts", "monitor:handle_alert"]),
+                  "monitor:view_dashboard", "monitor:view_alerts", "monitor:handle_alert", "work:create", "work:edit", "inspection:create", "inspection:edit"]),
                 ("普通用户", "user", "基础查看权限", False,
                  ["room:view", "rack:view", "device:view", "monitor:view_dashboard",
                   "monitor:view_alerts", "system:view"]),
@@ -160,6 +173,125 @@ async def _init_builtin_data():
             raise
 
 
+
+
+# ???????????????????????
+BUILTIN_PERMISSIONS = [
+    ("\u67e5\u770b\u673a\u623f", "room:view", "\u673a\u623f\u7ba1\u7406"),
+    ("\u521b\u5efa\u673a\u623f", "room:create", "\u673a\u623f\u7ba1\u7406"),
+    ("\u7f16\u8f91\u673a\u623f", "room:edit", "\u673a\u623f\u7ba1\u7406"),
+    ("\u5220\u9664\u673a\u623f", "room:delete", "\u673a\u623f\u7ba1\u7406"),
+    ("\u67e5\u770b\u673a\u67dc", "rack:view", "\u673a\u623f\u7ba1\u7406"),
+    ("\u521b\u5efa\u673a\u67dc", "rack:create", "\u673a\u623f\u7ba1\u7406"),
+    ("\u7f16\u8f91\u673a\u67dc", "rack:edit", "\u673a\u623f\u7ba1\u7406"),
+    ("\u5220\u9664\u673a\u67dc", "rack:delete", "\u673a\u623f\u7ba1\u7406"),
+    ("\u67e5\u770b\u8bbe\u5907", "device:view", "\u8bbe\u5907\u7ba1\u7406"),
+    ("\u521b\u5efa\u8bbe\u5907", "device:create", "\u8bbe\u5907\u7ba1\u7406"),
+    ("\u7f16\u8f91\u8bbe\u5907", "device:edit", "\u8bbe\u5907\u7ba1\u7406"),
+    ("\u5220\u9664\u8bbe\u5907", "device:delete", "\u8bbe\u5907\u7ba1\u7406"),
+    ("\u4e0a\u67b6\u8bbe\u5907", "device:mount", "\u8bbe\u5907\u7ba1\u7406"),
+    ("\u4e0b\u67b6\u8bbe\u5907", "device:unmount", "\u8bbe\u5907\u7ba1\u7406"),
+    ("\u67e5\u770b\u76d1\u63a7\u5927\u76d8", "monitor:view_dashboard", "\u76d1\u63a7\u7ba1\u7406"),
+    ("\u67e5\u770b\u544a\u8b66", "monitor:view_alerts", "\u76d1\u63a7\u7ba1\u7406"),
+    ("\u5904\u7406\u544a\u8b66", "monitor:handle_alert", "\u76d1\u63a7\u7ba1\u7406"),
+    ("\u914d\u7f6e\u544a\u8b66\u89c4\u5219", "monitor:config_rule", "\u76d1\u63a7\u7ba1\u7406"),
+    ("\u67e5\u770b\u4e1a\u52a1\u7cfb\u7edf", "system:view", "\u7cfb\u7edf\u7ba1\u7406"),
+    ("\u521b\u5efa\u4e1a\u52a1\u7cfb\u7edf", "system:create", "\u7cfb\u7edf\u7ba1\u7406"),
+    ("\u7f16\u8f91\u4e1a\u52a1\u7cfb\u7edf", "system:edit", "\u7cfb\u7edf\u7ba1\u7406"),
+    ("\u5220\u9664\u4e1a\u52a1\u7cfb\u7edf", "system:delete", "\u7cfb\u7edf\u7ba1\u7406"),
+    ("\u67e5\u770b\u7528\u6237", "user:view", "\u8d26\u53f7\u7ba1\u7406"),
+    ("\u521b\u5efa\u7528\u6237", "user:create", "\u8d26\u53f7\u7ba1\u7406"),
+    ("\u7f16\u8f91\u7528\u6237", "user:edit", "\u8d26\u53f7\u7ba1\u7406"),
+    ("\u5220\u9664\u7528\u6237", "user:delete", "\u8d26\u53f7\u7ba1\u7406"),
+    ("\u67e5\u770b\u89d2\u8272", "role:view", "\u8d26\u53f7\u7ba1\u7406"),
+    ("\u521b\u5efa\u89d2\u8272", "role:create", "\u8d26\u53f7\u7ba1\u7406"),
+    ("\u7f16\u8f91\u89d2\u8272", "role:edit", "\u8d26\u53f7\u7ba1\u7406"),
+    ("\u5220\u9664\u89d2\u8272", "role:delete", "\u8d26\u53f7\u7ba1\u7406"),
+    ("\u67e5\u770b\u5ba1\u8ba1\u65e5\u5fd7", "audit:view", "\u8d26\u53f7\u7ba1\u7406"),
+    ("\u521b\u5efa\u5de5\u5355", "work:create", "\u8fd0\u7ef4\u5de5\u5355"),
+    ("\u5904\u7406\u5de5\u5355", "work:edit", "\u8fd0\u7ef4\u5de5\u5355"),
+    ("\u5220\u9664\u5de5\u5355", "work:delete", "\u8fd0\u7ef4\u5de5\u5355"),
+    ("\u67e5\u770b\u5de5\u5355", "work:view", "\u8fd0\u7ef4\u5de5\u5355"),
+    ("\u521b\u5efa\u5de1\u68c0", "inspection:create", "\u8bbe\u5907\u5de1\u68c0"),
+    ("\u5904\u7406\u5de1\u68c0", "inspection:edit", "\u8bbe\u5907\u5de1\u68c0"),
+    ("\u5220\u9664\u5de1\u68c0", "inspection:delete", "\u8bbe\u5907\u5de1\u68c0"),
+    ("\u67e5\u770b\u5de1\u68c0", "inspection:view", "\u8bbe\u5907\u5de1\u68c0"),
+]
+
+BUILTIN_ROLES = [
+    ("\u8d85\u7ea7\u7ba1\u7406\u5458", "super_admin", "\u62e5\u6709\u7cfb\u7edf\u5168\u90e8\u6743\u9650", True, [p[1] for p in BUILTIN_PERMISSIONS]),
+    ("\u673a\u623f\u7ba1\u7406\u5458", "room_admin", "\u673a\u623f\u548c\u8bbe\u5907\u7ba1\u7406\u6743\u9650", False,
+     ["room:view", "room:create", "room:edit", "room:delete", "rack:view", "rack:create", "rack:edit", "rack:delete",
+      "device:view", "device:create", "device:edit", "device:delete", "device:mount", "device:unmount",
+      "monitor:view_dashboard", "monitor:view_alerts", "monitor:handle_alert",
+      "work:view", "work:create", "work:edit", "work:delete", "inspection:view", "inspection:create", "inspection:edit", "inspection:delete"]),
+    ("\u8fd0\u7ef4\u4eba\u5458", "operator", "\u65e5\u5e38\u8fd0\u7ef4\u64cd\u4f5c\u6743\u9650", False,
+     ["room:view", "rack:view", "device:view", "device:mount", "device:unmount",
+      "system:view", "monitor:view_dashboard", "monitor:view_alerts", "monitor:handle_alert",
+      "work:view", "work:create", "work:edit", "inspection:view", "inspection:create", "inspection:edit"]),
+    ("\u666e\u901a\u7528\u6237", "user", "\u57fa\u7840\u67e5\u770b\u6743\u9650", False,
+     ["room:view", "rack:view", "device:view", "monitor:view_dashboard", "monitor:view_alerts", "system:view", "work:view", "inspection:view"]),
+    ("\u8bbf\u5ba2", "guest", "\u53ea\u8bfb\u8bbf\u5ba2\u6743\u9650", False,
+     ["room:view", "rack:view", "device:view", "monitor:view_dashboard", "monitor:view_alerts",
+      "system:view", "user:view", "role:view", "work:view", "inspection:view"]),
+    ("\u5ba1\u8ba1\u5458", "auditor", "\u5ba1\u8ba1\u76f8\u5173\u6743\u9650", False,
+     ["room:view", "device:view", "monitor:view_dashboard", "monitor:view_alerts",
+      "system:view", "user:view", "role:view", "audit:view", "work:view", "inspection:view"]),
+]
+
+
+async def _sync_builtin_data():
+    """?????????????????????????????????????"""
+    from app.models.role import Role
+    from app.models.permission import Permission
+    from sqlalchemy import select as _sel
+
+    async with async_session_factory() as session:
+        try:
+            existing = set((await session.execute(_sel(Permission.code))).scalars().all())
+            permissions_by_code = {}
+            for name, code, module in BUILTIN_PERMISSIONS:
+                if code not in existing:
+                    session.add(Permission(name=name, code=code, module=module))
+            await session.flush()
+            for p in (await session.execute(_sel(Permission))).scalars().all():
+                permissions_by_code[p.code] = p
+
+            for name, code, desc, is_builtin, perm_codes in BUILTIN_ROLES:
+                if code == "super_admin":
+                    continue
+                role = (await session.execute(_sel(Role).where(Role.code == code))).scalar_one_or_none()
+                if role is None:
+                    role = Role(name=name, code=code, description=desc, is_builtin=is_builtin)
+                    session.add(role)
+                have = {p.code for p in role.permissions}
+                for pc in perm_codes:
+                    if pc in permissions_by_code and pc not in have:
+                        role.permissions.append(permissions_by_code[pc])
+            await session.commit()
+            logger.info("\u5185\u7f6e\u6570\u636e\u540c\u6b65\u5b8c\u6210\uff08\u8865\u9f50\u7f3a\u5931\u6743\u9650/\u89d2\u8272\uff09")
+        except Exception as e:
+            await session.rollback()
+            logger.warning("\u5185\u7f6e\u6570\u636e\u540c\u6b65\u5931\u8d25: %s", str(e))
+
+def _check_security_config():
+    """启动时检查常用安全配置，重要项目输出警告。"""
+    weak = []
+    if settings.DEBUG:
+        weak.append("DEBUG=true 已开启（生产版请关闭）")
+    if settings.SECRET_KEY == "dev-secret-key-change-in-production-2024":
+        weak.append("SECRET_KEY 是默认值（请更改为强随机密钥）")
+    if not settings.ENABLE_CAPTCHA:
+        weak.append("ENABLE_CAPTCHA=false （建议生产环境开启验证码）")
+    if weak:
+        logger.warning("=" * 60)
+        logger.warning("安全配置弱化警告：")
+        for item in weak:
+            logger.warning("  - %s", item)
+        logger.warning("请在部署前在 backend/.env 中修改 SECRET_KEY / DEBUG / ENABLE_CAPTCHA）")
+        logger.warning("=" * 60)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
@@ -167,6 +299,8 @@ async def lifespan(app: FastAPI):
     logger.info("  %s v%s", settings.APP_NAME, settings.APP_VERSION)
     logger.info("  数据库: %s", settings.DATABASE_URL.replace("sqlite+aiosqlite://", "sqlite://")[:80])
     logger.info("=" * 50)
+
+    _check_security_config()
 
     # 导入所有模型以确保注册到 Base.metadata
     import app.models  # noqa: F401
@@ -185,6 +319,12 @@ async def lifespan(app: FastAPI):
         await _init_builtin_data()
     except Exception as e:
         logger.warning("内置数据初始化异常（可能已存在）: %s", str(e))
+    # 幂等同步内置权限/角色（补齐新加的 work/inspection 权限，兼容已存在的库）
+    try:
+        await _sync_builtin_data()
+    except Exception as e:
+        logger.warning("内置数据同步异常: %s", str(e))
+
 
     try:
         await _seed_default_facility()
@@ -262,6 +402,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # 全局并发请求限流：防止“点快了加载不出来”与多人同时在线时的资源恜死。
+    app.add_middleware(ConcurrencyLimitMiddleware)
 
     # 注册全局异常处理器
     register_exception_handlers(app)

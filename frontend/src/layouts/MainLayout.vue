@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="app-container" :class="{ dark: themeStore.isDark }">
     <el-container>
       <el-aside width="200px" class="sidebar">
@@ -121,7 +121,7 @@
         </div>
         <el-main class="app-main">
           <router-view v-slot="{ Component, route: currentRoute }">
-            <transition name="page-fade" mode="out-in">
+            <transition name="page-fade">
               <component :is="Component" :key="currentRoute.path" />
             </transition>
           </router-view>
@@ -457,3 +457,4 @@ html.dark .tab-item.active {
   height: 100%;
 }
 </style>
+

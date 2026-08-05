@@ -69,6 +69,7 @@ interface Notification {
 const visible = ref(false);
 const notifications = ref<Notification[]>([]);
 let timer: ReturnType<typeof setInterval> | null = null;
+let visibilityHandler: (() => void) | null = null;
 
 const unreadCount = computed(() => notifications.value.filter(n => !n.read).length);
 
@@ -147,14 +148,28 @@ function loadNotifications() {
   ];
 }
 
+function startPolling() {
+  if (timer) return;
+  timer = setInterval(loadNotifications, 60000);
+}
+function stopPolling() {
+  if (timer) { clearInterval(timer); timer = null; }
+}
+
 onMounted(() => {
   loadNotifications();
   // 每分钟刷新一次
-  timer = setInterval(loadNotifications, 60000);
+  startPolling();
+  visibilityHandler = () => {
+    if (document.hidden) stopPolling();
+    else startPolling();
+  };
+  document.addEventListener("visibilitychange", visibilityHandler);
 });
 
 onUnmounted(() => {
-  if (timer) clearInterval(timer);
+  if (visibilityHandler) document.removeEventListener("visibilitychange", visibilityHandler);
+  stopPolling();
 });
 </script>
 

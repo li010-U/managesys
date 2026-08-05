@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_db, get_current_user
+from app.core.deps import get_db, get_current_user, require_permission, has_permission
 from app.models.user import User
 from app.schemas.user import UserResponse, UserCreateRequest, UserUpdateRequest, UserPageResponse
 from app.services.user_service import UserService
@@ -26,11 +26,9 @@ async def list_users(
     page_size: int = Query(10, ge=1, le=100, description="每页数量"),
     keyword: str = Query(None, description="搜索关键词"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("user:view")),
 ):
     """获取用户列表（分页）"""
-    if not current_user.is_super_admin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="权限不足")
     service = UserService(db)
     users, total = await service.get_users(page, page_size, keyword)
     return UserPageResponse(
@@ -48,7 +46,11 @@ async def get_user(
     current_user: User = Depends(get_current_user),
 ):
     """获取用户详情"""
-    if not current_user.is_super_admin and current_user.id != user_id:
+    if (
+        current_user.id != user_id
+        and not current_user.is_super_admin
+        and not has_permission(current_user, "user:view")
+    ):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="权限不足")
     service = UserService(db)
     user = await service.get_user_by_id(user_id)

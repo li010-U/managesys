@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div
     class="pet-assistant"
     :class="{ collapsed: collapsed, 'drag-active': dragging }"
@@ -136,6 +136,8 @@ const seenTitles = ref<Set<string>>(new Set())
 const showAll = ref(false)
 
 let sse: EventSource | null = null
+let streamAbort: AbortController | null = null
+let visibilityHandler: (() => void) | null = null
 let bubbleTimer: ReturnType<typeof setTimeout> | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
@@ -268,7 +270,10 @@ function connectSSE(url: string, token: string | null) {
   const headers: Record<string, string> = { Accept: "text/event-stream" }
   if (token) headers.Authorization = "Bearer " + token
 
-  fetch(url, { headers })
+  streamAbort = new AbortController()
+  const signal = streamAbort.signal
+
+  fetch(url, { headers, signal })
     .then((resp) => {
       if (!resp.ok) throw new Error("stream failed " + resp.status)
       const reader = resp.body!.getReader()
@@ -292,11 +297,17 @@ function connectSSE(url: string, token: string | null) {
             }
           }
           pump()
-        }).catch(() => { startPolling() })
+        }).catch((err) => {
+          if (streamAbort?.signal.aborted) return
+          startPolling()
+        })
       }
       pump()
     })
-    .catch(() => { startPolling() })
+    .catch(() => {
+      if (streamAbort?.signal.aborted) return
+      startPolling()
+    })
 }
 
 let streamActive = false
@@ -306,6 +317,7 @@ function startPolling() {
 }
 
 function stopStreaming() {
+  if (streamAbort) { streamAbort.abort(); streamAbort = null }
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
 }
 
@@ -325,9 +337,18 @@ onMounted(() => {
   bubbleTimer = setInterval(() => {
     if (!panelOpen.value) rotateBubble()
   }, 9000)
+  visibilityHandler = () => {
+    if (document.hidden) {
+      stopStreaming()
+    } else if (liveEnabled.value) {
+      startStreaming()
+    }
+  }
+  document.addEventListener("visibilitychange", visibilityHandler)
 })
 
 onBeforeUnmount(() => {
+  if (visibilityHandler) document.removeEventListener("visibilitychange", visibilityHandler)
   stopStreaming()
   if (bubbleTimer) clearTimeout(bubbleTimer)
 })

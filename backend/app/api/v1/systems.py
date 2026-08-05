@@ -1,9 +1,10 @@
-"""业务系统管理 API 路由"""
+﻿"""业务系统管理 API 路由"""
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, or_
 
-from app.core.deps import get_db, get_current_user
+from app.core.deps import get_db, get_current_user, require_permission
+from app.db.retry import with_commit_retry
 from app.models.user import User
 from app.models.business_system import BusinessSystem, DeploymentRelation
 from app.schemas.business import (
@@ -22,7 +23,7 @@ async def list_systems(
     category: str = Query(None),
     bs_status: str = Query(None),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("system:view")),
 ):
     q = select(BusinessSystem)
     if keyword:
@@ -45,7 +46,7 @@ async def list_systems(
 
 
 @router.get("/{sys_id}", response_model=BusinessSystemResponse)
-async def get_system(sys_id: int, db: AsyncSession = Depends(get_db), _current_user: User = Depends(get_current_user)):
+async def get_system(sys_id: int, db: AsyncSession = Depends(get_db), _current_user: User = Depends(require_permission("system:view"))):
     result = await db.execute(select(BusinessSystem).where(BusinessSystem.id == sys_id))
     item = result.scalar_one_or_none()
     if not item:
@@ -58,11 +59,11 @@ async def get_system(sys_id: int, db: AsyncSession = Depends(get_db), _current_u
 
 
 @router.post("", response_model=BusinessSystemResponse, status_code=status.HTTP_201_CREATED)
-async def create_system(req: BusinessSystemCreate, db: AsyncSession = Depends(get_db), _current_user: User = Depends(get_current_user)):
+async def create_system(req: BusinessSystemCreate, db: AsyncSession = Depends(get_db), _current_user: User = Depends(get_current_user), _ = Depends(require_permission("system:create"))):
     try:
         obj = BusinessSystem(**req.model_dump())
         db.add(obj)
-        await db.commit()
+        await with_commit_retry(db.commit)
         await db.refresh(obj)
         return BusinessSystemResponse.model_validate(obj)
     except Exception as e:
@@ -72,7 +73,7 @@ async def create_system(req: BusinessSystemCreate, db: AsyncSession = Depends(ge
 
 
 @router.put("/{sys_id}", response_model=BusinessSystemResponse)
-async def update_system(sys_id: int, req: BusinessSystemUpdate, db: AsyncSession = Depends(get_db), _current_user: User = Depends(get_current_user)):
+async def update_system(sys_id: int, req: BusinessSystemUpdate, db: AsyncSession = Depends(get_db), _current_user: User = Depends(get_current_user), _ = Depends(require_permission("system:edit"))):
     result = await db.execute(select(BusinessSystem).where(BusinessSystem.id == sys_id))
     obj = result.scalar_one_or_none()
     if not obj:
@@ -80,7 +81,7 @@ async def update_system(sys_id: int, req: BusinessSystemUpdate, db: AsyncSession
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="系统不存在")
     for k, v in req.model_dump(exclude_unset=True).items():
         setattr(obj, k, v)
-    await db.commit()
+    await with_commit_retry(db.commit)
     await db.refresh(obj)
     r = BusinessSystemResponse.model_validate(obj)
     r.device_count = len(obj.deployments) if obj.deployments else 0
@@ -89,19 +90,19 @@ async def update_system(sys_id: int, req: BusinessSystemUpdate, db: AsyncSession
 
 
 @router.delete("/{sys_id}")
-async def delete_system(sys_id: int, db: AsyncSession = Depends(get_db), _current_user: User = Depends(get_current_user)):
+async def delete_system(sys_id: int, db: AsyncSession = Depends(get_db), _current_user: User = Depends(get_current_user), _ = Depends(require_permission("system:delete"))):
     result = await db.execute(select(BusinessSystem).where(BusinessSystem.id == sys_id))
     obj = result.scalar_one_or_none()
     if not obj:
         from fastapi import HTTPException
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="系统不存在")
     await db.delete(obj)
-    await db.commit()
+    await with_commit_retry(db.commit)
     return {"message": "系统已删除"}
 
 
 @router.get("/{sys_id}/deployments")
-async def list_deployments(sys_id: int, db: AsyncSession = Depends(get_db), _current_user: User = Depends(get_current_user)):
+async def list_deployments(sys_id: int, db: AsyncSession = Depends(get_db), _current_user: User = Depends(require_permission("system:view"))):
     result = await db.execute(select(DeploymentRelation).where(DeploymentRelation.system_id == sys_id))
     items = result.scalars().all()
     resp = []
@@ -114,12 +115,12 @@ async def list_deployments(sys_id: int, db: AsyncSession = Depends(get_db), _cur
 
 
 @router.post("/{sys_id}/deployments", response_model=DeploymentResponse, status_code=status.HTTP_201_CREATED)
-async def create_deployment(sys_id: int, req: DeploymentCreate, db: AsyncSession = Depends(get_db), _current_user: User = Depends(get_current_user)):
+async def create_deployment(sys_id: int, req: DeploymentCreate, db: AsyncSession = Depends(get_db), _current_user: User = Depends(get_current_user), _ = Depends(require_permission("system:edit"))):
     data = req.model_dump()
     data["system_id"] = sys_id
     obj = DeploymentRelation(**data)
     db.add(obj)
-    await db.commit()
+    await with_commit_retry(db.commit)
     await db.refresh(obj)
     r = DeploymentResponse.model_validate(obj)
     if obj.device:
@@ -128,12 +129,12 @@ async def create_deployment(sys_id: int, req: DeploymentCreate, db: AsyncSession
 
 
 @router.delete("/{sys_id}/deployments/{dep_id}")
-async def delete_deployment(sys_id: int, dep_id: int, db: AsyncSession = Depends(get_db), _current_user: User = Depends(get_current_user)):
+async def delete_deployment(sys_id: int, dep_id: int, db: AsyncSession = Depends(get_db), _current_user: User = Depends(get_current_user), _ = Depends(require_permission("system:edit"))):
     result = await db.execute(select(DeploymentRelation).where(DeploymentRelation.id == dep_id, DeploymentRelation.system_id == sys_id))
     obj = result.scalar_one_or_none()
     if not obj:
         from fastapi import HTTPException
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="关联不存在")
     await db.delete(obj)
-    await db.commit()
+    await with_commit_retry(db.commit)
     return {"message": "关联已删除"}

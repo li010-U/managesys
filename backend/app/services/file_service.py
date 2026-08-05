@@ -58,6 +58,12 @@ class FileService:
             raise ValueError(f"文件过大，最大支持 {MAX_FILE_SIZE // 1024 // 1024}MB")
 
         # 生成存储路径
+        # ? sub_dir ????????????/????????
+        if sub_dir:
+            if "/" in sub_dir or "\\" in sub_dir or ".." in sub_dir or sub_dir.startswith("."):
+                raise ValueError("??????: sub_dir")
+            sub_dir = sub_dir.strip("/\\")
+
         date_path = self._get_date_path()
         safe_name, ext = self._generate_filename(file.filename or "file")
         relative_path = f"{sub_dir}/{date_path}/{safe_name}" if sub_dir else f"{date_path}/{safe_name}"
@@ -107,17 +113,38 @@ class FileService:
             "path": relative_path.replace("\\", "/"),
         }
 
+    def _resolve_safe_path(self, relative_path: str) -> Path:
+        """????????????? upload_dir ?????????????
+
+        ????? .. ?????? upload_dir ????????? ValueError?
+        """
+        root = self.upload_dir.resolve()
+        full_path = (root / relative_path).resolve()
+        if not full_path.is_relative_to(root):
+            raise ValueError("???????")
+        return full_path
+
     def get_file_path(self, relative_path: str) -> Optional[Path]:
-        """根据相对路径获取完整路径"""
-        full_path = self.upload_dir / relative_path
+        """???????????????????"""
+        try:
+            full_path = self._resolve_safe_path(relative_path)
+        except ValueError:
+            return None
         return full_path if full_path.exists() else None
 
     def delete_file(self, relative_path: str) -> bool:
-        """删除文件"""
-        full_path = self.upload_dir / relative_path
+        """???????????"""
+        try:
+            full_path = self._resolve_safe_path(relative_path)
+        except ValueError:
+            logger.warning("????????: %s", relative_path)
+            return False
         if full_path.exists():
+            if full_path.is_dir():
+                logger.warning("??????: %s", relative_path)
+                return False
             full_path.unlink()
-            logger.info("文件已删除: %s", relative_path)
+            logger.info("?????: %s", relative_path)
             return True
         return False
 
