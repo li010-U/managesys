@@ -30,8 +30,21 @@ export function deleteConversationApi(convId: number) {
   return axios.delete("/chat/conversations/" + convId)
 }
 
+export interface ToolProposal {
+  tool: string
+  label: string
+  args: Record<string, unknown>
+}
+
+export function executeToolApi(tool: string, args: Record<string, unknown>) {
+  return axios.post<{ ok: boolean; result: unknown }>("/chat/tools/execute", { tool, args })
+}
+
 export function sendMessageApi(content: string, conversationId?: number) {
-  return axios.post<ChatMessage>("/chat/messages", { content, conversation_id: conversationId })
+  return axios.post<{ conversation_id: number; message: ChatMessage; proposal?: ToolProposal | null }>(
+    "/chat/messages",
+    { content, conversation_id: conversationId }
+  )
 }
 
 export function sendMessageStreamApi(
@@ -39,7 +52,8 @@ export function sendMessageStreamApi(
   conversationId: number,
   onChunk: (content: string) => void,
   onDone: () => void,
-  onError: (error: string) => void
+  onError: (error: string) => void,
+  onProposal?: (proposal: ToolProposal) => void
 ) {
   let aborted = false
   const xhr = new XMLHttpRequest()
@@ -62,6 +76,13 @@ export function sendMessageStreamApi(
           if (!doneSent) { doneSent = true; onDone() }
         } else if (data === "[ERROR]") {
           if (!doneSent) { doneSent = true; onError("AI ????????") }
+        } else if (data.startsWith("[TOOL_PROPOSAL]")) {
+          if (onProposal) {
+            try {
+              const raw = data.slice("[TOOL_PROPOSAL]".length).trim()
+              onProposal(JSON.parse(raw) as ToolProposal)
+            } catch { /* ignore malformed proposal */ }
+          }
         } else if (data.trim()) {
           onChunk(data)
         }

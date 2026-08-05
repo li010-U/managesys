@@ -49,7 +49,15 @@
             @click="useQuickPrompt(qp)"
           >{{ qp }}</div>
         </div>
-        <div class="chat-input">
+        <div class="proposal-banner" v-if="pendingProposal">
+  <div class="proposal-title">检测到待确认操作</div>
+  <div class="proposal-desc">{{ describeProposal(pendingProposal) }}</div>
+  <div class="proposal-actions">
+    <el-button type="primary" size="small" @click="confirmProposal">确认执行</el-button>
+    <el-button size="small" @click="cancelProposal">取消</el-button>
+  </div>
+</div>
+<div class="chat-input">
           <el-input 
             v-model="inputText" 
             type="textarea" 
@@ -90,7 +98,8 @@ import MarkdownIt from "markdown-it"
 import hljs from "highlight.js"
 import {
   getConversationsApi, getMessagesApi, createConversationApi, deleteConversationApi,
-  sendMessageApi, sendMessageStreamApi, type ChatConversation, type ChatMessage
+  sendMessageApi, sendMessageStreamApi, executeToolApi,
+  type ChatConversation, type ChatMessage, type ToolProposal
 } from "../../api/chat"
 
 const md = new MarkdownIt({ html: false, linkify: true, typographer: true })
@@ -106,6 +115,7 @@ const messages = ref<ChatMessage[]>([])
 const currentConvId = ref<number | null>(null)
 const inputText = ref("")
 const sending = ref(false)
+const pendingProposal = ref<ToolProposal | null>(null)
 let cancelStream: (() => void) | null = null
 const QUICK_PROMPTS = [
   "当前机房状态如何？有无异常？",
@@ -159,6 +169,7 @@ async function deleteConversation(id: number) {
 
 function sendUserMessage(text: string) {
   if (!text || sending.value) return
+  pendingProposal.value = null
   sending.value = true
   const userMsg: ChatMessage = { id: Date.now(), role: "user", content: text, created_at: new Date().toISOString() }
   messages.value.push(userMsg)
@@ -179,6 +190,8 @@ function sendUserMessage(text: string) {
     sending.value = false
     cancelStream = null
     ElMessage.error(error || "发送失败")
+  }, (proposal) => {
+    pendingProposal.value = proposal
   })
 }
 
@@ -220,6 +233,47 @@ function useQuickPrompt(p: string) {
   if (sending.value) return
   inputText.value = p
   sendMessage()
+}
+
+function describeProposal(p: ToolProposal): string {
+  if (p.tool === "create_work_order") {
+    return "?????“" + String(p.args.title || "") + "”"
+  }
+  if (p.tool === "handle_alert") {
+    const actionMap: Record<string, string> = {
+      acknowledge: "??",
+      resolve: "??",
+      ignore: "??"
+    }
+    return "???? #" + String(p.args.alert_id) + "?" + (actionMap[String(p.args.action_type)] || String(p.args.action_type)) + "?"
+  }
+  return p.tool
+}
+
+async function confirmProposal() {
+  if (!pendingProposal.value) return
+  const proposal = pendingProposal.value
+  pendingProposal.value = null
+  try {
+    const res = await executeToolApi(proposal.tool, proposal.args)
+    const r = (res.data as { result?: Record<string, unknown> })?.result || {}
+    ElMessage.success("???")
+    messages.value.push({
+      id: Date.now(),
+      role: "assistant",
+      content: "??????" + describeProposal(proposal) + (Object.keys(r).length ? " " + JSON.stringify(r) : ""),
+      created_at: new Date().toISOString()
+    })
+    scrollToBottom()
+    loadConversations()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || "????")
+    pendingProposal.value = proposal
+  }
+}
+
+function cancelProposal() {
+  pendingProposal.value = null
 }
 
 function scrollToBottom() { 
@@ -435,6 +489,30 @@ html.dark .msg-bubble :deep(code) {
   align-items: center; 
   gap: 8px; 
   color: var(--app-text-secondary);
+}
+
+.proposal-banner {
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--el-color-warning-light-5);
+  background: var(--el-color-warning-light-9);
+}
+.proposal-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--el-color-warning-dark-2);
+  margin-bottom: 6px;
+}
+.proposal-desc {
+  font-size: 13px;
+  color: var(--app-text-primary);
+  margin-bottom: 10px;
+  word-break: break-all;
+}
+.proposal-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .chat-input { 

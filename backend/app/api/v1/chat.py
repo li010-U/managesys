@@ -1,4 +1,4 @@
-﻿"""消息/AI对话API路由"""
+"""消息/AI对话API路由"""
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from sqlalchemy import select, desc
@@ -16,6 +16,7 @@ from app.models.user import User
 from app.models.chat import ChatConversation, ChatMessage
 from app.services.assistant_service import AssistantService
 from app.services.llm_service import llm_service, LLMNotConfiguredError
+from app.services import ai_tools
 
 router = APIRouter(prefix="/chat", tags=["消息管理"])
 
@@ -48,6 +49,7 @@ class SendMessageRequest(BaseModel):
 class SendMessageResponse(BaseModel):
     conversation_id: int
     message: MessageResponse
+    proposal: Optional[dict] = None
 
 
 MOCK_RESPONSES = [
@@ -256,6 +258,35 @@ async def delete_conversation(
     return {"message": "已删除"}
 
 
+
+class ToolExecuteRequest(BaseModel):
+    tool: str = Field(..., max_length=64, description="tool name")
+    args: dict = Field(default_factory=dict, description="tool arguments")
+
+
+@router.post("/tools/execute")
+async def execute_tool(
+    req: ToolExecuteRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Execute a user-confirmed write tool (e.g. create work order / handle alert).
+
+    This endpoint is the ONLY place that runs AI-proposed write operations. It is
+    triggered by an explicit confirmation action in the chat UI, never by raw LLM
+    output, so the model cannot mutate state without a human click.
+    """
+    try:
+        result = await ai_tools.execute(
+            db, req.tool, req.args, current_user.username
+        )
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+    except Exception:
+        return JSONResponse(status_code=500, content={"detail": "tool execution failed"})
+    return {"ok": True, "result": result}
+
+
 @router.post("/messages", response_model=SendMessageResponse)
 async def send_message(
     req: SendMessageRequest,
@@ -308,7 +339,9 @@ async def send_message(
     await db.flush()
     conv.updated_at = ai_msg.created_at
     await with_commit_retry(db.commit)
-    
+
+    proposal = ai_tools.parse_proposal(req.content, ai_content)
+
     return SendMessageResponse(
         conversation_id=conv.id,
         message=MessageResponse(
@@ -317,6 +350,7 @@ async def send_message(
             content=ai_msg.content,
             created_at=ai_msg.created_at.isoformat() if ai_msg.created_at else "",
         ),
+        proposal=proposal,
     )
 
 
@@ -405,6 +439,10 @@ async def send_message_stream(
 
             full_content = _guard_content(full_content)
             await _save_assistant_reply(conv_id, full_content)
+            proposal = ai_tools.parse_proposal(req.content, full_content)
+            if proposal:
+                import json as _json
+                yield f"data: [TOOL_PROPOSAL] {_json.dumps(proposal, ensure_ascii=False)}\n\n"
             yield f"data: [DONE]\n\n"
 
         except asyncio.CancelledError:
