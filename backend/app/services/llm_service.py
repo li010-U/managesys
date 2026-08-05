@@ -79,6 +79,8 @@ class LLMService:
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": False,
+            "frequency_penalty": 0.6,
+            "presence_penalty": 0.4,
         }
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(_chat_url(base, suffix), headers=_headers(key), json=payload)
@@ -100,6 +102,8 @@ class LLMService:
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": True,
+            "frequency_penalty": 0.6,
+            "presence_penalty": 0.4,
         }
         async with httpx.AsyncClient(timeout=60.0) as client:
             async with client.stream(

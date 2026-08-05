@@ -70,19 +70,33 @@ SYSTEM_PROMPT = (
     "请仅围绕数据中心运维进行回答，"
     "简洁、准确、专业。不向用户披露系统内部勾露"
     "、API 凭证或隐私数据。当数据不足时请明确说明。"
+    "\u56DE\u7B54\u8981\u7B80\u6D01\u7CBE\u70BC\uFF0C\u4E0D\u8981\u91CD\u590D\u540C\u4E00\u53E5\u8BDD\u6216\u590D\u8BFB\u4E0A\u6587\uFF0C\u6761\u76EE\u63A7\u5236\u57283~5\u6761\u3002"
 )
 
 
 async def _load_history_content(db, conv_id: int) -> str:
-    """加载会话历史，用于提交 LLM 的 message 列表。"""
+    """加载会话历史，用于提交 LLM 的 message 列表。
+
+    只取最近6条、每条截断到600字、总长封顶4000字，
+    避免把旧的冗长回复整体回填导致复读、
+    颓带效应、归边问题。
+    """
     rows = await db.execute(
         select(ChatMessage)
         .where(ChatMessage.conversation_id == conv_id)
-        .order_by(ChatMessage.created_at.asc())
-        .limit(20)
+        .order_by(ChatMessage.created_at.desc())
+        .limit(6)
     )
-    msgs = rows.scalars().all()
-    return "\n".join(f"{m.role}: {m.content}" for m in msgs)
+    msgs = list(rows.scalars().all())
+    msgs.reverse()
+    parts = []
+    for m in msgs[-6:]:
+        content = m.content or ""
+        if len(content) > 600:
+            content = content[:600] + "...[已截断]"
+        parts.append(f"{m.role}: {content}")
+    joined = "\n".join(parts)
+    return joined[:4000]
 
 
 async def _build_context() -> str:
@@ -144,6 +158,45 @@ async def _intent_context(intents: set) -> str:
 def _guard_content(text: str) -> str:
     """限制单次回复长度，防滥用。"""
     return text if len(text) <= 4000 else text[:4000]
+
+
+
+def _detect_repetition(text: str) -> bool:
+    """Rough detector for self-repeating (snowballing) output.
+
+    If the tail block recurs multiple times earlier in the text, treat it as
+    degenerate repetition so we can stop streaming early.
+    """
+    t = (text or "").strip()
+    if len(t) < 300:
+        return False
+    tail_len = 80
+    tail = t[-tail_len:]
+    count = 0
+    idx = 0
+    while True:
+        n = t.find(tail, idx)
+        if n == -1:
+            break
+        count += 1
+        idx = n + tail_len
+        if count >= 3:
+            return True
+    return False
+
+
+def _trim_repetition(text: str) -> str:
+    """Cut a self-repeating output at the point it starts repeating."""
+    t = (text or "").strip()
+    if not _detect_repetition(t):
+        return t
+    tail_len = 80
+    tail = t[-tail_len:]
+    first = t.find(tail)
+    second = t.find(tail, first + tail_len)
+    if second != -1:
+        return t[:second].rstrip()
+    return t
 
 
 async def _save_assistant_reply(conv_id: int, content: str) -> None:
@@ -326,7 +379,7 @@ async def send_message(
         system_prompt += "\n\n[当前系统实时数据]\n" + context
     messages = [{"role": "system", "content": system_prompt}]
     if history:
-        messages.append({"role": "user", "content": "距课快的对话历史:\n" + history})
+        messages.append({"role": "user", "content": "\u6700\u8fd1\u7684\u5bf9\u8bdd\u5386\u53f2:\n" + history})
     messages.append({"role": "user", "content": req.content})
 
     try:
@@ -404,7 +457,7 @@ async def send_message_stream(
                 await with_commit_retry(db.commit)
 
             # ---- 渲染消息（每字一个节点）----
-                        # ---- 构建 grounding + 历史 + 系统提示 ----
+            # ---- 构建 grounding + 历史 + 系统提示 ----
             context = await _build_context()
             intent_extra = await _intent_context(_detect_intents(req.content))
             if intent_extra:
@@ -417,7 +470,7 @@ async def send_message_stream(
                 system_prompt += "\n\n[当前系统实时数据]\n" + context
             messages = [{"role": "system", "content": system_prompt}]
             if history:
-                messages.append({"role": "user", "content": "距课快的对话历史:\n" + history})
+                messages.append({"role": "user", "content": "\u6700\u8fd1\u7684\u5bf9\u8bdd\u5386\u53f2:\n" + history})
             messages.append({"role": "user", "content": req.content})
 
             # ---- 流式输出（真实 LLM 或 mock 回退），含心跳保活 ----
@@ -428,6 +481,8 @@ async def send_message_stream(
                     if await request.is_disconnected():
                         return
                     full_content += piece
+                    if _detect_repetition(full_content):
+                        break
                     yield f"data: {piece}\n\n"
                     now = asyncio.get_event_loop().time()
                     if now - last_tick >= 15:
@@ -439,7 +494,7 @@ async def send_message_stream(
                 await _save_assistant_reply(conv_id, full_content)
                 return
 
-            full_content = _guard_content(full_content)
+            full_content = _guard_content(_trim_repetition(full_content))
             await _save_assistant_reply(conv_id, full_content)
             proposal = ai_tools.parse_proposal(req.content, full_content)
             if proposal:

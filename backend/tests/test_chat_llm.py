@@ -47,3 +47,18 @@ def test_send_message_request_length_guard():
         SendMessageRequest(content="")
     with pytest.raises(ValidationError):
         SendMessageRequest(content="A" * 4001)
+def test_detect_repetition_snowball():
+    from app.api.v1.chat import _detect_repetition, _trim_repetition
+    base = "\u6839\u636e\u5f53\u524d\u7cfb\u7edf\u6570\u636e\uff0c\u4eca\u65e5\u8fd0\u7ef4\u5efa\u8bae\u5982\u4e0b\uff1a1. \u544a\u8b66\u5904\u7406\uff1a\u5f53\u524d\u5f85\u5904\u7406\u544a\u8b66\u4e3a0\uff0c\u5df2\u786e\u8ba420\u6761\uff0c\u5efa\u8bae\u5c3d\u5feb\u6838\u5b9e"
+    roll = base * 30
+    assert _detect_repetition(roll) is True
+    trimmed = _trim_repetition(roll)
+    assert len(trimmed) < len(roll)
+    assert _detect_repetition(trimmed) is False
+
+
+def test_detect_repetition_normal_text():
+    from app.api.v1.chat import _detect_repetition, _trim_repetition
+    normal = "\u4eca\u65e5\u8fd0\u7ef4\u5efa\u8bae\u5982\u4e0b\uff1a\u4f20\u611f\u5668\u72b6\u6001\u826f\u597d\uff0c\u5171\u670968\u4e2a\u4f20\u611f\u5668\u5728\u7ebf\uff0c\u8fd0\u884c\u5e73\u7a33\u3002"
+    assert _detect_repetition(normal) is False
+    assert _trim_repetition(normal) == normal
