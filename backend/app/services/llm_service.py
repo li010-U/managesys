@@ -21,25 +21,38 @@ class LLMNotConfiguredError(RuntimeError):
     """??? LLM API Key ??????????"""
 
 
+_CHAT_SUFFIX_OPENAI = "/v1/chat/completions"
+_CHAT_SUFFIX_INTERNAL = "/chat/completions"
+
+
 def _provider_config():
     provider = (settings.LLM_PROVIDER or "deepseek").strip().lower()
     if provider == "deepseek":
         key = settings.DEEPSEEK_API_KEY
         base = settings.DEEPSEEK_BASE_URL
         model = settings.LLM_MODEL or "deepseek-chat"
+        suffix = _CHAT_SUFFIX_OPENAI
     elif provider == "openai":
         key = settings.OPENAI_API_KEY
         base = settings.OPENAI_BASE_URL
         model = settings.LLM_MODEL or "gpt-4o-mini"
+        suffix = _CHAT_SUFFIX_OPENAI
+    elif provider == "internal":
+        key = settings.INTERNAL_LLM_KEY
+        base = settings.INTERNAL_LLM_BASE_URL
+        model = settings.LLM_MODEL or "deepseek-chat"
+        suffix = _CHAT_SUFFIX_INTERNAL
     else:
         raise LLMNotConfiguredError(f"unknown LLM provider: {provider}")
     if not key:
         raise LLMNotConfiguredError(f"LLM provider '{provider}' API key is not configured")
-    return provider, key, base.rstrip("/"), model
+    if not base:
+        raise LLMNotConfiguredError(f"LLM provider '{provider}' base url is not configured")
+    return provider, key, base.rstrip("/"), model, suffix
 
 
-def _chat_url(base: str) -> str:
-    return f"{base}/v1/chat/completions"
+def _chat_url(base: str, suffix: str) -> str:
+    return f"{base}{suffix}"
 
 
 def _headers(key: str) -> Dict[str, str]:
@@ -59,7 +72,7 @@ class LLMService:
         max_tokens: int = 1024,
     ) -> str:
         """?????????????"""
-        provider, key, base, model = _provider_config()
+        provider, key, base, model, suffix = _provider_config()
         payload = {
             "model": model,
             "messages": messages,
@@ -68,7 +81,7 @@ class LLMService:
             "stream": False,
         }
         async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(_chat_url(base), headers=_headers(key), json=payload)
+            resp = await client.post(_chat_url(base, suffix), headers=_headers(key), json=payload)
             resp.raise_for_status()
             data = resp.json()
         return data["choices"][0]["message"]["content"] or ""
@@ -80,7 +93,7 @@ class LLMService:
         max_tokens: int = 1024,
     ) -> AsyncIterator[str]:
         """??????????????"""
-        provider, key, base, model = _provider_config()
+        provider, key, base, model, suffix = _provider_config()
         payload = {
             "model": model,
             "messages": messages,
@@ -90,7 +103,7 @@ class LLMService:
         }
         async with httpx.AsyncClient(timeout=60.0) as client:
             async with client.stream(
-                "POST", _chat_url(base), headers=_headers(key), json=payload
+                "POST", _chat_url(base, suffix), headers=_headers(key), json=payload
             ) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():

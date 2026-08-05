@@ -1,4 +1,4 @@
-﻿"""应用配置"""
+"""应用配置"""
 from pydantic_settings import BaseSettings
 from typing import Optional, List
 
@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
     OPENAI_API_KEY: str = ""
     OPENAI_BASE_URL: str = "https://api.openai.com"
+    # internal / self-hosted OpenAI-compatible endpoint (e.g. coding paas v4)
+    INTERNAL_LLM_KEY: str = ""
+    INTERNAL_LLM_BASE_URL: str = ""
     LLM_MODEL: str = "deepseek-chat"
 
     # ===== CORS =====
