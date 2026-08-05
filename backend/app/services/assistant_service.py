@@ -16,6 +16,32 @@ from app.models.device import Device
 from app.models.facility import Room, Rack
 from app.models.sensor import Sensor
 
+
+from app.core.cache import AsyncTTLSingleFlight
+
+# \u5168\u5c40\u77ed TTL \u5feb\u7167\u7f13\u5b58\uff1a\u591a\u4eba\u540c\u65f6\u5728\u7ebf\u65f6\u5171\u4eab\u540c\u4e00\u4efd\u5b9e\u65f6\u5feb\u7167
+# \u907f\u514d\u6bcf\u4e2a\u684c\u5ba0 tick / \u8f6e\u8be2 / \u5bf9\u8bdd\u90fd\u91cd\u5efa\u4e00\u6b21\u6570\u636e\u5e93\u5feb\u7167\uff08\u51cf\u5c11\u8bf7\u6c42\u4e0e DB \u67e5\u8be2\u653e\u5927\uff09
+_snapshot_cache = AsyncTTLSingleFlight(ttl_seconds=4.0)
+
+
+async def _build_snapshot_with_session() -> dict:
+    """\u5728\u72ec\u7acb\u4f1a\u8bdd\u4e2d\u6784\u5efa\u4e00\u6b21\u5b9e\u65f6\u5feb\u7167\uff08\u4f9b\u7f13\u5b58 loader \u4f7f\u7528\uff09\u3002"""
+    from app.db.session import async_session_factory
+
+    async with async_session_factory() as db:
+        service = AssistantService(db)
+        return await service.build_snapshot()
+
+
+async def get_cached_snapshot() -> dict:
+    """\u8fd4\u56de\u5e26 TTL + singleflight \u7684\u5b9e\u65f6\u5feb\u7167\u3002"""
+    return await _snapshot_cache.get_or_load(_build_snapshot_with_session)
+
+
+def invalidate_snapshot_cache() -> None:
+    """\u6570\u636e\u53d1\u751f\u53d8\u5316\u540e\u8c03\u7528\uff0c\u5f3a\u5236\u5237\u65b0\u5feb\u7167\u7f13\u5b58\u3002"""
+    _snapshot_cache.invalidate()
+
 # 指标中文名 / 单位
 SENSOR_UNITS = {
     "temperature": "℃",

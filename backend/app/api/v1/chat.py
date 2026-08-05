@@ -14,7 +14,7 @@ from app.db.retry import with_commit_retry
 from app.db.session import async_session_factory
 from app.models.user import User
 from app.models.chat import ChatConversation, ChatMessage
-from app.services.assistant_service import AssistantService
+from app.services.assistant_service import AssistantService, get_cached_snapshot
 from app.services.llm_service import llm_service, LLMNotConfiguredError
 from app.services import ai_tools
 
@@ -100,12 +100,12 @@ async def _load_history_content(db, conv_id: int) -> str:
 
 
 async def _build_context() -> str:
-    """获取实时业务上下文（grounding）。"""
+    """\u83b7\u53d6\u5b9e\u65f6\u4e1a\u52a1\u4e0a\u4e0b\u6587\uff08grounding\uff0c\u5e26\u77ed TTL \u7f13\u5b58\uff09\u3002"""
     try:
-        async with async_session_factory() as db:
-            service = AssistantService(db)
-            snapshot = await service.build_snapshot()
-            return service.build_context_text(snapshot)
+        snapshot = await get_cached_snapshot()
+        service = AssistantService.__new__(AssistantService)
+        service.db = None  # build_context_text \u4ec5\u4f9d\u8d56\u5feb\u7167\u5b57\u5178\uff0c\u65e0\u9700\u4f1a\u8bdd
+        return service.build_context_text(snapshot)
     except Exception:
         return ""
 

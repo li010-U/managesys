@@ -313,7 +313,7 @@ function connectSSE(url: string, token: string | null) {
 let streamActive = false
 function startPolling() {
   if (pollTimer) return
-  pollTimer = setInterval(() => applyData(null), 8000)
+  pollTimer = setInterval(() => applyData(null), 15000)
 }
 
 function stopStreaming() {

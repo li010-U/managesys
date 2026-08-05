@@ -1,0 +1,53 @@
+"""?????????
+
+??? TTL ?????? + singleflight???????
+- ?? TTL ?????????????????????????????
+- ??????? / ????????????????????????????
+
+?????????????????????????????
+"""
+import asyncio
+import time
+import weakref
+from typing import Any, Awaitable, Callable, Optional, Tuple
+
+
+class AsyncTTLSingleFlight:
+    """? TTL ???????????? merge ??????"""
+
+    def __init__(self, ttl_seconds: float = 4.0):
+        self.ttl_seconds = ttl_seconds
+        self._by_loop = weakref.WeakKeyDictionary()
+
+    def _state(self):
+        loop = asyncio.get_running_loop()
+        st = self._by_loop.get(loop)
+        if st is None:
+            st = {"value": None, "expire": 0.0, "lock": None, "pending": None}
+            self._by_loop[loop] = st
+        return st
+
+    async def get_or_load(self, loader: Callable[[], Awaitable[Any]]) -> Any:
+        st = self._state()
+        now = time.monotonic()
+        # ????
+        if st["value"] is not None and now < st["expire"]:
+            return st["value"]
+
+        if st["lock"] is None:
+            st["lock"] = asyncio.Lock()
+        lock = st["lock"]
+
+        async with lock:
+            # ?????????????????
+            if st["value"] is not None and time.monotonic() < st["expire"]:
+                return st["value"]
+            value = await loader()
+            st["value"] = value
+            st["expire"] = time.monotonic() + self.ttl_seconds
+            return value
+
+    def invalidate(self) -> None:
+        for st in self._by_loop.values():
+            st["value"] = None
+            st["expire"] = 0.0
