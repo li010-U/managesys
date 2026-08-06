@@ -550,10 +550,10 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .pet-assistant { position: fixed; z-index: 3000; user-select: none; }
-.pet-body { position: absolute; left: 0; top: 0; width: 72px; height: 76px; cursor: pointer; transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.pet-body { position: absolute; left: 0; top: 0; width: 92px; height: 98px; cursor: pointer; transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }
 .pet-body:hover { transform: translateY(-4px) scale(1.06); }
 .pet-char {
-  display: block; width: 68px; height: 72px; margin: 2px;
+  display: block; width: 88px; height: 94px; margin: 2px;
   overflow: visible;
   filter: drop-shadow(0 10px 22px rgba(59, 130, 246, 0.4));
   animation: breathe 3.4s ease-in-out infinite;
