@@ -572,7 +572,7 @@ const rules = {
 const loadStats = async () => {
   try {
     const res = await getWorkOrderStats()
-    stats.value = res.data
+    stats.value = res.data.data
   } catch (e) {
     console.error(e)
   }
@@ -588,8 +588,8 @@ const loadData = async () => {
       ...searchForm
     }
     const res = await getWorkOrderList(params)
-    workOrders.value = res.data
-    pagination.total = res.data?.length || 0
+    workOrders.value = res.data.data || []
+    pagination.total = res.data.total ?? res.data.data?.length ?? 0
   } catch (e) {
     console.error(e)
   } finally {
@@ -606,8 +606,8 @@ const loadOptions = async () => {
       getDevicesApi({ page: 1, page_size: 1000 }),
       getAllRoomsApi()
     ])
-    categories.value = catRes.data || []
-    assignableUsers.value = userRes.data || []
+    categories.value = catRes.data?.data || []
+    assignableUsers.value = userRes.data?.data || []
     devices.value = deviceRes.data.items || []
     facilities.value = facilityRes.data || []
   } catch (e) {
@@ -649,7 +649,7 @@ const handleCreate = () => {
 const handleView = async (row: any) => {
   try {
     const res = await getWorkOrderDetail(row.id)
-    currentOrder.value = res.data
+    currentOrder.value = res.data.data
     detailVisible.value = true
   } catch (e) {
     console.error(e)
@@ -853,7 +853,7 @@ const loadDetail = async () => {
   if (!currentOrder.value) return
   try {
     const res = await getWorkOrderDetail(currentOrder.value.id)
-    currentOrder.value = res.data
+    currentOrder.value = res.data.data
   } catch (e) {
     console.error(e)
   }

@@ -98,6 +98,9 @@ async def get_work_orders(
         LIMIT {page_size} OFFSET {offset}
     """
     
+    total_sql = f"SELECT COUNT(*) AS cnt FROM work_orders w WHERE {where_clause}"
+    total = (await exec_sql(db, total_sql, tuple(params))).scalar() or 0
+
     result = await exec_sql(db, sql, tuple(params))
     rows = result.fetchall()
     
@@ -112,7 +115,10 @@ async def get_work_orders(
                 "plan_date": r.plan_date, "created_at": r.created_at, "updated_at": r.updated_at
             }
             for r in rows
-        ]
+        ],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
     }
 
 
