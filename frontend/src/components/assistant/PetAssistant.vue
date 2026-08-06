@@ -9,16 +9,21 @@
     <div
       class="pet-body"
       :class="'mood-' + (advisor?.status || 'healthy')"
-      @click="togglePanel"
+      @click="onBodyClick"
+      @mousemove="onBodyMove"
+      @mouseleave="onBodyLeave"
       :title="advisor?.mood || ''"
+      :style="bodyStyle"
     >
-      <div class="pet-char" :class="{ sleeping: !panelOpen && !hasReminder }">
+      <div class="pet-char" :class="{ sleeping: !panelOpen && !hasReminder, squash: squash, jumping: hasReminder && !panelOpen }">
         <div class="eye left-eye">
           <div class="pupil"></div>
         </div>
         <div class="eye right-eye">
           <div class="pupil"></div>
         </div>
+        <div class="brow left-brow"></div>
+        <div class="brow right-brow"></div>
         <div class="mouth"></div>
         <div class="antenna">
           <div class="antenna-ball" :class="{ 'blink-warning': dangerCount > 0 }"></div>
@@ -177,6 +182,19 @@ const currentBubble = ref<Reminder | null>(null)
 const seenTitles = ref<Set<string>>(new Set())
 const showAll = ref(false)
 
+// 形象互动：瞳孔跟随 / 表情 / 点击反馈
+const eyeX = ref(0)
+const eyeY = ref(0)
+const squash = ref(false)
+const gaze = ref(false)
+let gazeTimer: ReturnType<typeof setInterval> | null = null
+let squashTimer: ReturnType<typeof setTimeout> | null = null
+
+const bodyStyle = computed(() => ({
+  "--eye-x": eyeX.value + "px",
+  "--eye-y": eyeY.value + "px",
+}))
+
 let sse: EventSource | null = null
 let streamAbort: AbortController | null = null
 let visibilityHandler: (() => void) | null = null
@@ -238,6 +256,46 @@ function endDrag() {
   persistPosition()
   window.removeEventListener("mousemove", onDrag)
   window.removeEventListener("mouseup", endDrag)
+}
+
+function onBodyClick() {
+  // 点击挤压反馈（squash & stretch）
+  if (squash.value) return
+  squash.value = true
+  if (squashTimer) clearTimeout(squashTimer)
+  squashTimer = setTimeout(() => { squash.value = false; squashTimer = null }, 260)
+  togglePanel()
+}
+
+function onBodyMove(e: MouseEvent) {
+  const el = e.currentTarget as HTMLElement
+  const rect = el.getBoundingClientRect()
+  const cx = rect.left + rect.width / 2
+  const cy = rect.top + rect.height / 2
+  // 瞳孔朝向鼠标（限制在 ±2.5px 内，保持自然不贴边）
+  eyeX.value = clamp((e.clientX - cx) / 16, -2.5, 2.5)
+  eyeY.value = clamp((e.clientY - cy) / 16, -2.5, 2.5)
+}
+
+function onBodyLeave() {
+  eyeX.value = 0
+  eyeY.value = 0
+}
+
+function clamp(v: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, v))
+}
+
+function randomGaze() {
+  if (!gaze) return
+  const x = Math.round((Math.random() * 2 - 1) * 2)
+  const y = Math.round((Math.random() * 2 - 1) * 1.5)
+  eyeX.value = x
+  eyeY.value = y
+  setTimeout(() => {
+    eyeX.value = 0
+    eyeY.value = 0
+  }, 900)
 }
 
 function togglePanel() {
@@ -439,6 +497,11 @@ onMounted(() => {
   restorePosition()
   applyData(null)
   startStreaming()
+  // 空闲时随机张望，让桌宠更有生气
+  gaze.value = true
+  gazeTimer = setInterval(() => {
+    if (!panelOpen.value && Math.random() < 0.6) randomGaze()
+  }, 5000)
   bubbleTimer = setInterval(() => {
     if (!panelOpen.value) rotateBubble()
   }, 9000)
@@ -456,29 +519,61 @@ onBeforeUnmount(() => {
   if (visibilityHandler) document.removeEventListener("visibilitychange", visibilityHandler)
   stopStreaming()
   if (bubbleTimer) clearTimeout(bubbleTimer)
+  if (gazeTimer) clearInterval(gazeTimer)
+  if (squashTimer) clearTimeout(squashTimer)
 })
 </script>
 
 <style scoped>
 .pet-assistant { position: fixed; z-index: 3000; user-select: none; }
-.pet-body { position: absolute; left: 0; top: 0; width: 72px; height: 76px; cursor: pointer; transition: transform 0.25s; }
-.pet-body:hover { transform: translateY(-4px); }
+.pet-body { position: absolute; left: 0; top: 0; width: 72px; height: 76px; cursor: pointer; transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.pet-body:hover { transform: translateY(-4px) scale(1.06); }
 .pet-char {
   position: relative; width: 64px; height: 64px; margin: 4px;
   border-radius: 46% 54% 50% 50% / 44% 44% 56% 56%;
   background: linear-gradient(145deg, #7dd3fc, #3b82f6);
   box-shadow: 0 10px 24px rgba(59, 130, 246, 0.45);
-  animation: idle 3.2s ease-in-out infinite;
+  animation: breathe 3.4s ease-in-out infinite;
+  transform-origin: center 70%;
 }
+.pet-char.squash { animation: squash 0.26s ease-in-out; }
+.pet-char.jumping { animation: jump 0.9s ease-in-out infinite; }
 .pet-char::after { display: none; }
-.eye { position: absolute; width: 9px; height: 12px; background: #1e293b; border-radius: 50%; top: 26px; overflow: hidden; animation: blink 4s infinite; }
-.left-eye { left: 18px; } .right-eye { right: 18px; }
-.pupil { width: 4px; height: 4px; background: #fff; border-radius: 50%; position: absolute; bottom: 1px; left: 2px; }
+.eye {
+  position: absolute; top: 26px; width: 12px; height: 14px;
+  display: flex; align-items: center; justify-content: center;
+  background: #1e293b; border-radius: 50%; overflow: hidden;
+  animation: blink 4s infinite;
+  z-index: 2;
+}
+.left-eye { left: 17px; } .right-eye { right: 17px; }
+.pupil {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: #fff; flex-shrink: 0;
+  transform: translate(calc(var(--eye-x, 0px)), calc(var(--eye-y, 0px)));
+  transition: transform 0.12s ease-out;
+}
+.brow { position: absolute; width: 10px; height: 3px; background: #1e293b; border-radius: 2px; top: 19px; transition: transform 0.25s ease; z-index: 3; }
+.left-brow { left: 15px; } .right-brow { right: 15px; }
+/* ===== 健康：微笑 + 放松（眉毛两端上翘） ===== */
+.mood-healthy .left-brow { transform: rotate(10deg); }
+.mood-healthy .right-brow { transform: rotate(-10deg); }
+.mood-healthy .mouth { width: 16px; }
+/* ===== 一般：平淡（眉毛内端下压） ===== */
+.mood-attention .left-brow { transform: rotate(-8deg); }
+.mood-attention .right-brow { transform: rotate(8deg); }
+.mood-attention .eye { height: 10px; top: 28px; }
+.mood-attention .mouth { width: 10px; height: 5px; border-radius: 3px; }
+/* ===== 告警：瞪眼 + 张嘴（眉毛竖起、瞳孔变大变红） ===== */
+.mood-alert .eye { width: 13px; height: 15px; background: #7f1d1d; top: 25px; }
+.mood-alert .pupil { width: 6px; height: 6px; background: #fecaca; }
+.mood-alert .left-brow { transform: rotate(20deg) translateY(1px); }
+.mood-alert .right-brow { transform: rotate(-20deg) translateY(1px); }
+.mood-alert .mouth { width: 12px; height: 10px; border: 2.5px solid #7f1d1d; border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%; }
 .mood-alert .pet-char { background: linear-gradient(145deg, #fca5a5, #ef4444); box-shadow: 0 10px 24px rgba(239,68,68,0.5); }
-.mood-alert .eye { background: #7f1d1d; }
 .mood-attention .pet-char { background: linear-gradient(145deg, #fcd34d, #f59e0b); box-shadow: 0 10px 24px rgba(245,158,11,0.5); }
-.mouth { position: absolute; left: 50%; transform: translateX(-50%); bottom: 14px; width: 18px; height: 8px; border-bottom: 2.5px solid #1e293b; border-radius: 0 0 12px 12px; }
-.mood-healthy .mouth { width: 16px; height: 9px; border: 2.5px solid #1e293b; border-top: none; border-radius: 0 0 16px 16px; }
+.mouth { position: absolute; left: 50%; transform: translateX(-50%); bottom: 14px; width: 18px; height: 8px; border-bottom: 2.5px solid #1e293b; border-radius: 0 0 12px 12px; transition: all 0.25s ease; }
+.mood-healthy .mouth { height: 9px; border: 2.5px solid #1e293b; border-top: none; border-radius: 0 0 16px 16px; }
 .antenna { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); width: 2px; height: 12px; background: #64748b; }
 .antenna-ball { position: absolute; top: -8px; left: 50%; transform: translateX(-50%); width: 10px; height: 10px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,0.8); }
 .antenna-ball.blink-warning { background: #ef4444; box-shadow: 0 0 10px rgba(239,68,68,0.9); animation: blink-warning 1s infinite; }
@@ -532,7 +627,9 @@ onBeforeUnmount(() => {
 .icon-trend { background: #8b5cf6; }
 .panel-footer { display: flex; align-items: center; gap: 6px; color: #3b82f6; font-size: 12px; font-weight: 600; padding: 10px; border-top: 1px solid #e2e8f0; margin-top: 8px; cursor: pointer; }
 .foot-arrow { margin-left: auto; }
-@keyframes idle { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-3px) rotate(-1deg); } }
+@keyframes breathe { 0%,100% { transform: translateY(0) scaleY(1); } 50% { transform: translateY(-3px) scaleY(1.02); } }
+@keyframes jump { 0%,100% { transform: translateY(0); } 30% { transform: translateY(-8px) rotate(-2deg); } 55% { transform: translateY(-2px) scaleY(0.96); } 75% { transform: translateY(-5px); } }
+@keyframes squash { 0% { transform: scale(1.25, 0.75); } 50% { transform: scale(0.92, 1.12); } 100% { transform: scale(1, 1); } }
 @keyframes blink { 0%,92%,100% { transform: scaleY(1); } 95% { transform: scaleY(0.05); } }
 @keyframes blink-warning { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 @keyframes spin { to { transform: rotate(360deg); } }
