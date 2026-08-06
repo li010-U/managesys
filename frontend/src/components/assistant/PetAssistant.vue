@@ -15,20 +15,44 @@
       :title="advisor?.mood || ''"
       :style="bodyStyle"
     >
-      <div class="pet-char" :class="{ sleeping: !panelOpen && !hasReminder, squash: squash, jumping: hasReminder && !panelOpen }">
-        <div class="eye left-eye">
-          <div class="pupil"></div>
-        </div>
-        <div class="eye right-eye">
-          <div class="pupil"></div>
-        </div>
-        <div class="brow left-brow"></div>
-        <div class="brow right-brow"></div>
-        <div class="mouth"></div>
-        <div class="antenna">
-          <div class="antenna-ball" :class="{ 'blink-warning': dangerCount > 0 }"></div>
-        </div>
-      </div>
+      <svg
+        class="pet-char"
+        :class="{ sleeping: !panelOpen && !hasReminder, squash: squash, jumping: hasReminder && !panelOpen }"
+        viewBox="0 0 72 76"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <!-- 天线 -->
+        <line class="antenna" x1="36" y1="17" x2="36" y2="7" stroke="#64748b" stroke-width="2.2" stroke-linecap="round"/>
+        <circle class="antenna-ball" cx="36" cy="6" r="4.5" :class="{ 'blink-warning': dangerCount > 0 }"/>
+        <!-- 耳朵 -->
+        <ellipse class="ear" cx="10" cy="42" rx="6" ry="8"/>
+        <ellipse class="ear" cx="62" cy="42" rx="6" ry="8"/>
+        <!-- 身体 -->
+        <ellipse class="svg-body" cx="36" cy="45" rx="27" ry="28"/>
+        <ellipse class="svg-body-high" cx="36" cy="30" rx="19" ry="16"/>
+        <!-- 腮红 -->
+        <circle class="cheek" cx="21" cy="52" r="3.6"/>
+        <circle class="cheek" cx="51" cy="52" r="3.6"/>
+        <!-- 眼睛 -->
+        <g class="eye left-eye">
+          <ellipse class="eyeball" cx="28" cy="42" rx="4.5" ry="5.3"/>
+          <circle class="pupil" cx="28" cy="42" r="2.3"/>
+        </g>
+        <g class="eye right-eye">
+          <ellipse class="eyeball" cx="44" cy="42" rx="4.5" ry="5.3"/>
+          <circle class="pupil" cx="44" cy="42" r="2.3"/>
+        </g>
+        <!-- 眉毛 -->
+        <line class="brow left-brow" x1="22" y1="32" x2="33" y2="29"/>
+        <line class="brow right-brow" x1="50" y1="29" x2="39" y2="32"/>
+        <!-- 嘴 -->
+        <path class="mouth mouth-smile" d="M30 54 Q36 60 42 54" fill="none" stroke="#1e293b" stroke-width="2.4" stroke-linecap="round"/>
+        <path class="mouth mouth-flat" d="M31 55 L41 55" fill="none" stroke="#1e293b" stroke-width="2.4" stroke-linecap="round"/>
+        <path class="mouth mouth-open" d="M32 53 Q36 61 40 53" fill="#7f1d1d" stroke="#7f1d1d" stroke-width="2.4" stroke-linecap="round"/>
+        <!-- 脚 -->
+        <ellipse class="foot" cx="28" cy="72" rx="7" ry="3.6"/>
+        <ellipse class="foot" cx="44" cy="72" rx="7" ry="3.6"/>
+      </svg>
       <transition name="pop">
         <div v-if="newReminders > 0" class="pet-badge">{{ newReminders }}</div>
       </transition>
@@ -529,54 +553,67 @@ onBeforeUnmount(() => {
 .pet-body { position: absolute; left: 0; top: 0; width: 72px; height: 76px; cursor: pointer; transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }
 .pet-body:hover { transform: translateY(-4px) scale(1.06); }
 .pet-char {
-  position: relative; width: 64px; height: 64px; margin: 4px;
-  border-radius: 46% 54% 50% 50% / 44% 44% 56% 56%;
-  background: linear-gradient(145deg, #7dd3fc, #3b82f6);
-  box-shadow: 0 10px 24px rgba(59, 130, 246, 0.45);
+  display: block; width: 68px; height: 72px; margin: 2px;
+  overflow: visible;
+  filter: drop-shadow(0 10px 22px rgba(59, 130, 246, 0.4));
   animation: breathe 3.4s ease-in-out infinite;
-  transform-origin: center 70%;
+  transform-origin: center 78%;
+  cursor: pointer;
 }
 .pet-char.squash { animation: squash 0.26s ease-in-out; }
 .pet-char.jumping { animation: jump 0.9s ease-in-out infinite; }
-.pet-char::after { display: none; }
-.eye {
-  position: absolute; top: 26px; width: 12px; height: 14px;
-  display: flex; align-items: center; justify-content: center;
-  background: #1e293b; border-radius: 50%; overflow: hidden;
-  animation: blink 4s infinite;
-  z-index: 2;
-}
-.left-eye { left: 17px; } .right-eye { right: 17px; }
+/* ===== 身体与配色 ===== */
+.svg-body { fill: #3b82f6; transition: fill 0.3s ease; }
+.svg-body-high { fill: rgba(255,255,255,0.35); }
+.ear { fill: #5b8cff; transition: fill 0.3s ease; }
+.cheek { fill: rgba(255,161,161,0.55); }
+.foot { fill: rgba(15,23,42,0.16); }
+/* ===== 天线 ===== */
+.antenna { stroke: #64748b; }
+.antenna-ball { fill: #22c55e; box-shadow: none; }
+.antenna-ball.blink-warning { fill: #ef4444; animation: blink-warning 1s infinite; }
+/* ===== 眼睛与瞳孔 ===== */
+.eye { }
+.eyeball { fill: #1e293b; transition: fill 0.25s ease; transform-box: fill-box; transform-origin: center; }
 .pupil {
-  width: 4px; height: 4px; border-radius: 50%;
-  background: #fff; flex-shrink: 0;
-  transform: translate(calc(var(--eye-x, 0px)), calc(var(--eye-y, 0px)));
+  fill: #fff;
+  transform: translate(var(--eye-x, 0px), var(--eye-y, 0px));
   transition: transform 0.12s ease-out;
 }
-.brow { position: absolute; width: 10px; height: 3px; background: #1e293b; border-radius: 2px; top: 19px; transition: transform 0.25s ease; z-index: 3; }
-.left-brow { left: 15px; } .right-brow { right: 15px; }
-/* ===== 健康：微笑 + 放松（眉毛两端上翘） ===== */
-.mood-healthy .left-brow { transform: rotate(10deg); }
-.mood-healthy .right-brow { transform: rotate(-10deg); }
-.mood-healthy .mouth { width: 16px; }
-/* ===== 一般：平淡（眉毛内端下压） ===== */
-.mood-attention .left-brow { transform: rotate(-8deg); }
-.mood-attention .right-brow { transform: rotate(8deg); }
-.mood-attention .eye { height: 10px; top: 28px; }
-.mood-attention .mouth { width: 10px; height: 5px; border-radius: 3px; }
-/* ===== 告警：瞪眼 + 张嘴（眉毛竖起、瞳孔变大变红） ===== */
-.mood-alert .eye { width: 13px; height: 15px; background: #7f1d1d; top: 25px; }
-.mood-alert .pupil { width: 5px; height: 5px; background: #fecaca; }
-.mood-alert .left-brow { transform: rotate(20deg) translateY(1px); }
-.mood-alert .right-brow { transform: rotate(-20deg) translateY(1px); }
-.mood-alert .mouth { width: 12px; height: 10px; border: 2.5px solid #7f1d1d; border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%; }
-.mood-alert .pet-char { background: linear-gradient(145deg, #fca5a5, #ef4444); box-shadow: 0 10px 24px rgba(239,68,68,0.5); }
-.mood-attention .pet-char { background: linear-gradient(145deg, #fcd34d, #f59e0b); box-shadow: 0 10px 24px rgba(245,158,11,0.5); }
-.mouth { position: absolute; left: 50%; transform: translateX(-50%); bottom: 14px; width: 18px; height: 8px; border-bottom: 2.5px solid #1e293b; border-radius: 0 0 12px 12px; transition: all 0.25s ease; }
-.mood-healthy .mouth { height: 9px; border: 2.5px solid #1e293b; border-top: none; border-radius: 0 0 16px 16px; }
-.antenna { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); width: 2px; height: 12px; background: #64748b; }
-.antenna-ball { position: absolute; top: -8px; left: 50%; transform: translateX(-50%); width: 10px; height: 10px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,0.8); }
-.antenna-ball.blink-warning { background: #ef4444; box-shadow: 0 0 10px rgba(239,68,68,0.9); animation: blink-warning 1s infinite; }
+/* ===== 眉毛（SVG 线条绕中心旋转） ===== */
+.brow { stroke: #1e293b; stroke-width: 2.4; stroke-linecap: round; transform-box: fill-box; transform-origin: center; transition: transform 0.25s ease; }
+/* ===== 嘴形（按状态显示/隐藏） ===== */
+.mouth { }
+.mouth-flat { display: none; }
+.mouth-open { display: none; }
+/* ===== 健康：放松上扬眉毛 + 微笑 ===== */
+.mood-healthy .left-brow { transform: rotate(14deg); }
+.mood-healthy .right-brow { transform: rotate(-14deg); }
+.mood-healthy .mouth-smile { display: block; }
+/* ===== 一般：内端下压眉毛 + 平嘴 ===== */
+.mood-attention .left-brow { transform: rotate(-9deg); }
+.mood-attention .right-brow { transform: rotate(9deg); }
+.mood-attention .eyeball { transform: scale(0.92, 0.8); }
+.mood-attention .mouth-flat { display: block; }
+/* ===== 告警：竖眉瞪眼张嘴（眼/身转红） ===== */
+.mood-alert .left-brow { transform: rotate(22deg) translateY(1px); }
+.mood-alert .right-brow { transform: rotate(-22deg) translateY(1px); }
+.mood-alert .eyeball { fill: #7f1d1d; }
+.mood-alert .pupil { fill: #fecaca; }
+.mood-alert .mouth-open { display: block; }
+.mood-alert .svg-body { fill: #ef4444; }
+.mood-alert .ear { fill: #dc2626; }
+.mood-alert .svg-body-high { fill: rgba(255,200,200,0.4); }
+.mood-alert .cheek { fill: rgba(255,200,200,0.5); }
+.mood-alert .antenna-ball { fill: #ef4444; box-shadow: none; }
+.mood-attention .svg-body { fill: #f59e0b; }
+.mood-attention .ear { fill: #d97706; }
+.mood-attention .svg-body-high { fill: rgba(255,235,200,0.4); }
+.mood-healthy .antenna-ball { fill: #22c55e; box-shadow: none; }
+/* 默认隐藏所有嘴形，健康态显微笑已在上方覆盖 */
+.mouth-smile, .mouth-flat, .mouth-open { }
+.mood-attention .mouth-smile, .mood-attention .mouth-open { display: none; }
+.mood-alert .mouth-smile, .mood-alert .mouth-flat { display: none; }
 .pet-badge { position: absolute; top: -2px; right: -2px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: #ef4444; color: #fff; font-size: 11px; line-height: 20px; text-align: center; box-shadow: 0 2px 8px rgba(239,68,68,0.5); }
 .reminder-bubble { position: absolute; left: 84px; top: 0; min-width: 230px; max-width: 300px; background: #fff; border-radius: 14px; box-shadow: 0 12px 32px rgba(15,23,42,0.18); padding: 12px 14px; cursor: pointer; border-left: 4px solid #3b82f6; }
 .reminder-bubble.level-warning { border-left-color: #f59e0b; }
