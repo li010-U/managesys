@@ -90,6 +90,12 @@
 
     <!-- 工单列表 -->
     <el-card class="table-card">
+      <div class="view-toggle">
+        <el-radio-group v-model="viewMode" @change="handleViewModeChange">
+          <el-radio-button value="table">列表</el-radio-button>
+          <el-radio-button value="board">看板</el-radio-button>
+        </el-radio-group>
+      </div>
       <el-table :data="workOrders" v-loading="loading" stripe>
         <el-table-column prop="order_no" label="工单编号" width="180" fixed />
         <el-table-column prop="title" label="工单标题" min-width="200" fixed />
@@ -148,6 +154,42 @@
           @size-change="loadData"
           @current-change="loadData"
         />
+      </div>
+
+      <!-- 看板视图 -->
+      <div class="board-view" v-if="viewMode === 'board'">
+        <div class="board-column" v-for="col in boardColumns" :key="col.status">
+          <div class="board-column-header">
+            <span class="col-dot" :style="{ background: col.color }"></span>
+            <span class="col-name">{{ col.label }}</span>
+            <span class="col-count">{{ boardGroup(col.status).length }}</span>
+          </div>
+          <div class="board-column-body">
+            <div
+              class="board-card"
+              v-for="wo in boardGroup(col.status)"
+              :key="wo.id"
+              @click="handleView(wo)"
+            >
+              <div class="board-card-top">
+                <el-tag :type="getPriorityType(wo.priority)" size="small">
+                  {{ getPriorityLabel(wo.priority) }}
+                </el-tag>
+                <span class="board-no">{{ wo.order_no }}</span>
+              </div>
+              <div class="board-title">{{ wo.title }}</div>
+              <div class="board-meta">
+                <span>{{ wo.category_name || '-' }}</span>
+                <span>处理人: {{ wo.assignee_name || '-' }}</span>
+              </div>
+              <div class="board-foot">
+                <span>{{ formatDate(wo.created_at) }}</span>
+                <el-button link type="primary" size="small" @click.stop="handleView(wo)">查看</el-button>
+              </div>
+            </div>
+            <div class="board-empty" v-if="boardGroup(col.status).length === 0">暂无工单</div>
+          </div>
+        </div>
       </div>
     </el-card>
 
@@ -311,6 +353,58 @@
           </el-timeline>
         </div>
 
+        <!-- 附件 -->
+        <div class="attachment-section">
+          <h4>附件</h4>
+          <el-upload
+            :show-file-list="false"
+            :before-upload="handleBeforeUpload"
+            :http-request="handleUpload"
+            :disabled="currentOrder.status === 'closed'"
+            accept=".png,.jpg,.jpeg,.gif,.pdf,.zip,.rar,.doc,.docx,.xls,.xlsx,.txt,.log"
+          >
+            <el-button type="primary" plain :disabled="currentOrder.status === 'closed'">
+              <el-icon><Upload /></el-icon> 上传附件
+            </el-button>
+          </el-upload>
+          <div v-if="uploading" class="upload-hint">上传中...</div>
+          <div class="attachment-list" v-if="currentOrder.attachments && currentOrder.attachments.length">
+            <div class="attachment-item" v-for="att in currentOrder.attachments" :key="att.id">
+              <el-icon><Paperclip /></el-icon>
+              <span class="att-name" :title="att.file_name">{{ att.file_name }}</span>
+              <span class="att-size">{{ formatFileSize(att.file_size) }}</span>
+              <el-button type="primary" link size="small" @click="handleDownload(att)">下载</el-button>
+              <el-button
+                type="danger" link size="small"
+                v-if="att.uploader_id === userId || isAdmin"
+                @click="handleDeleteAttachment(att)"
+              >删除</el-button>
+            </div>
+          </div>
+          <div v-else class="no-attachment">暂无附件</div>
+        </div>
+
+        <!-- 相关知识 -->
+        <div class="knowledge-section">
+          <div class="knowledge-head">
+            <h4>相关知识</h4>
+            <el-button
+              v-if="['completed', 'closed'].includes(currentOrder.status)"
+              type="success" plain size="small"
+              :loading="kbSaving"
+              @click="handleSaveKnowledge"
+            >沉淀为知识</el-button>
+          </div>
+          <div v-if="knowledgeArticles.length" class="knowledge-list">
+            <div class="knowledge-item" v-for="art in knowledgeArticles" :key="art.id">
+              <el-icon><Reading /></el-icon>
+              <span class="kb-title" :title="art.title">{{ art.title }}</span>
+              <span class="kb-category" v-if="art.category">{{ art.category }}</span>
+            </div>
+          </div>
+          <div v-else class="knowledge-empty">暂无相关知识（完成工单后可沉淀为知识）</div>
+        </div>
+
         <!-- 操作按钮 -->
         <div class="action-buttons" v-if="currentOrder.status !== 'closed'">
           <el-button
@@ -347,6 +441,14 @@
             @click="handleVerify(currentOrder, false)"
           >
             验收不通过
+          </el-button>
+          <el-button
+            v-if="['completed', 'closed'].includes(currentOrder.status)"
+            type="primary" plain
+            @click="handleSaveKnowledge"
+            :loading="kbSaving"
+          >
+            沉淀为知识
           </el-button>
           <el-button
             v-if="['completed', 'closed'].includes(currentOrder.status)"
@@ -388,8 +490,19 @@
               :key="user.id"
               :label="`${user.username} (${user.real_name})`"
               :value="user.id"
-            />
+            >
+              <span class="assign-option">
+                <span>
+                  {{ user.username }} ({{ user.real_name }})
+                  <el-tag v-if="user.id === recommendedAssigneeId" type="success" size="small" style="margin-left: 6px">推荐·负载最低</el-tag>
+                </span>
+                <span class="assign-load">在办 {{ user.workload ?? 0 }}</span>
+              </span>
+            </el-option>
           </el-select>
+          <div class="assign-tip" v-if="recommendedAssigneeId">
+            建议指派给「{{ recommendedUserLabel }}」（当前在办数最少，合理均衡负载）
+          </div>
         </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="assignForm.remark" type="textarea" :rows="2" />
@@ -452,7 +565,7 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Document, Clock, Loading, Check, Search, Refresh, Plus
+  Document, Clock, Loading, Check, Search, Refresh, Plus, Upload, Paperclip, Reading
 } from '@element-plus/icons-vue'
 import {
   getWorkOrderList,
@@ -468,7 +581,12 @@ import {
   closeWorkOrder,
   addWorkOrderComment,
   getWorkOrderCategories,
-  getAssignableUsers
+  getAssignableUsers,
+  uploadWorkOrderAttachment,
+  downloadWorkOrderAttachment,
+  deleteWorkOrderAttachment,
+  recommendKnowledge,
+  createKnowledge
 } from '@/api/workOrder'
 import { getDevicesApi } from '@/api/device'
 import { getAllRoomsApi } from '@/api/facility'
@@ -477,6 +595,10 @@ import { useAuthStore } from '@/stores/auth'
 const authStore = useAuthStore()
 const userId = computed(() => authStore.user?.id)
 const isAdmin = computed(() => authStore.user?.is_super_admin)
+const recommendedUserLabel = computed(() => {
+  const u = assignableUsers.value.find(x => x.id === recommendedAssigneeId.value)
+  return u ? `${u.username} (${u.real_name})` : ''
+})
 
 // 统计数据
 const stats = ref({
@@ -506,8 +628,19 @@ const pagination = reactive({
 // 列表数据
 const workOrders = ref<any[]>([])
 const loading = ref(false)
+const viewMode = ref<'table' | 'board'>('table')
+const boardColumns = [
+  { status: 'pending', label: '待分配', color: '#e6a23c' },
+  { status: 'assigned', label: '已指派', color: '#409eff' },
+  { status: 'processing', label: '处理中', color: '#67c23a' },
+  { status: 'pending_verify', label: '待验收', color: '#a0cfff' },
+  { status: 'completed', label: '已完成', color: '#909399' },
+  { status: 'closed', label: '已关闭', color: '#c0c4cc' }
+]
+const boardGroup = (status: string) => workOrders.value.filter(w => w.status === status)
 const categories = ref<any[]>([])
 const assignableUsers = ref<any[]>([])
+const recommendedAssigneeId = ref<number | null>(null)
 const devices = ref<any[]>([])
 const facilities = ref<any[]>([])
 
@@ -539,6 +672,9 @@ const form = reactive({
 
 // 评论
 const commentContent = ref('')
+const uploading = ref(false)
+const knowledgeArticles = ref<any[]>([])
+const kbSaving = ref(false)
 
 // 指派表单
 const assignForm = reactive({
@@ -607,11 +743,21 @@ const loadOptions = async () => {
       getAllRoomsApi()
     ])
     categories.value = catRes.data?.data || []
-    assignableUsers.value = userRes.data?.data || []
+    assignableUsers.value = (userRes.data?.data || []).sort((a: any, b: any) => (a.workload ?? 0) - (b.workload ?? 0))
+    recommendedAssigneeId.value = userRes.data?.recommended_id ?? null
     devices.value = deviceRes.data.items || []
     facilities.value = facilityRes.data || []
   } catch (e) {
     console.error(e)
+  }
+}
+
+// 视图切换
+const handleViewModeChange = () => {
+  if (viewMode.value === 'board' && pagination.pageSize < 100) {
+    pagination.pageSize = 100
+    pagination.page = 1
+    loadData()
   }
 }
 
@@ -651,8 +797,49 @@ const handleView = async (row: any) => {
     const res = await getWorkOrderDetail(row.id)
     currentOrder.value = res.data.data
     detailVisible.value = true
+    loadKnowledgeRecommend(row.title || '')
   } catch (e) {
     console.error(e)
+  }
+}
+
+// 知识库：按工单标题关键词推荐
+const loadKnowledgeRecommend = async (keyword: string) => {
+  if (!keyword) {
+    knowledgeArticles.value = []
+    return
+  }
+  try {
+    const res = await recommendKnowledge(keyword)
+    knowledgeArticles.value = res?.data?.data || []
+  } catch (e) {
+    knowledgeArticles.value = []
+  }
+}
+
+// 知识库：把已完成的工单沉淀为知识
+const handleSaveKnowledge = async () => {
+  if (!currentOrder.value) return
+  if (!currentOrder.value.result) {
+    ElMessage.warning('请先填写处理结果再沉淀为知识')
+    return
+  }
+  kbSaving.value = true
+  try {
+    const title = `[案例] ${currentOrder.value.title}`
+    const content = `工单编号：${currentOrder.value.order_no}\n分类：${currentOrder.value.category_name || '-'}\n优先级：${getPriorityLabel(currentOrder.value.priority)}\n处理结果：${currentOrder.value.result}\n用户反馈：${currentOrder.value.feedback || '-'}`
+    await createKnowledge({
+      title,
+      category: currentOrder.value.category_name || '工单案例',
+      content,
+      source_order_id: currentOrder.value.id
+    })
+    ElMessage.success('已沉淀为知识，可在相关知识中查看')
+    loadKnowledgeRecommend(currentOrder.value.title || '')
+  } catch (e: any) {
+    ElMessage.error(e?.message || '沉淀失败')
+  } finally {
+    kbSaving.value = false
   }
 }
 
@@ -715,7 +902,7 @@ const handleSubmit = async () => {
 // 指派
 const handleAssign = (row: any) => {
   currentOrder.value = row
-  assignForm.assignee_id = null
+  assignForm.assignee_id = recommendedAssigneeId.value
   assignForm.remark = ''
   assignVisible.value = true
 }
@@ -846,6 +1033,72 @@ const handleAddComment = async () => {
   } catch (e: any) {
     ElMessage.error(e.message || '评论失败')
   }
+}
+
+// 附件：上传前校验
+const handleBeforeUpload = (file: File) => {
+  const maxSize = 10 * 1024 * 1024
+  if (file.size > maxSize) {
+    ElMessage.warning('单个文件不能超过 10MB')
+    return false
+  }
+  return true
+}
+
+// 附件：执行上传
+const handleUpload = async (options: any) => {
+  if (!currentOrder.value) return
+  uploading.value = true
+  try {
+    await uploadWorkOrderAttachment(currentOrder.value.id, options.file)
+    ElMessage.success('上传成功')
+    await loadDetail()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '上传失败')
+  } finally {
+    uploading.value = false
+  }
+}
+
+// 附件：下载
+const handleDownload = async (att: any) => {
+  try {
+    const res: any = await downloadWorkOrderAttachment(att.id)
+    const blob = new Blob([res.data])
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = att.file_name
+    a.click()
+    window.URL.revokeObjectURL(url)
+  } catch (e) {
+    ElMessage.error('下载失败')
+  }
+}
+
+// 附件：删除
+const handleDeleteAttachment = (att: any) => {
+  ElMessageBox.confirm('确定删除该附件吗？', '提示', {
+    confirmButtonText: '确定',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(async () => {
+    try {
+      await deleteWorkOrderAttachment(att.id)
+      ElMessage.success('删除成功')
+      await loadDetail()
+    } catch (e: any) {
+      ElMessage.error(e?.message || '删除失败')
+    }
+  })
+}
+
+// 附件：文件大小格式化
+const formatFileSize = (bytes?: number) => {
+  if (!bytes && bytes !== 0) return '-'
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB'
 }
 
 // 加载详情
@@ -1036,5 +1289,238 @@ onMounted(() => {
 
 .comment-section h4 {
   margin-bottom: 15px;
+}
+
+.attachment-section {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #eee;
+}
+
+.attachment-section h4 {
+  margin-bottom: 15px;
+}
+
+.attachment-list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.attachment-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #f5f7fa;
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.attachment-item .att-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-item .att-size {
+  color: #909399;
+  font-size: 12px;
+}
+
+.no-attachment {
+  color: #909399;
+  font-size: 13px;
+  margin-top: 10px;
+}
+
+.upload-hint {
+  color: #409eff;
+  font-size: 13px;
+  margin-top: 8px;
+}
+
+.view-toggle {
+  margin-bottom: 15px;
+}
+
+.board-view {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.board-column {
+  flex: 1;
+  min-width: 200px;
+  background: #f5f7fa;
+  border-radius: 8px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  max-height: 560px;
+}
+
+.board-column-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  padding: 4px 6px 10px;
+}
+
+.col-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.col-count {
+  margin-left: auto;
+  background: #e4e7ed;
+  border-radius: 10px;
+  padding: 0 8px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.board-column-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+}
+
+.board-card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 10px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  cursor: pointer;
+  transition: box-shadow 0.2s;
+}
+
+.board-card:hover {
+  box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+}
+
+.board-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.board-no {
+  color: #909399;
+  font-size: 12px;
+}
+
+.board-title {
+  font-size: 14px;
+  font-weight: 500;
+  margin: 8px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.board-meta {
+  display: flex;
+  justify-content: space-between;
+  color: #909399;
+  font-size: 12px;
+}
+
+.board-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  color: #909399;
+  font-size: 12px;
+}
+
+.board-empty {
+  color: #c0c4cc;
+  text-align: center;
+  font-size: 13px;
+  padding: 20px 0;
+}
+
+.assign-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.assign-load {
+  color: #909399;
+  font-size: 12px;
+}
+
+.assign-tip {
+  color: #67c23a;
+  font-size: 13px;
+  margin-top: 6px;
+}
+
+.knowledge-section {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #eee;
+}
+
+.knowledge-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.knowledge-head h4 {
+  margin: 0;
+  line-height: 32px;
+}
+
+.knowledge-list {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.knowledge-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f5f7fa;
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.knowledge-item .kb-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.knowledge-item .kb-category {
+  color: #409eff;
+  background: #ecf5ff;
+  border-radius: 4px;
+  padding: 1px 8px;
+  font-size: 12px;
+}
+
+.knowledge-empty {
+  color: #c0c4cc;
+  font-size: 13px;
+  margin-top: 10px;
 }
 </style>

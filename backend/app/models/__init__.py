@@ -31,6 +31,7 @@ from app.models.work_order import WorkOrderCategory, WorkOrder, WorkOrderComment
 
 # ===== 设备巡检 =====
 from app.models.inspection import InspectionTemplate, InspectionPlan, InspectionTask, InspectionRecord, InspectionIssue
+from app.models.knowledge import KnowledgeArticle
 
 __all__ = [
     # Base
@@ -64,5 +65,5 @@ __all__ = [
     "WorkOrderCategory", "WorkOrder", "WorkOrderComment", "WorkOrderAttachment",
 
     # 设备巡检
-    "InspectionTemplate", "InspectionPlan", "InspectionTask", "InspectionRecord", "InspectionIssue",
+    "InspectionTemplate", "InspectionPlan", "InspectionTask", "InspectionRecord", "InspectionIssue", "KnowledgeArticle",
 ]

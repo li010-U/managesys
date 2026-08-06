@@ -88,3 +88,33 @@ export const addWorkOrderComment = (id: number, data: any) => {
 export const getAssignableUsers = () => {
   return http.get('/work-orders/users/list')
 }
+
+// ============ 知识库 ============
+export const getKnowledge = (params?: any) => {
+  return http.get('/kb', { params })
+}
+
+export const createKnowledge = (data: any) => {
+  return http.post('/kb', data)
+}
+
+export const recommendKnowledge = (keyword: string) => {
+  return http.get('/kb/recommend', { params: { keyword } })
+}
+
+// ============ 工单附件 ============
+export const uploadWorkOrderAttachment = (orderId: number, file: File) => {
+  const form = new FormData()
+  form.append('file', file)
+  return http.post(`/work-orders/${orderId}/attachments`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+}
+
+export const downloadWorkOrderAttachment = (attachmentId: number) => {
+  return http.get(`/work-orders/attachments/${attachmentId}/download`, { responseType: 'blob' })
+}
+
+export const deleteWorkOrderAttachment = (attachmentId: number) => {
+  return http.delete(`/work-orders/attachments/${attachmentId}`)
+}

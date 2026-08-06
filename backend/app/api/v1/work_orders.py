@@ -1,13 +1,14 @@
 ﻿"""Work Order Management API"""
 from datetime import datetime, date
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, status as fastapi_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db, get_current_user, require_permission
 from app.db.retry import with_commit_retry
 from app.db.compat_sql import exec_sql
 from app.models import User
+from app.services.file_service import file_service
 from app.schemas.work_order import (
     WorkOrderCategoryCreate,
     WorkOrderCreate,
@@ -173,6 +174,15 @@ async def get_work_order(
     if not order:
         raise HTTPException(404, "Work order not found")
 
+    attach_result = await exec_sql(db, """
+        SELECT wa.*, u.username as uploader_name
+        FROM work_order_attachments wa
+        LEFT JOIN users u ON wa.uploader_id = u.id
+        WHERE wa.work_order_id = ?
+        ORDER BY wa.created_at DESC
+    """, (work_order_id,))
+    attachments = [dict(r._mapping) for r in attach_result.fetchall()]
+
     comment_result = await exec_sql(db, """
         SELECT wc.*, u.username as user_name
         FROM work_order_comments wc
@@ -197,7 +207,7 @@ async def get_work_order(
             "result": order.result, "satisfaction": order.satisfaction,
             "feedback": order.feedback, "created_at": order.created_at,
             "updated_at": order.updated_at, "comments": comments,
-            "comment_count": len(comments), "attachments": []
+            "comment_count": len(comments), "attachments": attachments,
         }
     }
 
@@ -429,6 +439,68 @@ async def add_comment(
     return {"data": dict(result.fetchone()._mapping)}
 
 
+@router.post("/{work_order_id}/attachments", summary="Upload attachment")
+async def upload_attachment(
+    work_order_id: int,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("work:edit"))
+):
+    order = (await exec_sql(db, "SELECT id FROM work_orders WHERE id = ?", (work_order_id,))).fetchone()
+    if not order:
+        raise HTTPException(404, "Work order not found")
+    try:
+        info = await file_service.save_upload(file, sub_dir="work_orders")
+    except ValueError as e:
+        raise HTTPException(status_code=fastapi_status.HTTP_400_BAD_REQUEST, detail=str(e))
+    await exec_sql(db, """
+        INSERT INTO work_order_attachments (work_order_id, file_name, file_path, file_size, file_type, uploader_id)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (work_order_id, info["original_name"], info["relative_path"], info["size"], info["mime_type"], current_user.id))
+    await with_commit_retry(db.commit)
+    result = (await exec_sql(db, """
+        SELECT wa.*, u.username as uploader_name
+        FROM work_order_attachments wa LEFT JOIN users u ON wa.uploader_id = u.id
+        WHERE wa.work_order_id = ? ORDER BY wa.id DESC LIMIT 1
+    """, (work_order_id,))).fetchone()
+    return {"data": dict(result._mapping)}
+
+
+@router.get("/attachments/{attachment_id}/download", summary="Download attachment")
+async def download_attachment(
+    attachment_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("work:view"))
+):
+    from fastapi.responses import FileResponse
+    row = (await exec_sql(db, "SELECT * FROM work_order_attachments WHERE id = ?", (attachment_id,))).fetchone()
+    if not row:
+        raise HTTPException(404, "Attachment not found")
+    file_path = file_service.get_file_path(row.file_path)
+    if not file_path:
+        raise HTTPException(404, "File not found")
+    return FileResponse(str(file_path), filename=row.file_name, media_type="application/octet-stream")
+
+
+@router.delete("/attachments/{attachment_id}", summary="Delete attachment")
+async def delete_attachment(
+    attachment_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("work:delete"))
+):
+    row = (await exec_sql(db, "SELECT * FROM work_order_attachments WHERE id = ?", (attachment_id,))).fetchone()
+    if not row:
+        raise HTTPException(404, "Attachment not found")
+    if row.uploader_id != current_user.id and not current_user.is_super_admin:
+        raise HTTPException(403, "Only the uploader can delete this attachment")
+    await exec_sql(db, "DELETE FROM work_order_attachments WHERE id = ?", (attachment_id,))
+    await with_commit_retry(db.commit)
+    file_service.delete_file(row.file_path)
+    return {"message": "Attachment deleted"}
+
+
 @router.get("/users/list", summary="Get assignable users")
 async def get_assignable_users(
     keyword: Optional[str] = None,
@@ -445,7 +517,22 @@ async def get_assignable_users(
             "SELECT id, username, real_name, email FROM users WHERE is_active = ? ORDER BY id",
             (True,)
         )
-    return {'data': [dict(r._mapping) for r in result.fetchall()]}
+    users = [dict(r._mapping) for r in result.fetchall()]
+    if not users:
+        return {'data': []}
+    ids = [str(u["id"]) for u in users]
+    placeholders = ",".join(ids)
+    workload_rows = (await exec_sql(db, """
+        SELECT assignee_id, COUNT(*) AS active_cnt
+        FROM work_orders
+        WHERE assignee_id IN ({}) AND status IN ('assigned', 'processing')
+        GROUP BY assignee_id
+    """.format(placeholders), ())).fetchall()
+    workload = {row.assignee_id: row.active_cnt for row in workload_rows}
+    for u in users:
+        u["workload"] = workload.get(u["id"], 0)
+    users.sort(key=lambda x: (x["workload"], x["id"]))
+    return {'data': users, 'recommended_id': users[0]["id"] if users else None}
 
 
 @router.delete("/{work_order_id}", summary="Delete work order")
