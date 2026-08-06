@@ -548,7 +548,7 @@ onBeforeUnmount(() => {
 }
 .left-eye { left: 17px; } .right-eye { right: 17px; }
 .pupil {
-  width: 5px; height: 5px; border-radius: 50%;
+  width: 4px; height: 4px; border-radius: 50%;
   background: #fff; flex-shrink: 0;
   transform: translate(calc(var(--eye-x, 0px)), calc(var(--eye-y, 0px)));
   transition: transform 0.12s ease-out;
@@ -566,7 +566,7 @@ onBeforeUnmount(() => {
 .mood-attention .mouth { width: 10px; height: 5px; border-radius: 3px; }
 /* ===== 告警：瞪眼 + 张嘴（眉毛竖起、瞳孔变大变红） ===== */
 .mood-alert .eye { width: 13px; height: 15px; background: #7f1d1d; top: 25px; }
-.mood-alert .pupil { width: 6px; height: 6px; background: #fecaca; }
+.mood-alert .pupil { width: 5px; height: 5px; background: #fecaca; }
 .mood-alert .left-brow { transform: rotate(20deg) translateY(1px); }
 .mood-alert .right-brow { transform: rotate(-20deg) translateY(1px); }
 .mood-alert .mouth { width: 12px; height: 10px; border: 2.5px solid #7f1d1d; border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%; }
