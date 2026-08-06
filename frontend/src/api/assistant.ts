@@ -72,3 +72,13 @@ export interface AssistantPayload {
 export function getAssistantSnapshotApi() {
   return http.get<AssistantPayload>("/assistant/snapshot")
 }
+
+export interface AssistantPrompts {
+  date: string
+  weekday: string
+  prompts: string[]
+}
+
+export function getAssistantPromptsApi() {
+  return http.get<AssistantPrompts>("/assistant/prompts")
+}

@@ -1,4 +1,4 @@
-﻿"""AI 桌宠助手 API 路由"""
+"""AI 桌宠助手 API 路由"""
 from typing import Optional
 from fastapi import APIRouter, Depends, Request
 from fastapi import APIRouter, Depends
@@ -29,6 +29,17 @@ async def assistant_snapshot(
         "reminders": service.generate_reminders(snapshot),
         "advisor": service.generate_advisor(snapshot),
     }
+
+
+@router.get("/prompts")
+async def assistant_prompts(
+    _current_user: User = Depends(get_current_user),
+):
+    """动态推荐聊天问题（基于当天快照，随每日实际情况变化）。"""
+    snapshot = await get_cached_snapshot()
+    service = AssistantService.__new__(AssistantService)
+    service.db = None  # 仅依赖快照字典，无需会话
+    return service.generate_prompts(snapshot)
 
 
 @router.get("/stream")

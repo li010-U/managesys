@@ -43,7 +43,7 @@
         </div>
         <div class="quick-prompts" v-if="messages.length === 0 && !sending">
           <div
-            v-for="(qp, qi) in QUICK_PROMPTS"
+            v-for="(qp, qi) in quickPrompts"
             :key="qi"
             class="quick-chip"
             @click="useQuickPrompt(qp)"
@@ -91,7 +91,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted } from "vue"
+import { ref, watch, nextTick, onMounted, onBeforeUnmount } from "vue"
 import { ElMessage } from "element-plus"
 import { Plus, Delete, Loading } from "@element-plus/icons-vue"
 import MarkdownIt from "markdown-it"
@@ -101,6 +101,7 @@ import {
   sendMessageApi, sendMessageStreamApi, executeToolApi,
   type ChatConversation, type ChatMessage, type ToolProposal
 } from "../../api/chat"
+import { getAssistantPromptsApi } from "../../api/assistant"
 
 const md = new MarkdownIt({ html: false, linkify: true, typographer: true })
 
@@ -117,12 +118,30 @@ const inputText = ref("")
 const sending = ref(false)
 const pendingProposal = ref<ToolProposal | null>(null)
 let cancelStream: (() => void) | null = null
-const QUICK_PROMPTS = [
+const quickPrompts = ref<string[]>([])
+let promptsTimer: ReturnType<typeof setInterval> | null = null
+
+// 默认兜底推荐（接口不可用时也保证有内容）
+const FALLBACK_PROMPTS = [
   "当前机房状态如何？有无异常？",
   "报告最新的设备告警",
   "给出今天的运维建议",
   "如何处理传感器超阈值？",
 ]
+
+async function loadQuickPrompts() {
+  try {
+    const res = await getAssistantPromptsApi()
+    const list = res.data?.prompts
+    if (Array.isArray(list) && list.length) {
+      quickPrompts.value = list
+    } else {
+      quickPrompts.value = FALLBACK_PROMPTS
+    }
+  } catch {
+    quickPrompts.value = FALLBACK_PROMPTS
+  }
+}
 const messagesRef = ref<HTMLElement>()
 
 async function loadConversations() {
@@ -308,7 +327,16 @@ watch(visible, (val) => {
   } 
 })
 
-onMounted(() => { loadConversations() })
+onMounted(() => {
+  loadConversations()
+  loadQuickPrompts()
+  // 推荐问题时不时更新（每 60 秒刷新一次，跟随当天/实时情况变化）
+  promptsTimer = setInterval(loadQuickPrompts, 60000)
+})
+
+onBeforeUnmount(() => {
+  if (promptsTimer) clearInterval(promptsTimer)
+})
 </script>
 
 <style scoped>

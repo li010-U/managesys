@@ -413,6 +413,61 @@ class AssistantService:
 
         return reminders
 
+    def generate_prompts(self, snapshot: Dict[str, Any]) -> Dict[str, Any]:
+        """根据当天快照动态生成推荐聊天问题，让推荐内容跟随每日实际情况变化。"""
+        from datetime import datetime as _dt
+        now = _dt.now()
+        weekday_cn = ["一", "二", "三", "四", "五", "六", "日"][now.weekday()]
+        date_tag = now.strftime("%m月%d日")
+        prompts: List[str] = []
+
+        s = snapshot.get("sensor", {})
+        alert = snapshot.get("alert_stats", {})
+
+        # 状态相关：跟随实时数据
+        new_alerts = alert.get("new", 0) or 0
+        if new_alerts > 0:
+            prompts.append(f"今天({date_tag} 周{weekday_cn})有 {new_alerts} 条待处理告警，帮我汇总并给出处理建议")
+
+        if (s.get("abnormal") or 0) > 0:
+            prompts.append("列出当前越限的传感器，并给出排查步骤")
+
+        if (s.get("offline") or 0) > 0:
+            prompts.append("有哪些传感器离线了？可能是什么原因导致的？")
+
+        if len(snapshot.get("high_usage_racks", [])) > 0:
+            prompts.append("分析高利用率机柜，并给出扩容或整合建议")
+
+        if len(s.get("trend_items", [])) > 0:
+            prompts.append("最近哪些传感器数值在快速上升，需要重点留意什么？")
+
+        # 每日轮换的概览问题（按日期种子每天换一种措辞）
+        overview_pool = [
+            f"给出今天的整体运维摘要（{date_tag} 周{weekday_cn}）",
+            "当前数据中心整体状况如何？有没有需要注意的地方？",
+            "帮我梳理今天需要优先处理的事项",
+            f"{date_tag}的机房环境与设备健康度怎么样？",
+        ]
+        prompts.append(overview_pool[now.toordinal() % len(overview_pool)])
+
+        # 兜底通用问题，保证推荐数量充足
+        general_pool = [
+            "如何查看设备台账？",
+            "工单处理流程是怎样的？",
+            "机柜容量规划有什么建议？",
+            "怎样快速定位一台设备的告警？",
+        ]
+        for g in general_pool:
+            if len(prompts) >= 6:
+                break
+            prompts.append(g)
+
+        return {
+            "date": now.strftime("%Y-%m-%d"),
+            "weekday": f"周{weekday_cn}",
+            "prompts": prompts[:6],
+        }
+
     def build_context_text(self, snapshot: Dict[str, Any]) -> str:
         """生成业务上下文简要文本，作为 LLM 的 grounding 事实来源。"""
         lines = []
