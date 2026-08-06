@@ -21,6 +21,10 @@
             <el-icon><Odometer /></el-icon>
             <template #title>工作台</template>
           </el-menu-item>
+          <el-menu-item index="/workorder/list">
+            <el-icon><Tickets /></el-icon>
+            <template #title>运维工单</template>
+          </el-menu-item>
           <el-sub-menu index="/room">
             <template #title><el-icon><OfficeBuilding /></el-icon><span>机房管理</span></template>
             <el-menu-item index="/room/facility">机房管理</el-menu-item>
@@ -136,7 +140,7 @@
 import { ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { 
-  Odometer, OfficeBuilding, Cpu, DataAnalysis, Setting, 
+  Odometer, OfficeBuilding, Cpu, DataAnalysis, Setting, Tickets,
   Fold, Expand, ChatDotRound, User, SwitchButton, Close, DataBoard 
 } from "@element-plus/icons-vue"
 import { useAppStore } from "../stores"
