@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func, select
@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.alert import Alert
 from app.models.device import Device
 from app.models.facility import Room, Rack
-from app.models.sensor import Sensor
+from app.models.sensor import Sensor, SensorData
 
 
 from app.core.cache import AsyncTTLSingleFlight
@@ -90,7 +90,14 @@ class AssistantService:
         room_count = await self._room_count()
         online_sensor = sum(1 for s in sensors if s.status == "online")
         abnormal_sensors = self._abnormal_sensors(sensors)
+        offline_sensors = [s for s in sensors if s.status != "online"]
+        trend_sensors = await self._trend_sensors(sensors)
         latest_alerts = await self._latest_alerts(limit=5)
+        # 历史对比：近 24h vs 前 24h 新增告警数，用于值班摘要
+        alert_history = {
+            "recent_24h": await self._alert_count_in_range(24),
+            "previous_24h": await self._alert_count_in_range(48) - await self._alert_count_in_range(24),
+        }
 
         return {
             "timestamp": _fmt_dt(datetime.now(timezone.utc)),
@@ -100,6 +107,18 @@ class AssistantService:
                 "online": online_sensor,
                 "offline": len(sensors) - online_sensor,
                 "abnormal": len(abnormal_sensors),
+                "offline_items": [
+                    {
+                        "id": s.id,
+                        "name": s.name,
+                        "room_id": s.room_id,
+                        "sensor_type": s.sensor_type,
+                        "last_update_time": _fmt_dt(s.last_update_time),
+                        "offline_min": self._offline_duration_min(s),
+                    }
+                    for s in offline_sensors[:8]
+                ],
+                "trend_items": trend_sensors,
                 "abnormal_items": [
                     {
                         "id": s.id,
@@ -119,6 +138,7 @@ class AssistantService:
             "room_count": room_count,
             "latest_alerts": latest_alerts,
             "high_usage_racks": high_racks[:8],
+            "alert_history": alert_history,
         }
 
     # ---------------- 子查询 ----------------
@@ -155,6 +175,76 @@ class AssistantService:
     async def _all_sensors(self) -> List[Sensor]:
         rows = await self.db.execute(select(Sensor))
         return list(rows.scalars().all())
+
+    async def _trend_sensors(self, sensors: List[Sensor], window_min: int = 10, rise: float = 3.0) -> List[Dict[str, Any]]:
+        """检测温度/湿度类传感器在窗口内的快速上升(趋势)，提前预警。"""
+        out = []
+        if not sensors:
+            return out
+        now = datetime.now(timezone.utc)
+        since = now - timedelta(minutes=window_min)
+        for s in sensors:
+            if s.sensor_type not in ("temperature", "humidity"):
+                continue
+            rows = await self.db.execute(
+                select(SensorData)
+                .where(SensorData.sensor_id == s.id)
+                .where(SensorData.recorded_at >= since)
+                .order_by(SensorData.recorded_at.asc())
+            )
+            pts = rows.scalars().all()
+            if len(pts) < 2:
+                continue
+            first = pts[0].value
+            last = pts[-1].value
+            if last is None or first is None or first == 0:
+                continue
+            delta = last - first
+            if delta >= rise:
+                out.append(
+                    {
+                        "id": s.id,
+                        "name": s.name,
+                        "room_id": s.room_id,
+                        "sensor_type": s.sensor_type,
+                        "sensor_type_name": _sensor_name(s.sensor_type),
+                        "delta": round(delta, 2),
+                        "current_value": self._value_display(s),
+                    }
+                )
+        return out[:8]
+
+    async def _alert_count_in_range(self, hours: int) -> int:
+        """统计最近 hours 小时内的新告警数量。"""
+        since = datetime.now(timezone.utc) - timedelta(hours=hours)
+        rows = await self.db.execute(
+            select(func.count()).select_from(Alert).where(Alert.created_at >= since)
+        )
+        return rows.scalar() or 0
+
+    async def _offline_duration_min(self, s: Sensor) -> Optional[int]:
+        """估算传感器离线持续分钟数(基于最后更新时间)。"""
+        if not s.last_update_time:
+            return None
+        lu = s.last_update_time
+        if lu.tzinfo is None:
+            lu = lu.replace(tzinfo=timezone.utc)
+        delta = datetime.now(timezone.utc) - lu
+        minutes = int(delta.total_seconds() // 60)
+        return minutes if minutes > 0 else 0
+
+    def _baseline_summary(self, alert_stats: Dict[str, Any], abnormal: int) -> str:
+        """基于当前统计生成对比性的值班摘要文案。"""
+        new = alert_stats.get("new", 0)
+        if new > 0 or abnormal > 0:
+            parts = []
+            if new > 0:
+                parts.append(f"当前有 {new} 条待处理告警")
+            if abnormal > 0:
+                parts.append(f"{abnormal} 个传感器数据越限")
+            return "、".join(parts) + "，建议尽快处理。"
+        return "当前无待处理告警，环境指标处于正常范围。"
+
 
     def _value_display(self, s: Sensor) -> Optional[str]:
         cv = s.current_value
@@ -227,6 +317,10 @@ class AssistantService:
                     "level": "danger",
                     "title": f"有 {new} 条告警待处理",
                     "content": f"当前有 {new} 条未处理的告警，建议尽快查看并处理，避免影响业务运行。",
+                    "target": "/monitor/alerts",
+                    "actions": [
+                        {"type": "create_work_order", "label": "生成工单", "priority": "high"},
+                    ],
                 }
             )
 
@@ -234,14 +328,17 @@ class AssistantService:
         abnormal = snapshot.get("sensor", {}).get("abnormal", 0)
         if abnormal > 0:
             names = "、".join(i["name"] for i in snapshot["sensor"]["abnormal_items"][:3])
-            reminders.append(
-                {
-                    "type": "env",
-                    "level": "warning",
-                    "title": f"{abnormal} 个传感器数据越限",
-                    "content": f"以下传感器超出阈值：{names}。请检查对应机房环境。",
-                }
-            )
+            rem = {
+                "type": "env",
+                "level": "warning",
+                "title": f"{abnormal} 个传感器数据越限",
+                "content": f"以下传感器超出阈值：{names}。请检查对应机房环境。",
+                "target": "/environment",
+                "actions": [
+                    {"type": "create_work_order", "label": "生成工单", "priority": "high"},
+                ],
+            }
+            reminders.append(rem)
 
         # 3. 传感器离线
         offline = snapshot.get("sensor", {}).get("offline", 0)
@@ -252,6 +349,35 @@ class AssistantService:
                     "level": "info",
                     "title": f"{offline} 个传感器离线",
                     "content": f"有 {offline} 个传感器处于离线状态，可能是网络或供电问题，建议排查。",
+                    "target": "/environment",
+                }
+            )
+            offline_items = snapshot.get("sensor", {}).get("offline_items", [])
+            if offline_items:
+                max_min = max((x.get("offline_min") or 0) for x in offline_items)
+                if max_min >= 30:
+                    names = "、".join(x["name"] for x in offline_items[:3])
+                    reminders.append(
+                        {
+                            "type": "env",
+                            "level": "warning",
+                            "title": f"传感器离线已持续 {max_min} 分钟",
+                            "content": f"传感器 {names} 已离线超过 30 分钟，建议尽快排查网络或供电。",
+                            "target": "/environment",
+                        }
+                    )
+
+        # 3.5 趋势预警：温度/湿度快速上升
+        trend_items = snapshot.get("sensor", {}).get("trend_items", [])
+        if trend_items:
+            names = "、".join(x["name"] for x in trend_items[:3])
+            reminders.append(
+                {
+                    "type": "trend",
+                    "level": "warning",
+                    "title": f"{len(trend_items)} 个传感器数值快速上升",
+                    "content": f"传感器 {names} 在短时间内快速上升，可能存在环境异常，建议关注。",
+                    "target": "/environment",
                 }
             )
 
@@ -265,6 +391,10 @@ class AssistantService:
                     "level": "warning",
                     "title": f"{high_num} 个机柜利用率超过 80%",
                     "content": f"机柜 {codes} 空间紧张，建议提前规划扩容或上架调整。",
+                    "target": "/room/racks",
+                    "actions": [
+                        {"type": "create_work_order", "label": "生成工单", "priority": "normal"},
+                    ],
                 }
             )
 
@@ -277,6 +407,7 @@ class AssistantService:
                     "level": "info",
                     "title": "机柜整体利用率偏低",
                     "content": f"当前机柜平均利用率约 {avg_usage}%，可考虑集中整合以降低能耗。",
+                    "target": "/room/racks",
                 }
             )
 
@@ -329,21 +460,33 @@ class AssistantService:
         if len(snapshot.get("high_usage_racks", [])):
             issues += 1
 
+        hist = snapshot.get("alert_history", {})
+        recent_alerts = hist.get("recent_24h", 0)
+        prev_alerts = hist.get("previous_24h", 0)
+        if prev_alerts and recent_alerts > prev_alerts:
+            extra = f"新增告警较前 24h 增加 {recent_alerts - prev_alerts} 条，注意风险上升。"
+        elif prev_alerts:
+            extra = f"新增告警较前 24h 减少 {max(prev_alerts - recent_alerts, 0)} 条，整体趋稳。"
+        else:
+            extra = ""
+
         if issues == 0:
             status = "healthy"
             mood = "很好"
-            summary = (
+            base = (
                 f"系统一切正常：{snapshot.get('device_count', 0)} 台设备、"
-                f"{snapshot.get('room_count', 0)} 个机房，环境与机柜均处于健康状态，继续保持！"
+                f"{snapshot.get('room_count', 0)} 个机房，环境与机柜均处于健康状态。"
             )
         elif issues <= 2:
             status = "attention"
             mood = "一般"
-            summary = "部分指标需要关注，建议查看告警与环境数据。"
+            base = "部分指标需要关注，建议查看告警与环境数据。"
         else:
             status = "alert"
             mood = "较差"
-            summary = "系统存在多处异常，请尽快处理告警并排查环境问题。"
+            base = "系统存在多处异常，请尽快处理告警并排查环境问题。"
+
+        summary = base + extra if extra else base
 
         return {
             "status": status,

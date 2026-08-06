@@ -13,6 +13,8 @@ export interface Reminder {
   level: "info" | "warning" | "danger"
   title: string
   content: string
+  target?: string
+  actions?: Array<{ type: string; label?: string; priority?: string }>
 }
 
 export interface Advisor {

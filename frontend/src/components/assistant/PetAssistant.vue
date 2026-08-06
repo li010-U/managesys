@@ -34,13 +34,24 @@
         v-if="currentBubble"
         class="reminder-bubble"
         :class="'level-' + currentBubble.level"
-        @click.stop="openPanel"
       >
         <div class="bubble-head">
           <span class="bubble-title">{{ currentBubble.title }}</span>
           <el-icon class="bubble-close" @click.stop="dismissBubble"><Close /></el-icon>
         </div>
         <div class="bubble-content">{{ currentBubble.content }}</div>
+        <div class="bubble-actions" v-if="currentBubble.actions && currentBubble.actions.length">
+          <span
+            v-for="a in currentBubble.actions"
+            :key="a.type"
+            class="bubble-action"
+            @click.stop="runAction(currentBubble, a)"
+          >{{ a.label || "操作" }}</span>
+        </div>
+        <div class="bubble-view" v-if="canAccess(currentBubble)" @click.stop="goTo(currentBubble)">
+          <span>查看</span>
+          <el-icon><ArrowRight /></el-icon>
+        </div>
       </div>
     </transition>
 
@@ -97,13 +108,25 @@
             :key="r.title + idx"
             class="reminder-item"
             :class="'level-' + r.level"
-            @click="showReminder(r)"
+            @click="goTo(r)"
           >
             <span class="item-icon" :class="'icon-' + r.type"></span>
             <div class="item-main">
               <div class="item-title">{{ r.title }}</div>
               <div class="item-content">{{ r.content }}</div>
+              <div class="item-actions" v-if="r.actions && r.actions.length">
+                <span
+                  v-for="a in r.actions"
+                  :key="a.type"
+                  class="item-action"
+                  @click.stop="runAction(r, a)"
+                >{{ a.label || "操作" }}</span>
+              </div>
             </div>
+            <span class="item-view" v-if="canAccess(r)" @click.stop="goTo(r)">
+              <span>查看</span>
+              <el-icon class="item-view-arrow"><ArrowRight /></el-icon>
+            </span>
           </div>
         </div>
 
@@ -119,10 +142,29 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from "vue"
+import { useRouter } from "vue-router"
 import { Close, ChatDotRound, ArrowRight } from "@element-plus/icons-vue"
+import { ElMessage, ElMessageBox } from "element-plus"
 import { getAssistantSnapshotApi, type AssistantPayload, type Reminder } from "../../api/assistant"
+import { executeToolApi } from "../../api/chat"
+import { useAuthStore } from "../../stores/auth"
 
 const emit = defineEmits<{ (e: "open-chat"): void }>()
+
+const router = useRouter()
+const authStore = useAuthStore()
+
+// 目标页面所要求的权限（无权限要求的页面不需要配置）
+const TARGET_PERMISSIONS: Record<string, string> = {
+  "/monitor/alerts": "monitor:view_alerts",
+}
+
+function canAccess(r: Reminder): boolean {
+  if (!r.target) return true
+  const perm = TARGET_PERMISSIONS[r.target]
+  if (!perm) return true
+  return authStore.hasPermission(perm)
+}
 
 const panelOpen = ref(false)
 const collapsed = ref(true)
@@ -217,8 +259,45 @@ function openChat() {
   emit("open-chat")
 }
 
-function showReminder(r: Reminder) {
-  currentBubble.value = r
+function goTo(r: Reminder) {
+  if (!canAccess(r)) {
+    ElMessage.warning("你没有权限访问该页面")
+    return
+  }
+  panelOpen.value = false
+  collapsed.value = true
+  currentBubble.value = null
+  if (r.target) {
+    router.push(r.target)
+  } else {
+    currentBubble.value = r
+  }
+}
+
+async function runAction(r: Reminder, action: { type: string; label?: string; priority?: string }) {
+  if (action.type !== "create_work_order") return
+  try {
+    await ElMessageBox.confirm(
+      `将根据“${r.title}”创建一条工单，是否继续？`,
+      "创建工单",
+      { confirmButtonText: "确认创建", cancelButtonText: "取消", type: "warning" }
+    )
+  } catch {
+    return
+  }
+  try {
+    const res = await executeToolApi("create_work_order", {
+      title: r.title,
+      description: r.content,
+      priority: action.priority || "normal",
+    })
+    ElMessage.success("工单已创建")
+    // 重新拉取快照，刷新提醒状态
+    applyData(null)
+    return res
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || e?.message || "创建工单失败")
+  }
 }
 
 function rotateBubble() {
@@ -281,17 +360,19 @@ function connectSSE(url: string, token: string | null) {
       let buffer = ""
       const pump = () => {
         reader.read().then(({ done, value }) => {
-          if (done) { startPolling(); return }
+          if (done) { resetFailCount(); startFallbackPolling(); scheduleReconnect(); return }
           buffer += decoder.decode(value, { stream: true })
           const lines = buffer.split("\n")
           buffer = lines.pop() || ""
           for (const line of lines) {
             if (line.startsWith("data: ")) {
               const chunk = line.slice(6)
-              if (chunk === "[DONE]") { startPolling(); return }
+              if (chunk === "[DONE]") { resetFailCount(); startFallbackPolling(); scheduleReconnect(); return }
               try {
                 const payload = JSON.parse(chunk) as AssistantPayload
                 data.value = payload
+                resetFailCount()
+                startFallbackPolling()
                 maybeBubble()
               } catch { /* ignore */ }
             }
@@ -299,26 +380,50 @@ function connectSSE(url: string, token: string | null) {
           pump()
         }).catch((err) => {
           if (streamAbort?.signal.aborted) return
-          startPolling()
+          scheduleReconnect()
         })
       }
       pump()
     })
     .catch(() => {
       if (streamAbort?.signal.aborted) return
-      startPolling()
+      scheduleReconnect()
     })
 }
 
 let streamActive = false
-function startPolling() {
-  if (pollTimer) return
-  pollTimer = setInterval(() => applyData(null), 15000)
+let failCount = 0
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+let fallbackPollTimer: ReturnType<typeof setInterval> | null = null
+
+// 断线退避 + 随机抖动，避免所有桌宠同时重连造成雪崩
+function scheduleReconnect() {
+  if (!liveEnabled.value) return
+  if (reconnectTimer) return
+  const base = Math.min(30000, 4000 * Math.pow(2, failCount))
+  const jitter = Math.round(base * (0.7 + Math.random() * 0.6))
+  failCount += 1
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null
+    startStreaming()
+  }, jitter)
+}
+
+function resetFailCount() {
+  failCount = 0
+}
+
+function startFallbackPolling() {
+  if (fallbackPollTimer) return
+  // 每 30s 静默刷新一次快照，保证数据不至于过旧
+  fallbackPollTimer = setInterval(() => applyData(null), 30000)
 }
 
 function stopStreaming() {
   if (streamAbort) { streamAbort.abort(); streamAbort = null }
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
+  if (fallbackPollTimer) { clearInterval(fallbackPollTimer); fallbackPollTimer = null }
 }
 
 watch(liveEnabled, (val) => {
@@ -365,14 +470,14 @@ onBeforeUnmount(() => {
   box-shadow: 0 10px 24px rgba(59, 130, 246, 0.45);
   animation: idle 3.2s ease-in-out infinite;
 }
-.pet-char::after { content: ""; position: absolute; bottom: -8px; width: 34px; height: 10px; background: rgba(15,23,42,0.18); border-radius: 50%; filter: blur(2px); }
+.pet-char::after { display: none; }
 .eye { position: absolute; width: 9px; height: 12px; background: #1e293b; border-radius: 50%; top: 26px; overflow: hidden; animation: blink 4s infinite; }
 .left-eye { left: 18px; } .right-eye { right: 18px; }
 .pupil { width: 4px; height: 4px; background: #fff; border-radius: 50%; position: absolute; bottom: 1px; left: 2px; }
 .mood-alert .pet-char { background: linear-gradient(145deg, #fca5a5, #ef4444); box-shadow: 0 10px 24px rgba(239,68,68,0.5); }
 .mood-alert .eye { background: #7f1d1d; }
 .mood-attention .pet-char { background: linear-gradient(145deg, #fcd34d, #f59e0b); box-shadow: 0 10px 24px rgba(245,158,11,0.5); }
-.mouth { position: absolute; bottom: 14px; width: 18px; height: 8px; border-bottom: 2.5px solid #1e293b; border-radius: 0 0 12px 12px; }
+.mouth { position: absolute; left: 50%; transform: translateX(-50%); bottom: 14px; width: 18px; height: 8px; border-bottom: 2.5px solid #1e293b; border-radius: 0 0 12px 12px; }
 .mood-healthy .mouth { width: 16px; height: 9px; border: 2.5px solid #1e293b; border-top: none; border-radius: 0 0 16px 16px; }
 .antenna { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); width: 2px; height: 12px; background: #64748b; }
 .antenna-ball { position: absolute; top: -8px; left: 50%; transform: translateX(-50%); width: 10px; height: 10px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,0.8); }
@@ -385,6 +490,9 @@ onBeforeUnmount(() => {
 .bubble-title { font-weight: 600; font-size: 13px; color: #1e293b; }
 .bubble-close { color: #94a3b8; cursor: pointer; font-size: 14px; }
 .bubble-content { font-size: 12px; color: #475569; line-height: 1.5; }
+.bubble-view { display: inline-flex; align-items: center; gap: 4px; margin-top: 10px; padding: 4px 12px; border-radius: 999px; background: #eff6ff; color: #2563eb; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+.bubble-view:hover { background: #dbeafe; }
+.bubble-view .el-icon { font-size: 13px; }
 .pet-panel { position: absolute; left: 84px; top: 60px; width: 320px; max-height: 62vh; overflow-y: auto; background: #fff; border-radius: 16px; box-shadow: 0 20px 50px rgba(15,23,42,0.22); padding: 14px; cursor: default; }
 .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .panel-title { font-weight: 700; font-size: 14px; color: #1e293b; }
@@ -412,6 +520,16 @@ onBeforeUnmount(() => {
 .item-main { flex: 1; min-width: 0; }
 .item-title { font-size: 12px; font-weight: 600; color: #334155; }
 .item-content { font-size: 11px; color: #64748b; margin-top: 2px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.item-view { display: inline-flex; align-items: center; gap: 2px; margin-left: 6px; padding: 3px 8px; border-radius: 6px; background: #eff6ff; color: #2563eb; font-size: 11px; font-weight: 600; cursor: pointer; flex-shrink: 0; }
+.item-view:hover { background: #dbeafe; }
+.item-view .el-icon { font-size: 12px; }
+.item-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.item-action { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 6px; background: #ecfdf5; color: #059669; font-size: 11px; font-weight: 600; cursor: pointer; border: 1px solid #a7f3d0; }
+.item-action:hover { background: #d1fae5; }
+.bubble-actions { display: flex; gap: 6px; margin-top: 8px; }
+.bubble-action { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 999px; background: #ecfdf5; color: #059669; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid #a7f3d0; }
+.bubble-action:hover { background: #d1fae5; }
+.icon-trend { background: #8b5cf6; }
 .panel-footer { display: flex; align-items: center; gap: 6px; color: #3b82f6; font-size: 12px; font-weight: 600; padding: 10px; border-top: 1px solid #e2e8f0; margin-top: 8px; cursor: pointer; }
 .foot-arrow { margin-left: auto; }
 @keyframes idle { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-3px) rotate(-1deg); } }
