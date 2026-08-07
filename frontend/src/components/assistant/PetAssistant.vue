@@ -21,38 +21,46 @@
         viewBox="0 0 72 76"
         xmlns="http://www.w3.org/2000/svg"
       >
-        <!-- 天线 -->
-        <line class="antenna" x1="36" y1="17" x2="36" y2="7" stroke="#64748b" stroke-width="2.2" stroke-linecap="round"/>
-        <circle class="antenna-ball" cx="36" cy="6" r="4.5" :class="{ 'blink-warning': dangerCount > 0 }"/>
-        <!-- 耳朵 -->
-        <ellipse class="ear" cx="10" cy="42" rx="6" ry="8"/>
-        <ellipse class="ear" cx="62" cy="42" rx="6" ry="8"/>
-        <!-- 身体 -->
-        <ellipse class="svg-body" cx="36" cy="45" rx="27" ry="28"/>
-        <ellipse class="svg-body-high" cx="36" cy="30" rx="19" ry="16"/>
+        <!-- 天线（顶部） -->
+        <line class="antenna" x1="36" y1="17" x2="36" y2="7" stroke="#64748b" stroke-width="2.4" stroke-linecap="round"/>
+        <circle class="antenna-ball" cx="36" cy="5.5" r="4" :class="{ 'blink-warning': dangerCount > 0 }"/>
+        <!-- 侧耳（头盔侧板） -->
+        <ellipse class="ear" cx="13" cy="31" rx="4.2" ry="9"/>
+        <ellipse class="ear" cx="59" cy="31" rx="4.2" ry="9"/>
+        <!-- 头盔主体（铁甲小宝红） -->
+        <path class="svg-body" d="M17 47 C17 16 55 16 55 47 Q55 69 36 69 Q17 69 17 47 Z"/>
+        <!-- 头顶高光 -->
+        <ellipse class="svg-body-high" cx="30" cy="18" rx="12" ry="4"/>
+        <!-- 脸板（奶油色） -->
+        <rect class="face" x="21" y="20" width="30" height="24" rx="9" fill="#fff7e6"/>
         <!-- 腮红 -->
-        <circle class="cheek" cx="21" cy="52" r="3.6"/>
-        <circle class="cheek" cx="51" cy="52" r="3.6"/>
+        <circle class="cheek" cx="23" cy="35" r="2.8"/>
+        <circle class="cheek" cx="49" cy="35" r="2.8"/>
         <!-- 眼睛 -->
         <g class="eye left-eye">
-          <ellipse class="eyeball" cx="28" cy="42" rx="4.5" ry="5.3"/>
-          <circle class="pupil" cx="28" cy="42" r="2.3"/>
+          <ellipse class="eyeball" cx="30" cy="29.5" rx="4" ry="5"/>
+          <circle class="pupil" cx="30" cy="29.5" r="2.2"/>
         </g>
         <g class="eye right-eye">
-          <ellipse class="eyeball" cx="44" cy="42" rx="4.5" ry="5.3"/>
-          <circle class="pupil" cx="44" cy="42" r="2.3"/>
+          <ellipse class="eyeball" cx="42" cy="29.5" rx="4" ry="5"/>
+          <circle class="pupil" cx="42" cy="29.5" r="2.2"/>
         </g>
         <!-- 眉毛 -->
-        <line class="brow left-brow" x1="22" y1="32" x2="33" y2="29"/>
-        <line class="brow right-brow" x1="50" y1="29" x2="39" y2="32"/>
+        <line class="brow left-brow" x1="24" y1="23" x2="35" y2="21"/>
+        <line class="brow right-brow" x1="48" y1="21" x2="37" y2="23"/>
         <!-- 嘴 -->
-        <path class="mouth mouth-smile" d="M30 54 Q36 60 42 54" fill="none" stroke="#1e293b" stroke-width="2.4" stroke-linecap="round"/>
-        <path class="mouth mouth-flat" d="M31 55 L41 55" fill="none" stroke="#1e293b" stroke-width="2.4" stroke-linecap="round"/>
-        <path class="mouth mouth-open" d="M32 53 Q36 61 40 53" fill="#7f1d1d" stroke="#7f1d1d" stroke-width="2.4" stroke-linecap="round"/>
+        <path class="mouth mouth-smile" d="M32 37 Q36 41 40 37" fill="none" stroke="#7f1d1d" stroke-width="2.2" stroke-linecap="round"/>
+        <path class="mouth mouth-flat" d="M33 38 L39 38" fill="none" stroke="#7f1d1d" stroke-width="2.2" stroke-linecap="round"/>
+        <path class="mouth mouth-open" d="M33 36 Q36 42 39 36" fill="#7f1d1d" stroke="#7f1d1d" stroke-width="2.2" stroke-linecap="round"/>
+        <!-- 胸甲（奶油色徽记） -->
+        <circle class="belly" cx="36" cy="56" r="8.5" fill="#fff7e6"/>
+        <!-- 手臂 -->
+        <ellipse class="arm" cx="15.5" cy="52" rx="4.4" ry="8" fill="#dc2626"/>
+        <ellipse class="arm" cx="56.5" cy="52" rx="4.4" ry="8" fill="#dc2626"/>
         <!-- 脚 -->
-        <ellipse class="foot" cx="28" cy="72" rx="7" ry="3.6"/>
-        <ellipse class="foot" cx="44" cy="72" rx="7" ry="3.6"/>
-      </svg>
+        <ellipse class="foot" cx="28" cy="73" rx="7.5" ry="3.6" fill="#b91c1c"/>
+        <ellipse class="foot" cx="44" cy="73" rx="7.5" ry="3.6" fill="#b91c1c"/>
+</svg>
       <transition name="pop">
         <div v-if="newReminders > 0" class="pet-badge">{{ newReminders }}</div>
       </transition>
@@ -555,7 +563,7 @@ onBeforeUnmount(() => {
 .pet-char {
   display: block; width: 88px; height: 94px; margin: 2px;
   overflow: visible;
-  filter: drop-shadow(0 10px 22px rgba(59, 130, 246, 0.4));
+  filter: drop-shadow(0 10px 22px rgba(220, 38, 38, 0.35));
   animation: breathe 3.4s ease-in-out infinite;
   transform-origin: center 78%;
   cursor: pointer;
@@ -563,9 +571,9 @@ onBeforeUnmount(() => {
 .pet-char.squash { animation: squash 0.26s ease-in-out; }
 .pet-char.jumping { animation: jump 0.9s ease-in-out infinite; }
 /* ===== 身体与配色 ===== */
-.svg-body { fill: #3b82f6; transition: fill 0.3s ease; }
+.svg-body { fill: #dc2626; transition: fill 0.3s ease; }
 .svg-body-high { fill: rgba(255,255,255,0.35); }
-.ear { fill: #5b8cff; transition: fill 0.3s ease; }
+.ear { fill: #b91c1c; transition: fill 0.3s ease; }
 .cheek { fill: rgba(255,161,161,0.55); }
 .foot { fill: rgba(15,23,42,0.16); }
 /* ===== 天线 ===== */
