@@ -15,54 +15,18 @@
       :title="advisor?.mood || ''"
       :style="bodyStyle"
     >
-      <svg
+            <KabutackChar
         class="pet-char"
         :class="{ sleeping: !panelOpen && !hasReminder, squash: squash, jumping: hasReminder && !panelOpen }"
-        viewBox="0 0 72 84"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <!-- 天线（顶部黑色角状，还原卡布达触角） -->
-        <line class="antenna" x1="36" y1="17" x2="36" y2="6" stroke="#111827" stroke-width="2.6" stroke-linecap="round"/>
-        <circle class="antenna-ball" cx="36" cy="5" r="3.8" :class="{ 'blink-warning': dangerCount > 0 }"/>
-        <!-- 侧耳（头盔红色护片） -->
-        <ellipse class="ear" cx="9" cy="33" rx="3.6" ry="7.5"/>
-        <ellipse class="ear" cx="63" cy="33" rx="3.6" ry="7.5"/>
-        <!-- 手臂与圆手（还原卡布达的圆球手） -->
-        <ellipse class="arm" cx="15" cy="50" rx="5" ry="7"/>
-        <circle class="hand" cx="12" cy="58" r="6.5"/>
-        <ellipse class="arm" cx="57" cy="50" rx="5" ry="7"/>
-        <circle class="hand" cx="60" cy="58" r="6.5"/>
-        <!-- 头盔主体：圆润红色甲壳 -->
-        <path class="svg-body" d="M17 58 C17 20 55 20 55 58 Q55 80 36 80 Q17 80 17 58 Z"/>
-        <!-- 头顶高光 -->
-        <ellipse class="svg-body-high" cx="30" cy="26" rx="13" ry="4.5"/>
-        <!-- 大脸板（卡布达标志性大面积脸部） -->
-        <rect class="face" x="19.5" y="28" width="33" height="30" rx="13" fill="#fff7e6"/>
-        <!-- 腮红 -->
-        <circle class="cheek" cx="22.5" cy="41" r="2.6"/>
-        <circle class="cheek" cx="49.5" cy="41" r="2.6"/>
-        <!-- 眼睛：卡布达白色大眼+黑色圆瞳孔 -->
-        <g class="eye left-eye">
-          <ellipse class="eyeball" cx="30" cy="36.5" rx="5.5" ry="6.5"/>
-          <circle class="pupil" cx="30" cy="36.5" r="2.6"/>
-        </g>
-        <g class="eye right-eye">
-          <ellipse class="eyeball" cx="42" cy="36.5" rx="5.5" ry="6.5"/>
-          <circle class="pupil" cx="42" cy="36.5" r="2.6"/>
-        </g>
-        <!-- 眉毛 -->
-        <line class="brow left-brow" x1="23" y1="30" x2="35" y2="28"/>
-        <line class="brow right-brow" x1="49" y1="28" x2="37" y2="30"/>
-        <!-- 嘴 -->
-        <path class="mouth mouth-smile" d="M30 44 Q36 48.5 42 44" fill="none" stroke="#7f1d1d" stroke-width="2.2" stroke-linecap="round"/>
-        <path class="mouth mouth-flat" d="M32 45.5 L40 45.5" fill="none" stroke="#7f1d1d" stroke-width="2.2" stroke-linecap="round"/>
-        <path class="mouth mouth-open" d="M32 42 Q36 49 40 42" fill="#7f1d1d" stroke="#7f1d1d" stroke-width="2.2" stroke-linecap="round"/>
-        <!-- 胸腹（奶油色圆徽） -->
-        <circle class="belly" cx="36" cy="64" r="8" fill="#fff7e6"/>
-        <!-- 脚：卡布达圆球脚 -->
-        <ellipse class="foot" cx="26" cy="79" rx="6.5" ry="5.5"/>
-        <ellipse class="foot" cx="46" cy="79" rx="6.5" ry="5.5"/>
-</svg>
+        :mood="advisor?.status"
+        :eye-x="eyeX"
+        :eye-y="eyeY"
+        :sleeping="!panelOpen && !hasReminder"
+        :squash="squash"
+        :jumping="hasReminder && !panelOpen"
+        :danger-count="dangerCount"
+        :quiet="panelOpen"
+      />
       <transition name="pop">
         <div v-if="newReminders > 0" class="pet-badge">{{ newReminders }}</div>
       </transition>
@@ -75,7 +39,10 @@
         :class="'level-' + currentBubble.level"
       >
         <div class="bubble-head">
-          <span class="bubble-title">{{ currentBubble.title }}</span>
+          <span class="bubble-title">
+            {{ currentBubble.title }}
+            <span class="bubble-badge" v-if="(currentBubble as any).generated">已生成工单</span>
+          </span>
           <el-icon class="bubble-close" @click.stop="dismissBubble"><Close /></el-icon>
         </div>
         <div class="bubble-content">{{ currentBubble.content }}</div>
@@ -141,7 +108,11 @@
         </div>
 
         <div class="reminder-list" v-if="reminders.length">
-          <div class="list-title">主动提醒</div>
+          <div class="section-head" @click="reminderOpen = !reminderOpen">
+            <span class="list-title">主动提醒</span>
+            <span class="section-toggle"><el-icon><ArrowDown v-if="reminderOpen" /><ArrowRight v-else /></el-icon></span>
+          </div>
+          <div v-show="reminderOpen">
           <div
             v-for="(r, idx) in displayedReminders"
             :key="r.title + idx"
@@ -151,13 +122,17 @@
           >
             <span class="item-icon" :class="'icon-' + r.type"></span>
             <div class="item-main">
-              <div class="item-title">{{ r.title }}</div>
+              <div class="item-title">
+                <span>{{ r.title }}</span>
+                <span class="item-badge" v-if="r.generated">已生成工单</span>
+              </div>
               <div class="item-content">{{ r.content }}</div>
               <div class="item-actions" v-if="r.actions && r.actions.length">
                 <span
                   v-for="a in r.actions"
                   :key="a.type"
                   class="item-action"
+                  :class="{ 'action-created': r.generated }"
                   @click.stop="runAction(r, a)"
                 >{{ a.label || "操作" }}</span>
               </div>
@@ -166,6 +141,66 @@
               <span>查看</span>
               <el-icon class="item-view-arrow"><ArrowRight /></el-icon>
             </span>
+          </div>
+          </div>
+        </div>
+
+        <div class="generated-section" v-if="createdOrders.length">
+          <div class="gen-head" @click="generatedOpen = !generatedOpen">
+            <span class="gen-title">
+              <el-icon class="gen-chevron"><ArrowDown v-if="generatedOpen" /><ArrowRight v-else /></el-icon>
+              <span class="list-title">已生成工单历史</span>
+            </span>
+            <el-button link type="danger" size="small" @click.stop="clearCreatedOrders">清除历史</el-button>
+          </div>
+          <div v-show="generatedOpen">
+          <el-input
+            v-model="genSearch"
+            size="small"
+            placeholder="按单号/标题搜索"
+            clearable
+            class="gen-search"
+          />
+          <div v-for="g in generatedGroups" :key="g.status" class="gen-group">
+            <div class="gen-status">{{ g.status }}（{{ g.items.length }}）</div>
+            <div
+              v-for="(r, idx) in g.items"
+              :key="'gen' + r.orderNo + idx"
+              class="reminder-item gen-item"
+              @click.stop="goTo(r)"
+            >
+              <span class="gen-order">#{{ r.orderNo }}</span>
+              <span class="item-action action-created" @click.stop="runAction(r, r.actions![0])">查看工单</span>
+              <span class="gen-remove" title="删除这条记录" @click.stop="removeCreatedOrder(r.orderNo)">
+                <el-icon><Close /></el-icon>
+              </span>
+            </div>
+          </div>
+            <div v-if="!generatedGroups.length" class="gen-empty">无匹配的记录</div>
+          </div>
+        </div>
+
+        <div class="recent-section" v-if="recentOrders.length">
+          <div class="gen-head" @click="recentOpen = !recentOpen">
+            <span class="gen-title">
+              <el-icon class="gen-chevron"><ArrowDown v-if="recentOpen" /><ArrowRight v-else /></el-icon>
+              <span class="list-title">最近浏览工单</span>
+            </span>
+            <el-button link type="danger" size="small" @click.stop="clearRecent">清空</el-button>
+          </div>
+          <div v-show="recentOpen">
+            <div
+              v-for="(wo, idx) in recentOrders"
+              :key="'recent' + wo.id + idx"
+              class="reminder-item recent-item"
+              @click="goDetail(wo)"
+            >
+              <el-icon class="recent-icon"><Clock /></el-icon>
+              <div class="item-main">
+                <div class="item-title"><span>#{{ wo.order_no }}</span></div>
+                <div class="item-content">{{ wo.title }}</div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -182,7 +217,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from "vue"
 import { useRouter } from "vue-router"
-import { Close, ChatDotRound, ArrowRight } from "@element-plus/icons-vue"
+import { Close, ChatDotRound, ArrowRight, ArrowDown, Clock } from "@element-plus/icons-vue"
+import KabutackChar from "./KabutackChar.vue"
 import { ElMessage, ElMessageBox } from "element-plus"
 import { getAssistantSnapshotApi, type AssistantPayload, type Reminder } from "../../api/assistant"
 import { executeToolApi } from "../../api/chat"
@@ -196,6 +232,7 @@ const authStore = useAuthStore()
 // 目标页面所要求的权限（无权限要求的页面不需要配置）
 const TARGET_PERMISSIONS: Record<string, string> = {
   "/monitor/alerts": "monitor:view_alerts",
+  "/workorder/list": "work:view",
 }
 
 function canAccess(r: Reminder): boolean {
@@ -210,11 +247,40 @@ const collapsed = ref(true)
 const dragging = ref(false)
 const liveEnabled = ref(true)
 const data = ref<AssistantPayload | null>(null)
-const pos = ref({ x: 24, y: 24 })
+// ??????? 200px????? X ?????????????????????
+const PET_SAFE_MIN_X = 208
+const pos = ref({ x: PET_SAFE_MIN_X, y: 24 })
 const dragOffset = ref({ x: 0, y: 0 })
 const currentBubble = ref<Reminder | null>(null)
 const seenTitles = ref<Set<string>>(new Set())
 const showAll = ref(false)
+// 面板分区折叠状态（本地记忆，刷新后保持用户偏好）
+const COLLAPSE_KEY = "pet_panel_collapse"
+function loadCollapse(): Record<string, boolean> {
+  try {
+    const saved = JSON.parse(localStorage.getItem(COLLAPSE_KEY) || "{}")
+    return saved && typeof saved === "object" ? saved : {}
+  } catch {
+    return {}
+  }
+}
+const collapsePrefs = loadCollapse()
+const reminderOpen = ref(collapsePrefs.reminder ?? true)
+const generatedOpen = ref(collapsePrefs.generated ?? true)
+const recentOpen = ref(collapsePrefs.recent ?? false)
+
+watch([reminderOpen, generatedOpen, recentOpen], ([r, g, rc]) => {
+  try {
+    localStorage.setItem(COLLAPSE_KEY, JSON.stringify({ reminder: r, generated: g, recent: rc }))
+  } catch { /* ignore */ }
+})
+
+// 清空最近浏览工单
+function clearRecent() {
+  try { localStorage.removeItem("pet_recent_work_orders") } catch { /* ignore */ }
+  recentOrders.value = []
+  ElMessage.success("已清空最近浏览")
+}
 
 // 形象互动：瞳孔跟随 / 表情 / 点击反馈
 const eyeX = ref(0)
@@ -238,14 +304,164 @@ let pollTimer: ReturnType<typeof setInterval> | null = null
 const snapshot = computed(() => data.value?.snapshot ?? null)
 const advisor = computed(() => data.value?.advisor ?? null)
 const reminders = computed<Reminder[]>(() => data.value?.reminders ?? [])
-const displayedReminders = computed(() =>
-  showAll.value ? reminders.value : reminders.value.slice(0, 5)
-)
+// AI 助手生成工单后，前端按会话记录，把“生成工单”改为“已生成工单 / 查看”
+interface CreatedOrder {
+  reminderTitle: string
+  orderId: number
+  orderNo: string
+  priority?: string
+  createdAt: number
+}
+
+// 工单状态 -> 中文标签（与工单列表一致）
+const WORK_ORDER_STATUS: Record<string, string> = {
+  pending: "待分配",
+  assigned: "已指派",
+  processing: "处理中",
+  pending_verify: "待验收",
+  completed: "已完成",
+  closed: "已关闭",
+}
+
+const CREATED_ORDERS_KEY = "pet_assistant_created_orders"
+
+// 跨会话恢复“已生成工单”记录
+function restoreCreatedOrders(): CreatedOrder[] {
+  try {
+    const saved = localStorage.getItem(CREATED_ORDERS_KEY)
+    if (!saved) return []
+    const arr = JSON.parse(saved)
+    if (!Array.isArray(arr)) return []
+    return arr
+      .filter((o: any) => o && typeof o.reminderTitle === "string" && o.orderNo)
+      .map((o: any) => ({
+        reminderTitle: o.reminderTitle,
+        orderId: Number(o.orderId) || 0,
+        orderNo: String(o.orderNo),
+        priority: o.priority || "normal",
+        createdAt: Number(o.createdAt) || Date.now(),
+      }))
+  } catch {
+    return []
+  }
+}
+
+const createdOrders = ref<CreatedOrder[]>(restoreCreatedOrders())
+
+// 持久化“已生成工单”记录
+watch(createdOrders, (val) => {
+  try {
+    localStorage.setItem(CREATED_ORDERS_KEY, JSON.stringify(val))
+  } catch { /* ignore */ }
+}, { deep: true })
+
+// 在原始提醒上叠加“已生成工单”状态：替换动作为查看，并追加一条已生成工单记录
+const viewReminders = computed<(Reminder & { generated?: boolean; orderId?: number; orderNo?: string; liveStatus?: string })[]>(() => {
+  const list: (Reminder & { generated?: boolean; orderId?: number; orderNo?: string; liveStatus?: string })[] = []
+  // 按快照里的开放工单，给已生成工单补上实时处理状态
+  const openItems: any[] = (snapshot.value as any)?.work_orders?.items || []
+  const liveOf = (o: CreatedOrder) => {
+    const live = openItems.find((w) => w.id === o.orderId)
+    return live ? (WORK_ORDER_STATUS[live.status] || live.status) : ""
+  }
+  for (const r of reminders.value) {
+    const made = createdOrders.value.find((o) => o.reminderTitle === r.title)
+    if (!r.actions?.some((a) => a.type === "create_work_order")) {
+      list.push(r)
+      continue
+    }
+    if (made) {
+      list.push({
+        ...r,
+        generated: true,
+        orderId: made.orderId,
+        orderNo: made.orderNo,
+        liveStatus: liveOf(made),
+        actions: [{ type: "view_work_order", label: "查看工单", priority: made.priority }],
+      })
+    } else {
+      list.push(r)
+    }
+  }
+  for (const o of createdOrders.value) {
+    if (!list.some((r) => (r as any).orderNo === o.orderNo)) {
+      const liveStatus = liveOf(o)
+      list.push({
+        type: "work_order",
+        level: "info",
+        title: `已生成工单 #${o.orderNo}${liveStatus ? `（${liveStatus}）` : ""}`,
+        content: o.reminderTitle + "，已由 AI 助手生成工单，可前往查看。",
+        target: "/workorder/detail/" + o.orderId,
+        generated: true,
+        orderId: o.orderId,
+        orderNo: o.orderNo,
+        liveStatus,
+        actions: [{ type: "view_work_order", label: "查看工单" }],
+      })
+    }
+  }
+  return list
+})
+
+const displayedReminders = computed(() => {
+  const normal = viewReminders.value.filter((r) => !r.generated)
+  return showAll.value ? normal : normal.slice(0, 5)
+})
+// 只统计“已生成工单”相关记录（含被改写的提醒与追加的历史）
+const generatedReminders = computed(() => viewReminders.value.filter((r) => r.generated))
+
+// 已生成工单历史的按单号/内容过滤关键字
+const genSearch = ref("")
+
+// 按实时处理状态分组，便于查看
+const generatedGroups = computed<{ status: string; items: any[] }[]>(() => {
+  const order = ["处理中", "待分配", "已指派", "待验收", "已完成", "已关闭"]
+  const groups: { status: string; items: any[] }[] = []
+  const byStatus: Record<string, any[]> = {}
+  const kw = genSearch.value.trim().toLowerCase()
+  for (const r of generatedReminders.value) {
+    if (kw && !((r as any).orderNo || r.title).toString().toLowerCase().includes(kw)) continue
+    const key = (r as any).liveStatus || "其他"
+    ;(byStatus[key] ||= []).push(r)
+  }
+  const keys = Object.keys(byStatus).sort((a, b) => {
+    const ia = order.indexOf(a), ib = order.indexOf(b)
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
+  })
+  for (const k of keys) groups.push({ status: k, items: byStatus[k] })
+  return groups
+})
+
+// 清除已生成工单历史（含本地存储）
+function clearCreatedOrders() {
+  createdOrders.value = []
+  ElMessage.success("已清除已生成工单历史")
+}
+
+// 单条删除某条已生成工单历史
+function removeCreatedOrder(orderNo: string) {
+  createdOrders.value = createdOrders.value.filter((o) => o.orderNo !== orderNo)
+  ElMessage.success("已删除")
+}
+
+// 最近浏览工单（来自工单详情页记录）
+const RECENT_KEY = "pet_recent_work_orders"
+const recentOrders = ref<any[]>([])
+function loadRecent() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]")
+    recentOrders.value = Array.isArray(arr) ? arr.slice(0, 5) : []
+  } catch {
+    recentOrders.value = []
+  }
+}
+
+
 const dangerCount = computed(
   () => (snapshot.value?.alert_stats.new ?? 0) + (snapshot.value?.sensor.abnormal ?? 0)
 )
-const newReminders = computed(() => reminders.value.filter((r) => !seenTitles.value.has(r.title)).length)
-const hasReminder = computed(() => reminders.value.length > 0)
+const newReminders = computed(() => viewReminders.value.filter((r) => !seenTitles.value.has(r.title)).length)
+const hasReminder = computed(() => viewReminders.value.length > 0)
 
 const greeting = computed(() => {
   const a = advisor.value
@@ -258,7 +474,15 @@ function restorePosition() {
     const saved = localStorage.getItem("pet_assistant_pos")
     if (saved) {
       const p = JSON.parse(saved)
-      if (typeof p.x === "number" && typeof p.y === "number") pos.value = p
+      if (typeof p.x === "number" && typeof p.y === "number") {
+        pos.value = {
+          x: Math.max(PET_SAFE_MIN_X, Math.min(p.x, window.innerWidth - 90)),
+          y: Math.max(0, Math.min(p.y, window.innerHeight - 120)),
+        }
+      }
+    } else {
+      // ?????????????????????????
+      pos.value.x = PET_SAFE_MIN_X
     }
   } catch { /* ignore */ }
 }
@@ -279,7 +503,7 @@ function startDrag(e: MouseEvent) {
 function onDrag(e: MouseEvent) {
   if (!dragging.value) return
   pos.value = {
-    x: Math.max(0, Math.min(window.innerWidth - 90, e.clientX - dragOffset.value.x)),
+    x: Math.max(PET_SAFE_MIN_X, Math.min(window.innerWidth - 90, e.clientX - dragOffset.value.x)),
     y: Math.max(0, Math.min(window.innerHeight - 120, e.clientY - dragOffset.value.y)),
   }
 }
@@ -351,6 +575,14 @@ function openChat() {
   emit("open-chat")
 }
 
+function goDetail(wo: any) {
+  if (!wo?.id) return
+  panelOpen.value = false
+  collapsed.value = true
+  currentBubble.value = null
+  router.push(`/workorder/detail/${wo.id}`)
+}
+
 function goTo(r: Reminder) {
   if (!canAccess(r)) {
     ElMessage.warning("你没有权限访问该页面")
@@ -367,6 +599,20 @@ function goTo(r: Reminder) {
 }
 
 async function runAction(r: Reminder, action: { type: string; label?: string; priority?: string }) {
+  // 已生成工单 -> 跳转查看工单列表
+  if (action.type === "view_work_order") {
+    panelOpen.value = false
+    collapsed.value = true
+    currentBubble.value = null
+    const orderId = (r as { orderId?: number }).orderId
+    // 有独立详情页：直接 URL 直达工单详情；兜底回工单列表
+    if (orderId) {
+      router.push(`/workorder/detail/${orderId}`)
+    } else {
+      router.push("/workorder/list")
+    }
+    return
+  }
   if (action.type !== "create_work_order") return
   try {
     await ElMessageBox.confirm(
@@ -383,7 +629,24 @@ async function runAction(r: Reminder, action: { type: string; label?: string; pr
       description: r.content,
       priority: action.priority || "normal",
     })
-    ElMessage.success("工单已创建")
+    const result = (res?.data?.result as { order_id?: number; order_no?: string }) || {}
+    // 记录这次生成的工单，提醒由“生成工单”变为“已生成工单 / 查看”
+    createdOrders.value.push({
+      reminderTitle: r.title,
+      orderId: result.order_id ?? 0,
+      orderNo: result.order_no ?? "",
+      priority: action.priority || "normal",
+      createdAt: Date.now(),
+    })
+    // 最多保留近期 20 条已生成工单，避免本地记录无限增长
+    if (createdOrders.value.length > 20) {
+      createdOrders.value = createdOrders.value.slice(-20)
+    }
+    if (result.order_no) {
+      ElMessage.success(`工单已生成：${result.order_no}，可点击“查看工单”前往。`)
+    } else {
+      ElMessage.success("工单已生成")
+    }
     // 重新拉取快照，刷新提醒状态
     applyData(null)
     return res
@@ -393,8 +656,8 @@ async function runAction(r: Reminder, action: { type: string; label?: string; pr
 }
 
 function rotateBubble() {
-  const unseen = reminders.value.filter((r) => !seenTitles.value.has(r.title))
-  const pool = unseen.length ? unseen : reminders.value
+  const unseen = viewReminders.value.filter((r) => !seenTitles.value.has(r.title))
+  const pool = unseen.length ? unseen : viewReminders.value
   if (!pool.length) return
   const next = pool[Math.floor(Date.now() / 8000) % pool.length]
   currentBubble.value = next
@@ -424,7 +687,7 @@ function applyData(payload: AssistantPayload | null) {
 }
 
 function maybeBubble() {
-  if (!currentBubble.value && reminders.value.length && !panelOpen.value) {
+  if (!currentBubble.value && viewReminders.value.length && !panelOpen.value) {
     rotateBubble()
   }
 }
@@ -523,7 +786,7 @@ watch(liveEnabled, (val) => {
 })
 
 watch(panelOpen, (val) => {
-  if (val) resetSeen()
+  if (val) { resetSeen(); loadRecent() }
   if (val) currentBubble.value = null
 })
 
@@ -560,84 +823,49 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .pet-assistant { position: fixed; z-index: 3000; user-select: none; }
-.pet-body { position: absolute; left: 0; top: 0; width: 92px; height: 98px; cursor: pointer; transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.pet-body { position: absolute; left: 0; top: 0; width: 150px; height: 162px; cursor: pointer; transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }
 .pet-body:hover { transform: translateY(-4px) scale(1.06); }
 .pet-char {
-  display: block; width: 88px; height: 94px; margin: 2px;
+  display: block; width: 134px; height: 146px; margin: 0;
   overflow: visible;
-  filter: drop-shadow(0 10px 22px rgba(220, 38, 38, 0.35));
-  animation: breathe 3.4s ease-in-out infinite;
-  transform-origin: center 78%;
-  cursor: pointer;
 }
-.pet-char.squash { animation: squash 0.26s ease-in-out; }
-.pet-char.jumping { animation: jump 0.9s ease-in-out infinite; }
+
 /* ===== 身体与配色 ===== */
-.svg-body { fill: #dc2626; transition: fill 0.3s ease; }
-.svg-body-high { fill: rgba(255,255,255,0.35); }
-.ear { fill: #b91c1c; transition: fill 0.3s ease; }
-.cheek { fill: rgba(255,161,161,0.55); }
-.foot { fill: #fff7e6; stroke: #e0cfa9; stroke-width: 1; }
+
 /* ===== 天线 ===== */
-.arm { fill: #dc2626; }
-.hand { fill: #fff7e6; stroke: #e0cfa9; stroke-width: 1; }
-.antenna { stroke: #111827; }
-.antenna-ball { fill: #22c55e; box-shadow: none; }
-.antenna-ball.blink-warning { fill: #ef4444; animation: blink-warning 1s infinite; }
+
 /* ===== 眼睛与瞳孔 ===== */
-.eye { }
-.eyeball { fill: #ffffff; transition: fill 0.25s ease; transform-box: fill-box; transform-origin: center; stroke: #d9c9a8; stroke-width: 0.6; }
-.pupil {
-  fill: #fff;
-  transform: translate(var(--eye-x, 0px), var(--eye-y, 0px));
-  transition: transform 0.12s ease-out;
-}
+
+
+
 /* ===== 眉毛（SVG 线条绕中心旋转） ===== */
-.brow { stroke: #1e293b; stroke-width: 2.4; stroke-linecap: round; transform-box: fill-box; transform-origin: center; transition: transform 0.25s ease; }
+
 /* ===== 嘴形（按状态显示/隐藏） ===== */
-.mouth { }
-.mouth-flat { display: none; }
-.mouth-open { display: none; }
+
+
+
 /* ===== 健康：放松上扬眉毛 + 微笑 ===== */
-.mood-healthy .left-brow { transform: rotate(14deg); }
-.mood-healthy .right-brow { transform: rotate(-14deg); }
-.mood-healthy .mouth-smile { display: block; }
+
 /* ===== 一般：内端下压眉毛 + 平嘴 ===== */
-.mood-attention .left-brow { transform: rotate(-9deg); }
-.mood-attention .right-brow { transform: rotate(9deg); }
-.mood-attention .eyeball { transform: scale(0.92, 0.8); }
-.mood-attention .mouth-flat { display: block; }
+
+
 /* ===== 告警：竖眉瞪眼张嘴（眼/身转红） ===== */
-.mood-alert .left-brow { transform: rotate(22deg) translateY(1px); }
-.mood-alert .right-brow { transform: rotate(-22deg) translateY(1px); }
-.mood-alert .eyeball { fill: #7f1d1d; }
-.mood-alert .pupil { fill: #fecaca; }
-.mood-alert .mouth-open { display: block; }
-.mood-alert .svg-body { fill: #ef4444; }
-.mood-alert .ear { fill: #dc2626; }
-.mood-alert .svg-body-high { fill: rgba(255,200,200,0.4); }
-.mood-alert .cheek { fill: rgba(255,200,200,0.5); }
-.mood-alert .antenna-ball { fill: #ef4444; box-shadow: none; }
-.mood-attention .svg-body { fill: #f59e0b; }
-.mood-attention .ear { fill: #d97706; }
-.mood-attention .svg-body-high { fill: rgba(255,235,200,0.4); }
-.mood-healthy .antenna-ball { fill: #22c55e; box-shadow: none; }
+
+
 /* 默认隐藏所有嘴形，健康态显微笑已在上方覆盖 */
-.mouth-smile, .mouth-flat, .mouth-open { }
-.mood-attention .mouth-smile, .mood-attention .mouth-open { display: none; }
-.mood-alert .mouth-smile, .mood-alert .mouth-flat { display: none; }
+
 .pet-badge { position: absolute; top: -2px; right: -2px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: #ef4444; color: #fff; font-size: 11px; line-height: 20px; text-align: center; box-shadow: 0 2px 8px rgba(239,68,68,0.5); }
-.reminder-bubble { position: absolute; left: 84px; top: 0; min-width: 230px; max-width: 300px; background: #fff; border-radius: 14px; box-shadow: 0 12px 32px rgba(15,23,42,0.18); padding: 12px 14px; cursor: pointer; border-left: 4px solid #3b82f6; }
+.reminder-bubble { position: absolute; left: 112px; top: 0; min-width: 230px; max-width: 300px; background: #fff; border-radius: 14px; box-shadow: 0 12px 32px rgba(15,23,42,0.18); padding: 12px 14px; cursor: pointer; border-left: 4px solid #3b82f6; }
 .reminder-bubble.level-warning { border-left-color: #f59e0b; }
 .reminder-bubble.level-danger { border-left-color: #ef4444; }
 .bubble-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
-.bubble-title { font-weight: 600; font-size: 13px; color: #1e293b; }
+.bubble-title { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; color: #1e293b; }
 .bubble-close { color: #94a3b8; cursor: pointer; font-size: 14px; }
 .bubble-content { font-size: 12px; color: #475569; line-height: 1.5; }
 .bubble-view { display: inline-flex; align-items: center; gap: 4px; margin-top: 10px; padding: 4px 12px; border-radius: 999px; background: #eff6ff; color: #2563eb; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
 .bubble-view:hover { background: #dbeafe; }
 .bubble-view .el-icon { font-size: 13px; }
-.pet-panel { position: absolute; left: 84px; top: 60px; width: 320px; max-height: 62vh; overflow-y: auto; background: #fff; border-radius: 16px; box-shadow: 0 20px 50px rgba(15,23,42,0.22); padding: 14px; cursor: default; }
+.pet-panel { position: absolute; left: 112px; top: 60px; width: 320px; max-height: 62vh; overflow-y: auto; background: #fff; border-radius: 16px; box-shadow: 0 20px 50px rgba(15,23,42,0.22); padding: 14px; cursor: default; }
 .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .panel-title { font-weight: 700; font-size: 14px; color: #1e293b; }
 .panel-actions { display: flex; align-items: center; gap: 10px; }
@@ -660,9 +888,10 @@ onBeforeUnmount(() => {
 .reminder-item.level-warning { border-left: 3px solid #f59e0b; }
 .reminder-item.level-danger { border-left: 3px solid #ef4444; }
 .item-icon { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
-.icon-alert { background: #ef4444; } .icon-env { background: #3b82f6; } .icon-capacity { background: #f59e0b; }
+.icon-alert { background: #ef4444; } .icon-env { background: #3b82f6; } .icon-capacity { background: #f59e0b; } .icon-work { background: #8b5cf6; }
 .item-main { flex: 1; min-width: 0; }
-.item-title { font-size: 12px; font-weight: 600; color: #334155; }
+.item-title { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #334155; }
+.item-badge, .bubble-badge { flex-shrink: 0; padding: 1px 6px; border-radius: 6px; background: #6366f1; color: #fff; font-size: 10px; font-weight: 600; line-height: 1.5; }
 .item-content { font-size: 11px; color: #64748b; margin-top: 2px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .item-view { display: inline-flex; align-items: center; gap: 2px; margin-left: 6px; padding: 3px 8px; border-radius: 6px; background: #eff6ff; color: #2563eb; font-size: 11px; font-weight: 600; cursor: pointer; flex-shrink: 0; }
 .item-view:hover { background: #dbeafe; }
@@ -670,15 +899,34 @@ onBeforeUnmount(() => {
 .item-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .item-action { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 6px; background: #ecfdf5; color: #059669; font-size: 11px; font-weight: 600; cursor: pointer; border: 1px solid #a7f3d0; }
 .item-action:hover { background: #d1fae5; }
+.item-action.action-created { background: #eef2ff; color: #4f46e5; border-color: #c7d2fe; }
+.item-action.action-created:hover { background: #e0e7ff; }
+.generated-section { margin-top: 10px; border-top: 1px dashed #e2e8f0; padding-top: 8px; }
+.gen-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; cursor: pointer; user-select: none; }
+.section-head { display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none; }
+.section-toggle { color: #94a3b8; font-size: 13px; }
+.gen-title { display: flex; align-items: center; gap: 4px; }
+.gen-chevron { color: #94a3b8; font-size: 12px; transition: transform 0.2s; }
+.gen-group { margin-bottom: 8px; }
+.gen-status { font-size: 11px; color: #6366f1; font-weight: 600; margin: 6px 0 4px; }
+.gen-search { margin-bottom: 8px; }
+.gen-remove { flex-shrink: 0; color: #cbd5e1; cursor: pointer; font-size: 13px; }
+.gen-remove:hover { color: #ef4444; }
+.recent-section { margin-top: 10px; border-top: 1px dashed #e2e8f0; padding-top: 8px; }
+.recent-item { cursor: pointer; }
+.recent-icon { color: #94a3b8; margin-top: 4px; font-size: 14px; }
+.gen-empty { color: #94a3b8; font-size: 12px; padding: 8px 0; text-align: center; }
+.gen-item { cursor: pointer; padding: 6px 8px; }
+.gen-order { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: #334155; }
 .bubble-actions { display: flex; gap: 6px; margin-top: 8px; }
 .bubble-action { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 999px; background: #ecfdf5; color: #059669; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid #a7f3d0; }
 .bubble-action:hover { background: #d1fae5; }
 .icon-trend { background: #8b5cf6; }
 .panel-footer { display: flex; align-items: center; gap: 6px; color: #3b82f6; font-size: 12px; font-weight: 600; padding: 10px; border-top: 1px solid #e2e8f0; margin-top: 8px; cursor: pointer; }
 .foot-arrow { margin-left: auto; }
-@keyframes breathe { 0%,100% { transform: translateY(0) scaleY(1); } 50% { transform: translateY(-3px) scaleY(1.02); } }
-@keyframes jump { 0%,100% { transform: translateY(0); } 30% { transform: translateY(-8px) rotate(-2deg); } 55% { transform: translateY(-2px) scaleY(0.96); } 75% { transform: translateY(-5px); } }
-@keyframes squash { 0% { transform: scale(1.25, 0.75); } 50% { transform: scale(0.92, 1.12); } 100% { transform: scale(1, 1); } }
+
+
+
 @keyframes blink { 0%,92%,100% { transform: scaleY(1); } 95% { transform: scaleY(0.05); } }
 @keyframes blink-warning { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -689,3 +937,4 @@ onBeforeUnmount(() => {
 .pop-enter-active, .pop-leave-active { transition: all 0.2s ease; }
 .pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.5); }
 </style>
+

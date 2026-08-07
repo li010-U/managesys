@@ -1,4 +1,5 @@
 import http from "./index";
+import { dictGet } from "./dictCache";
 
 export interface ThresholdConfig {
   metric: string;
@@ -36,7 +37,7 @@ export function getDeviceTypesApi(params: { page: number; page_size: number; key
 }
 
 export function getAllDeviceTypesApi() {
-  return http.get<DeviceTypeInfo[]>("/devices/types/all");
+  return dictGet<DeviceTypeInfo[]>("/devices/types/all");
 }
 
 export function getDeviceTypeApi(id: number) {

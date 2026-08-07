@@ -30,6 +30,8 @@ export interface LoginLogItem {
   id: number
   username: string
   ip_address: string | null
+  location?: string | null
+  anomaly?: string[] | null
   login_status: string
   fail_reason: string | null
   created_at: string

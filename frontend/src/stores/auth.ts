@@ -1,6 +1,7 @@
 ﻿import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { loginApi, getCurrentUserApi } from '../api/auth'
+import { prefetchDict } from '../api/dictCache'
 import type { UserInfo } from '../api/user'
 import router from '../router'
 
@@ -37,11 +38,15 @@ export const useAuthStore = defineStore('auth', () => {
     } catch {
       user.value = null
     }
+    // ????????????????????????????
+    prefetchDict()
   }
 
   async function fetchUserInfo() {
     const res = await getCurrentUserApi()
     user.value = res.data
+    // ??/??? token ????????????dictGet ????
+    prefetchDict()
   }
 
   function logout() {

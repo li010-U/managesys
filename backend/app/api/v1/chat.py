@@ -74,7 +74,7 @@ SYSTEM_PROMPT = (
 )
 
 
-async def _load_history_content(db, conv_id: int) -> str:
+async def _load_history_content(db, conv_id: int, exclude_id: int | None = None) -> str:
     """加载会话历史，用于提交 LLM 的 message 列表。
 
     只取最近6条、每条截断到600字、总长封顶4000字，
@@ -88,6 +88,9 @@ async def _load_history_content(db, conv_id: int) -> str:
         .limit(6)
     )
     msgs = list(rows.scalars().all())
+    if exclude_id is not None:
+        # exclude the just-saved current user message so it is not sent twice
+        msgs = [m for m in msgs if m.id != exclude_id]
     msgs.reverse()
     parts = []
     for m in msgs[-6:]:
@@ -167,14 +170,31 @@ def _guard_content(text: str) -> str:
 def _detect_repetition(text: str) -> bool:
     """Detect degenerate self-repeating (snowball / Russian-doll) output."""
     t = (text or "").strip()
-    if len(t) < 150:
+    if len(t) < 60:
         return False
     # 1) The exact opening phrase recurs many times -> re-anchored repetition.
-    if t.count(t[:40]) >= 4:
+    if len(t) >= 150 and t.count(t[:40]) >= 4:
         return True
     # 2) The exact tail recurs multiple times.
     tail = t[-70:]
-    return bool(tail) and t.count(tail) >= 3
+    if bool(tail) and t.count(tail) >= 3:
+        return True
+    # 3) A full duplicated line recurs repeatedly (the model re-reading the same line).
+    seen = {}
+    for line in t.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        seen[line] = seen.get(line, 0) + 1
+        if seen[line] >= 4:
+            return True
+    # 4) A ~40-char block recurs many times anywhere (short-phrase re-anchoring).
+    if len(t) >= 120:
+        for i in range(0, len(t) - 40):
+            block = t[i:i + 40]
+            if t.count(block) >= 5:
+                return True
+    return False
 
 
 def _trim_repetition(text: str) -> str:
@@ -405,7 +425,7 @@ async def send_message(
     intent_extra = await _intent_context(_detect_intents(req.content))
     if intent_extra:
         context = (context + "\n" + intent_extra) if context else intent_extra
-    history = await _load_history_content(db, conv.id)
+    history = await _load_history_content(db, conv.id, exclude_id=user_msg.id)
     system_prompt = SYSTEM_PROMPT
     if context:
         system_prompt += "\n\n[当前系统实时数据]\n" + context
@@ -487,7 +507,10 @@ async def send_message_stream(
                     db.add(conv)
                     await db.flush()
                     conv_id = conv.id
-                db.add(ChatMessage(conversation_id=conv_id, role="user", content=req.content))
+                user_msg = ChatMessage(conversation_id=conv_id, role="user", content=req.content)
+                db.add(user_msg)
+                await db.flush()
+                current_user_msg_id = user_msg.id
                 await with_commit_retry(db.commit)
 
             # ---- 渲染消息（每字一个节点）----
@@ -498,7 +521,7 @@ async def send_message_stream(
                 context = (context + "\n" + intent_extra) if context else intent_extra
             history = ""
             async with async_session_factory() as _db2:
-                history = await _load_history_content(_db2, conv_id)
+                history = await _load_history_content(_db2, conv_id, exclude_id=current_user_msg_id)
             system_prompt = SYSTEM_PROMPT
             if context:
                 system_prompt += "\n\n[当前系统实时数据]\n" + context
@@ -510,7 +533,7 @@ async def send_message_stream(
             # ---- 流式输出（真实 LLM 或 mock 回退），含心跳保活 ----
             full_content = ""
             last_tick = asyncio.get_event_loop().time()
-            next_check = 150
+            next_check = 80
             try:
                 async for piece in _stream_llm_or_mock(messages, req.content):
                     if await request.is_disconnected():

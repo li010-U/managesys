@@ -1,4 +1,4 @@
-﻿import { defineStore } from "pinia"
+import { defineStore } from "pinia"
 import { ref, computed } from "vue"
 import type { RouteLocationNormalized } from "vue-router"
 
@@ -16,6 +16,9 @@ export const useTabsStore = defineStore("tabs", () => {
   ])
   const activeTab = ref("/dashboard")
   const tabNames = computed(() => new Set(tabs.value.map(t => t.path)))
+  // 用于 keep-alive :include 匹配的组件 name 集合（与路由 name 对齐）
+  // 用于 keep-alive :include 匹配的组件 name 数组（与路由 name 对齐）
+  const includeNames = computed(() => tabs.value.map((t) => t.name))
 
   function addTab(route: RouteLocationNormalized) {
     const path = route.path
@@ -52,5 +55,5 @@ export const useTabsStore = defineStore("tabs", () => {
     activeTab.value = path
   }
 
-  return { tabs, activeTab, addTab, removeTab, clearTabs, setActiveTab }
+  return { tabs, activeTab, tabNames, includeNames, addTab, removeTab, clearTabs, setActiveTab }
 })

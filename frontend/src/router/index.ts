@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import NProgress from 'nprogress'
 import { useAuthStore } from '../stores/auth'
+import { useTabsStore } from '../stores/tabs'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -47,10 +48,28 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '审计日志', icon: 'Document', permission: 'audit:view' },
       },
       {
+        path: 'system/login-logs',
+        name: 'LoginLogs',
+        component: () => import('../views/system/LoginLogView.vue'),
+        meta: { title: '登录日志', icon: 'Key', permission: 'audit:view' },
+      },
+      {
+        path: 'system/ip-resources',
+        name: 'IpResources',
+        component: () => import('../views/system/IpResourceView.vue'),
+        meta: { title: 'IP资源', icon: 'Connection', permission: 'device:view' },
+      },
+      {
         path: 'workorder/list',
         name: 'WorkOrderList',
         component: () => import('../views/workorder/WorkOrderView.vue'),
         meta: { title: '运维工单', icon: 'Tickets', permission: 'work:view' },
+      },
+      {
+        path: 'workorder/detail/:id',
+        name: 'WorkOrderDetail',
+        component: () => import('../views/workorder/WorkOrderDetailView.vue'),
+        meta: { title: '工单详情', icon: 'Tickets', permission: 'work:view', parentTitle: '运维工单', parentPath: '/workorder/list' },
       },
       {
         path: 'inspection',
@@ -194,9 +213,19 @@ router.beforeEach(async (to, _from, next) => {
   next()
 })
 
-router.afterEach((_to, _from, failure) => {
+router.afterEach((to, _from, failure) => {
   // 无论成功、被重定向还是导航被中止，都结束本次导航的进度
   finishNavigation()
+
+  // 已登录且是带标题的业务页面：登记到标签系统，keep-alive 据此缓存已访问页面，切回时不重建、不重拉数据，避免“点击任何功能都卡顿一下”。
+  if (failure) return
+  const authStore = useAuthStore()
+  if (!authStore.isAuthenticated) return
+  const meta = to.meta as any
+  if (!meta?.title) return
+  if (to.path === "/403" || to.path === "/404" || to.path === "/login") return
+  const tabs = useTabsStore()
+  tabs.addTab(to)
 })
 
 router.onError((_error) => {

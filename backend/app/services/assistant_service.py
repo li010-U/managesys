@@ -93,6 +93,7 @@ class AssistantService:
         offline_sensors = [s for s in sensors if s.status != "online"]
         trend_sensors = await self._trend_sensors(sensors)
         latest_alerts = await self._latest_alerts(limit=5)
+        open_work_orders = await self._open_work_orders()
         # 历史对比：近 24h vs 前 24h 新增告警数，用于值班摘要
         alert_history = {
             "recent_24h": await self._alert_count_in_range(24),
@@ -137,11 +138,34 @@ class AssistantService:
             "device_count": device_count,
             "room_count": room_count,
             "latest_alerts": latest_alerts,
+            "work_orders": open_work_orders,
             "high_usage_racks": high_racks[:8],
             "alert_history": alert_history,
         }
 
     # ---------------- 子查询 ----------------
+    async def _open_work_orders(self) -> Dict[str, Any]:
+        """返回仍未处理完成的工单统计（开放状态：pending/assigned/processing/pending_verify）。"""
+        from app.models.work_order import WorkOrder
+        open_statuses = ("pending", "assigned", "processing", "pending_verify")
+        rows = await self.db.execute(
+            select(WorkOrder)
+            .where(WorkOrder.status.in_(list(open_statuses)))
+            .order_by(WorkOrder.priority.desc(), WorkOrder.created_at.desc())
+            .limit(20)
+        )
+        items = []
+        for wo in rows.scalars().all():
+            items.append({
+                "id": wo.id,
+                "order_no": wo.order_no,
+                "title": wo.title,
+                "priority": wo.priority,
+                "status": wo.status,
+                "created_at": _fmt_dt(wo.created_at),
+            })
+        return {"open_count": len(items), "items": items}
+
     async def _alert_stats(self) -> Dict[str, int]:
         rows = await self.db.execute(
             select(Alert.status, func.count()).group_by(Alert.status)
@@ -397,6 +421,28 @@ class AssistantService:
                     ],
                 }
             )
+
+        # 5. 未处理工单：提醒还有哪些工单没有处理完成
+        work_orders = snapshot.get("work_orders", {}) or {}
+        open_count = work_orders.get("open_count", 0) or 0
+        open_items = work_orders.get("items", []) or []
+        if open_count > 0:
+            top8 = open_items[:8]
+            titles = "、".join((it.get("order_no") or "") + "（" + (it.get("title") or "") + "）" for it in top8)
+            worst = "normal"
+            for it in open_items:
+                if it.get("priority") in ("urgent", "high"):
+                    worst = "warning"
+                    break
+            reminders.append({
+                "type": "work_order",
+                "level": worst,
+                "title": f"还有 {open_count} 张工单未处理",
+                "content": "以下工单仍未处理完成：" + titles + "。",
+                "target": "/workorder/list",
+                "actions": [],
+            })
+
 
         # 5. 机柜整体利用率提示
         avg_usage = snapshot.get("rack", {}).get("avg_usage", 0)

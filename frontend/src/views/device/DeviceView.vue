@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="page">
     <div class="page-header">
       <div>
@@ -21,7 +21,8 @@
           <el-button type="primary" :icon="Plus" @click="openDialog()">新增设备</el-button>
         </div>
       </template>
-      <el-table :data="list" v-loading="loading" stripe>
+      <TableSkeleton v-if="loading" :rows="8" />
+<el-table v-else :data="list" stripe height="calc(100vh - 360px)" virtual>
         <el-table-column prop="name" label="名称" min-width="140" />
         <el-table-column prop="asset_number" label="资产号" width="120" />
         <el-table-column prop="device_type_name" label="类型" width="100" />
@@ -91,6 +92,16 @@
           <el-col :span="8">
             <el-form-item label="管理IP">
               <el-input v-model="form.management_ip" placeholder="管理IP" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="业务IP">
+              <el-input v-model="form.business_ip" placeholder="业务IP（逗号分隔多IP）" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="带外IP">
+              <el-input v-model="form.out_of_band_ip" placeholder="带外IP（BMC/iLO/iDRAC）" />
             </el-form-item>
           </el-col>
           <el-col :span="8">
@@ -174,6 +185,8 @@
               <el-tag :type="statusTag(currentDevice?.status || '')" size="small">{{ statusLabel(currentDevice?.status || '') }}</el-tag>
             </el-descriptions-item>
             <el-descriptions-item label="管理IP">{{ currentDevice?.management_ip || "-" }}</el-descriptions-item>
+            <el-descriptions-item label="业务IP">{{ currentDevice?.business_ip || "-" }}</el-descriptions-item>
+            <el-descriptions-item label="带外IP">{{ currentDevice?.out_of_band_ip || "-" }}</el-descriptions-item>
             <el-descriptions-item label="MAC地址">{{ currentDevice?.mac_address || "-" }}</el-descriptions-item>
             <el-descriptions-item label="位置" :span="2">
               {{ currentDevice?.room_name || "-" }} / {{ currentDevice?.rack_name || "-" }}
@@ -227,12 +240,14 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'DeviceList' })
 import { ref, onMounted } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { Plus, Edit, Delete } from "@element-plus/icons-vue";
 import { getDevicesApi, createDeviceApi, updateDeviceApi, deleteDeviceApi, getDeviceLifecyclesApi, getAllDeviceTypesApi } from "../../api/device";
 import type { DeviceInfo, DeviceTypeInfo, ThresholdConfig } from "../../api/device";
 import { getRacksApi } from "../../api/facility";
+import TableSkeleton from "../../components/common/TableSkeleton.vue";
 import type { RackInfo } from "../../api/facility";
 
 interface LifecycleRecord {
@@ -273,7 +288,7 @@ function statusTag(s: string) {
 
 const dialog = ref({ visible: false, isEdit: false, id: 0 });
 const form = ref<any>({
-  name: "", asset_number: "", device_type_id: undefined, brand: "", model: "", serial_number: "", management_ip: "", mac_address: "",
+  name: "", asset_number: "", device_type_id: undefined, brand: "", model: "", serial_number: "", management_ip: "", business_ip: "", out_of_band_ip: "", mac_address: "",
   cpu_info: "", memory_info: "", disk_info: "", vendor: "", purchase_date: null, warranty_start: null, warranty_end: null,
   rack_id: null, start_u: null, end_u: null, purchase_order: ""
 });
@@ -284,15 +299,15 @@ const currentDevice = ref<DeviceInfo | null>(null);
 const lifecycleList = ref<LifecycleRecord[]>([]);
 const deviceTypeThresholds = ref<ThresholdConfig[]>([]);
 
-onMounted(async () => {
-  await fetchDeviceTypes();
-  await fetchRacks();
+onMounted(() => {
+  // ???????????????????? await ????
+  Promise.all([fetchDeviceTypes(), fetchRacks()]);
   fetchData();
 });
 
 async function fetchRacks() {
   try {
-    const r = await getRacksApi({ page: 1, page_size: 200 });
+    const r = await getRacksApi({ page: 1, page_size: 100 });
     rackList.value = r.data.items;
   } catch {}
 }
@@ -325,13 +340,13 @@ function openDialog(item?: DeviceInfo) {
   form.value = item
     ? {
         name: item.name, asset_number: item.asset_number, device_type_id: item.device_type_id,
-        brand: item.brand || "", model: item.model || "", serial_number: item.serial_number || "", management_ip: item.management_ip || "", mac_address: item.mac_address || "",
+        brand: item.brand || "", model: item.model || "", serial_number: item.serial_number || "", management_ip: item.management_ip || "", business_ip: item.business_ip || "", out_of_band_ip: item.out_of_band_ip || "", mac_address: item.mac_address || "",
         cpu_info: item.cpu_info || "", memory_info: item.memory_info || "", disk_info: item.disk_info || "", vendor: item.vendor || "", purchase_date: item.purchase_date || null,
         warranty_start: item.warranty_start || null, warranty_end: item.warranty_end || null, rack_id: item.rack_id ?? null, start_u: item.start_u ?? null, end_u: item.end_u ?? null,
         purchase_order: item.purchase_order || ""
       }
     : {
-        name: "", asset_number: "", device_type_id: undefined, brand: "", model: "", serial_number: "", management_ip: "", mac_address: "",
+        name: "", asset_number: "", device_type_id: undefined, brand: "", model: "", serial_number: "", management_ip: "", business_ip: "", out_of_band_ip: "", mac_address: "",
         cpu_info: "", memory_info: "", disk_info: "", vendor: "", purchase_date: null, warranty_start: null, warranty_end: null,
         rack_id: null, start_u: null, end_u: null, purchase_order: ""
       };

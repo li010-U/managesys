@@ -46,14 +46,13 @@ limiter = SlidingWindowLimiter()
 
 
 def get_client_ip(request: Request) -> str:
-    """\u4f18\u5148\u53d6 X-Forwarded-For \u7684\u7b2c\u4e00\u4e2a IP\uff0c\u540e\u56de\u9000\u5230\u8fde\u63a5\u5bf9\u7aef\u5730\u5740\u3002"""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    if request.client:
-        return request.client.host or "unknown"
-    return "unknown"
-
+    """统一取客户端 IP（委托 app.core.iputils）。"""
+    from app.core.iputils import get_client_ip as _resolve
+    return _resolve(
+        request.headers.get("X-Forwarded-For"),
+        request.headers.get("X-Real-IP"),
+        request.client.host if request.client else None,
+    )
 
 def rate_limit(max_attempts: int, window_seconds: float, scope: str):
     """\u751f\u6210\u4e00\u4e2a\u9650\u6d41\u4f9d\u8d56\uff0c\u8d85\u9650\u65f6\u8fd4\u56de 429\u3002"""

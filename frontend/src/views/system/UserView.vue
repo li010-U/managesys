@@ -145,6 +145,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'Users' })
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Plus, Edit, Delete } from '@element-plus/icons-vue'

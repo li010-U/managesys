@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.deps import get_db, get_current_user
 from app.core.ratelimit import rate_limit
+from app.core.iputils import get_client_ip, classify_ip
 from app.models.user import User
 from app.schemas.auth import (
     LoginRequest, TokenResponse, RegisterRequest,
@@ -46,7 +47,7 @@ async def login(
 
     service = AuthService(db)
     try:
-        ip_address = request.client.host if request.client else None
+        ip_address = get_client_ip(request.headers.get("X-Forwarded-For"), request.headers.get("X-Real-IP"), request.client.host if request.client else None)
         token, user = await service.login(req.username, req.password, ip_address)
         return TokenResponse(access_token=token, token_type="bearer")
     except ValueError as e:
@@ -117,8 +118,28 @@ async def get_login_logs(
     from sqlalchemy import select, desc
     from app.models.login_log import LoginLog
     from app.schemas.auth import LoginLogResponse
+    from collections import defaultdict
     result = await db.execute(
-        select(LoginLog).order_by(desc(LoginLog.created_at)).limit(100)
+        select(LoginLog).order_by(desc(LoginLog.created_at)).limit(200)
     )
     logs = result.scalars().all()
-    return [LoginLogResponse.model_validate(log) for log in logs]
+
+    # 同 IP 短时间多次失败 => 疑似爆破
+    fail_by_ip: dict[str, int] = defaultdict(int)
+    for log in logs:
+        if log.login_status == "fail" and log.ip_address:
+            fail_by_ip[log.ip_address] += 1
+
+    responses = []
+    for log in logs:
+        resp = LoginLogResponse.model_validate(log)
+        flags: list[str] = []
+        if log.ip_address and fail_by_ip.get(log.ip_address, 0) >= 3:
+            flags.append("疑似爆破")
+        if log.login_status == "success":
+            cls = classify_ip(log.ip_address)
+            if cls["is_public"]:
+                flags.append("公网登录")
+        resp.anomaly = flags or None
+        responses.append(resp)
+    return responses

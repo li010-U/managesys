@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="env-page">
     <div class="page-header">
       <div>
@@ -186,6 +186,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'Environment' })
 import { ref, computed, onMounted } from "vue"
 import { ElMessage, ElMessageBox } from "element-plus"
 import type { FormInstance } from "element-plus"
@@ -283,7 +284,7 @@ function formatTime(t: string | null): string {
   } catch { return "--" }
 }
 
-onMounted(async () => { await fetchRooms(); await fetchData() })
+onMounted(() => { Promise.all([fetchRooms(), fetchData()]) })
 
 async function fetchRooms() {
   try { const r = await getRoomsApi({ page: 1, page_size: 100 }); roomList.value = r.data.items } catch {}

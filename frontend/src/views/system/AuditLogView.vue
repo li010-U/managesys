@@ -83,7 +83,15 @@
         </el-table-column>
         <el-table-column prop="target_id" label="对象ID" width="80" align="center" />
         <el-table-column prop="detail" label="操作详情" min-width="280" show-overflow-tooltip />
-        <el-table-column prop="ip_address" label="IP地址" width="130" />
+        <el-table-column prop="ip_address" label="IP地址" width="200">
+            <template #default="{ row }">
+              <div v-if="row.ip_address" class="ip-cell">
+                <span>{{ row.ip_address }}</span>
+                <el-tag v-if="row.location" size="small" type="info" class="ip-loc">{{ row.location }}</el-tag>
+              </div>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
         <el-table-column prop="created_at" label="操作时间" width="170">
           <template #default="{ row }">
             {{ formatDate(row.created_at) }}
@@ -107,6 +115,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'AuditLogs' })
 import { ref, reactive, onMounted } from "vue";
 import { Search, Refresh } from "@element-plus/icons-vue";
 import { getAuditLogsApi } from "@/api/auditLog";
@@ -250,4 +259,6 @@ onMounted(() => {
   justify-content: flex-end;
   border-top: 1px solid #f0f2f5;
 }
+.ip-cell { display: flex; flex-direction: column; gap: 2px; }
+.ip-loc { max-width: 130px; }
 </style>

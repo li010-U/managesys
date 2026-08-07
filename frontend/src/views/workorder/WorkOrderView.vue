@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="work-order-container">
     <!-- 统计卡片 -->
     <el-row :gutter="20" class="stats-row">
@@ -103,7 +103,8 @@
           <el-radio-button value="board">看板</el-radio-button>
         </el-radio-group>
       </div>
-      <el-table :data="workOrders" v-loading="loading" stripe>
+      <TableSkeleton v-if="loading" :rows="8" />
+<el-table v-else ref="tableRef" :data="workOrders" stripe highlight-current-row height="calc(100vh - 360px)" virtual>
         <el-table-column prop="order_no" label="工单编号" width="180" fixed />
         <el-table-column prop="title" label="工单标题" min-width="200" fixed />
         <el-table-column prop="category_name" label="分类" width="100" />
@@ -137,7 +138,7 @@
         </el-table-column>
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" link size="small" @click="handleView(row)">
+            <el-button type="primary" link size="small" @click="goDetail(row)">
               查看
             </el-button>
             <el-button type="primary" link size="small" @click="handleEdit(row)" v-if="canEdit(row)">
@@ -176,7 +177,7 @@
               class="board-card"
               v-for="wo in boardGroup(col.status)"
               :key="wo.id"
-              @click="handleView(wo)"
+              @click="goDetail(wo)"
             >
               <div class="board-card-top">
                 <el-tag :type="getPriorityType(wo.priority)" size="small">
@@ -191,7 +192,7 @@
               </div>
               <div class="board-foot">
                 <span>{{ formatDate(wo.created_at) }}</span>
-                <el-button link type="primary" size="small" @click.stop="handleView(wo)">查看</el-button>
+                <el-button link type="primary" size="small" @click.stop="goDetail(wo)">查看</el-button>
               </div>
             </div>
             <div class="board-empty" v-if="boardGroup(col.status).length === 0">暂无工单</div>
@@ -719,7 +720,9 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'WorkOrderList' })
 import { ref, reactive, onMounted, computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Document, Clock, Loading, Check, Search, Refresh, Plus, Upload, Paperclip, Reading, SetUp, Collection
@@ -757,6 +760,10 @@ import {
 import { getDevicesApi } from '@/api/device'
 import { getAllRoomsApi } from '@/api/facility'
 import { useAuthStore } from '@/stores/auth'
+import TableSkeleton from '@/components/common/TableSkeleton.vue'
+
+const route = useRoute()
+const router = useRouter()
 
 const authStore = useAuthStore()
 const userId = computed(() => authStore.user?.id)
@@ -793,6 +800,7 @@ const pagination = reactive({
 
 // 列表数据
 const workOrders = ref<any[]>([])
+const tableRef = ref<any>(null)
 const loading = ref(false)
 const viewMode = ref<'table' | 'board'>('table')
 const boardColumns = [
@@ -938,7 +946,7 @@ const loadOptions = async () => {
     const [catRes, userRes, deviceRes, facilityRes] = await Promise.all([
       getWorkOrderCategories(),
       getAssignableUsers(),
-      getDevicesApi({ page: 1, page_size: 1000 }),
+      getDevicesApi({ page: 1, page_size: 100 }),
       getAllRoomsApi()
     ])
     categories.value = catRes.data?.data || []
@@ -990,7 +998,12 @@ const handleCreate = () => {
   dialogVisible.value = true
 }
 
-// 查看
+// 查看：跳转到独立详情页
+const goDetail = (row: any) => {
+  if (row?.id) router.push(`/workorder/detail/${row.id}`)
+}
+
+// 查看（弹窗，用于 focus 定位等场景）
 const handleView = async (row: any) => {
   try {
     const res = await getWorkOrderDetail(row.id)
@@ -1583,10 +1596,37 @@ const removeCategory = (row: any) => {
   })
 }
 
+// 定位并高亮焦点工单（列表滚动到该行）
+function highlightAndScroll(row: any) {
+  tableRef.value?.setCurrentRow(row)
+  try {
+    const tr = tableRef.value?.$el?.querySelector('.el-table__body-wrapper tr.current-row')
+    tr?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+  } catch { /* ignore */ }
+}
+
 onMounted(() => {
   loadStats()
   loadData()
   loadOptions()
+  // 从桌宠“查看工单”跳转：按 focus 参数自动定位并打开对应工单详情
+  const focusId = Number(route.query.focus)
+  if (focusId) {
+    const focusOrderNo = String(route.query.order_no || '')
+    // 定位并高亮焦点工单（不自动开弹窗，独立详情页可通过列表“查看”进入）
+    ;(async () => {
+      await loadData()
+      const found = workOrders.value.find((w: any) => w.id === focusId)
+      if (found) {
+        highlightAndScroll(found)
+      } else if (focusOrderNo) {
+        searchForm.keyword = focusOrderNo
+        await loadData()
+        const hit = workOrders.value.find((w: any) => w.id === focusId)
+        if (hit) highlightAndScroll(hit)
+      }
+    })()
+  }
 })
 </script>
 

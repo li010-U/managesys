@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="inspection-container">
     <el-tabs v-model="activeTab" class="inspection-tabs">
       <!-- 巡检任务 -->
@@ -421,6 +421,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'Inspection' })
 import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import {

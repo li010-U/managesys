@@ -48,6 +48,8 @@
             <el-menu-item index="/system/roles">角色管理</el-menu-item>
             <el-menu-item index="/system/business">系统台账</el-menu-item>
             <el-menu-item index="/system/audit-logs">审计日志</el-menu-item>
+            <el-menu-item index="/system/login-logs">登录日志</el-menu-item>
+            <el-menu-item index="/system/ip-resources">IP资源</el-menu-item>
           </el-sub-menu>
         </el-menu>
         <div v-show="!appStore.sidebarCollapsed" class="sidebar-footer">
@@ -65,6 +67,9 @@
             </div>
             <el-breadcrumb separator="/">
               <el-breadcrumb-item :to="{ path: '/dashboard' }">首页</el-breadcrumb-item>
+              <el-breadcrumb-item v-if="route.meta.parentTitle" :to="{ path: String(route.meta.parentPath) }">
+                {{ route.meta.parentTitle }}
+              </el-breadcrumb-item>
               <el-breadcrumb-item v-if="route.meta.title">{{ route.meta.title }}</el-breadcrumb-item>
             </el-breadcrumb>
           </div>
@@ -125,9 +130,9 @@
         </div>
         <el-main class="app-main">
           <router-view v-slot="{ Component, route: currentRoute }">
-            <transition name="page-fade">
-              <component :is="Component" :key="currentRoute.path" />
-            </transition>
+            <keep-alive :include="keepAliveInclude">
+              <component :is="Component" :key="currentRoute.name" />
+            </keep-alive>
           </router-view>
         </el-main>
         <PetAssistant v-if="authStore.isAuthenticated" @open-chat="chatVisible = true" />
@@ -137,7 +142,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue"
+import { computed, ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { 
   Odometer, OfficeBuilding, Cpu, DataAnalysis, Setting, Tickets,
@@ -156,6 +161,8 @@ const appStore = useAppStore()
 const authStore = useAuthStore()
 const themeStore = useThemeStore()
 const tabsStore = useTabsStore()
+// 动态详情页（带 :id）每次访问都应重建，避免不同记录复用同一缓存实例
+const keepAliveInclude = computed(() => tabsStore.includeNames.filter((n) => n !== "WorkOrderDetail"))
 const chatVisible = ref(false)
 
 function handleCommand(cmd: string) {

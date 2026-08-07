@@ -1,4 +1,5 @@
-﻿import http from "./index"
+import http from "./index"
+import { dictGet } from "./dictCache"
 
 /* ===== DataCenter ===== */
 export interface DataCenterInfo {
@@ -28,7 +29,7 @@ export function getDataCentersApi(params: { page: number; page_size: number; key
 }
 
 export function getAllDataCentersApi() {
-  return http.get<DataCenterInfo[]>("/facilities/data-centers/all")
+  return dictGet<DataCenterInfo[]>("/facilities/data-centers/all")
 }
 
 export function getDataCenterApi(id: number) {
@@ -80,7 +81,7 @@ export function getRoomsApi(params: { page: number; page_size: number; keyword?:
 }
 
 export function getAllRoomsApi(data_center_id?: number) {
-  return http.get<RoomInfo[]>("/facilities/rooms/all", { params: { data_center_id } })
+  return dictGet<RoomInfo[]>("/facilities/rooms/all", { data_center_id })
 }
 
 export function getRoomApi(id: number) {
@@ -129,7 +130,7 @@ export function getRacksApi(params: { page: number; page_size: number; keyword?:
 }
 
 export function getAllRacksApi(room_id?: number) {
-  return http.get<RackInfo[]>("/facilities/racks/all", { params: { room_id } })
+  return dictGet<RackInfo[]>("/facilities/racks/all", { room_id })
 }
 
 export function getRackApi(id: number) {

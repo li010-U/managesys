@@ -333,6 +333,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'Facility' })
 import { ref, computed, onMounted } from "vue"
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from "element-plus"
 import { Plus, Refresh } from "@element-plus/icons-vue"

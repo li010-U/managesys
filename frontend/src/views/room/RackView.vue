@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="rack-page">
     <div class="page-header">
       <div>
@@ -314,6 +314,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'Racks' })
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'

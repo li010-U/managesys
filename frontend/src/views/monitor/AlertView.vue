@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="alert-page">
     <div class="page-header">
       <div>
@@ -124,6 +124,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'AlertManagement' })
 import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, Refresh, Search, Bell, Warning, Clock, CircleCheck } from '@element-plus/icons-vue'

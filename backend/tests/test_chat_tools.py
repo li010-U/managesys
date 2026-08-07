@@ -153,3 +153,24 @@ async def test_execute_mount_capacity_exceeded(db_session):
         assert False, "should fail capacity"
     except ValueError as e:
         assert "capacity" in str(e)
+
+
+@pytest.mark.asyncio
+async def test_create_work_order_acknowledges_new_alerts(db_session):
+    """???????????(new)??????(acknowledged)??????????????"""
+    from app.models import Alert
+    db_session.add(Alert(target_type="sensor", target_id="s1", title="????", level="serious", status="new", source="sensor"))
+    await db_session.flush()
+
+    admin = _super()
+    db_session.add(admin); await db_session.flush()
+    res = await ai_tools.execute(db_session, "create_work_order", {"title": "??????", "priority": "high"}, admin)
+    assert res["result"] == "created"
+    assert res["handled_alerts"] == 1
+
+    # ??????????? acknowledged
+    from sqlalchemy import select
+    alerts = list((await db_session.execute(select(Alert))).scalars().all())
+    assert len(alerts) == 1
+    assert alerts[0].status == "acknowledged"
+

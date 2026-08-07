@@ -147,6 +147,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'DeviceTypes' })
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, Setting, InfoFilled } from '@element-plus/icons-vue'

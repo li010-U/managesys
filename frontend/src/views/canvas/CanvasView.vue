@@ -14,7 +14,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from "vue"
+defineOptions({ name: 'CanvasView' })
+import { ref, onMounted, onUnmounted, onActivated } from "vue"
 import { ElMessage } from "element-plus"
 import { Monitor } from "@element-plus/icons-vue"
 import * as echarts from "echarts"
@@ -42,6 +43,7 @@ function initCharts() {
 function presentToCanvas() { ElMessage.info("投屏功能待接入 canvas 技能") }
 function handleResize() { pieChart?.resize(); lineChart?.resize(); barChart?.resize() }
 onMounted(() => { initCharts(); window.addEventListener("resize", handleResize) })
+onActivated(() => { handleResize() })
 onUnmounted(() => { window.removeEventListener("resize", handleResize); pieChart?.dispose(); lineChart?.dispose(); barChart?.dispose() })
 </script>
 

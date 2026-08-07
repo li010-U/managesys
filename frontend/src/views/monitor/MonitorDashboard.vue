@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="monitor-dashboard">
     <!-- Page Header -->
     <div class="page-header">
@@ -140,7 +140,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue"
+defineOptions({ name: 'MonitorDashboard' })
+import { ref, computed, onMounted, onUnmounted, onActivated, nextTick, watch } from "vue"
 import * as echarts from "echarts"
 import { ElMessage } from "element-plus"
 import { Refresh, Search, Warning, ColdDrink, Check, Connection } from "@element-plus/icons-vue"

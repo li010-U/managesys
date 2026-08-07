@@ -99,6 +99,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'Profile' })
 import { ref, computed, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../../stores/auth'

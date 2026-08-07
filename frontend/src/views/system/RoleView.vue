@@ -87,6 +87,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'Roles' })
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete } from '@element-plus/icons-vue'

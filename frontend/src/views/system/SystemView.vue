@@ -23,7 +23,8 @@
       </div>
     </el-card>
     <el-card shadow="never" class="table-card">
-      <el-table :data="list" stripe border size="small" v-loading="loading">
+      <TableSkeleton v-if="loading" :rows="8" />
+<el-table v-else :data="list" stripe border size="small" height="calc(100vh - 360px)" virtual>
         <el-table-column prop="name" label="系统名称" min-width="150" />
         <el-table-column prop="code" label="系统编码" width="140" />
         <el-table-column prop="category" label="分类" width="100">
@@ -102,7 +103,9 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'BusinessSystems' })
 import { ref, reactive, onMounted, watch } from 'vue'
+import TableSkeleton from "@/components/common/TableSkeleton.vue"
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, Search, Link } from '@element-plus/icons-vue'
 import { getBizSystemsApi, createBizSystemApi, updateBizSystemApi, deleteBizSystemApi, getDeploymentsApi, createDeploymentApi, deleteDeploymentApi } from '../../api/alert'
@@ -119,7 +122,7 @@ function openDialog(sys?: any) { dialog.visible = true; dialog.isEdit = !!sys; d
 async function submit() { const valid = await formRef.value?.validate().catch(() => false); if (!valid) return; submitting.value = true; try { if (dialog.isEdit) { await updateBizSystemApi(dialog.id, form.value); ElMessage.success('已更新') } else { await createBizSystemApi(form.value); ElMessage.success('已创建') } dialog.visible = false; await loadData() } catch { /* interceptor */ } finally { submitting.value = false } }
 async function deleteRow(sys: any) { try { await ElMessageBox.confirm('确定删除系统「' + sys.name + '」？', '确认删除', { type: 'warning' }); await deleteBizSystemApi(sys.id); ElMessage.success('已删除'); await loadData() } catch { /* cancelled */ } }
 async function openDeployDialog(sys: any) { deployDialog.visible = true; deployDialog.system = sys; try { const r = await getDeploymentsApi(sys.id); deployments.value = r.data } catch { deployments.value = [] } }
-async function openAddDeviceDialog() { addDeviceDialog.visible = true; addDeviceForm.value = { device_id: null, service_port: '', process_name: '', system_version: '', middleware_version: '' }; try { const r = await getDevicesApi({ page: 1, page_size: 999 }); availableDevices.value = r.data.items } catch { availableDevices.value = [] } }
+async function openAddDeviceDialog() { addDeviceDialog.visible = true; addDeviceForm.value = { device_id: null, service_port: '', process_name: '', system_version: '', middleware_version: '' }; try { const r = await getDevicesApi({ page: 1, page_size: 100 }); availableDevices.value = r.data.items } catch { availableDevices.value = [] } }
 async function addDeploy() { if (!addDeviceForm.value.device_id) { ElMessage.warning('请选择设备'); return } try { await createDeploymentApi(deployDialog.system.id, addDeviceForm.value); ElMessage.success('关联成功'); addDeviceDialog.visible = false; const r = await getDeploymentsApi(deployDialog.system.id); deployments.value = r.data } catch { /* interceptor */ } }
 async function removeDeploy(row: any) { try { await deleteDeploymentApi(deployDialog.system.id, row.id); ElMessage.success('已移除'); const r = await getDeploymentsApi(deployDialog.system.id); deployments.value = r.data } catch { /* interceptor */ } }
 function categoryLabel(c: string) { const map: Record<string,string> = { OA:'OA系统', ERP:'ERP系统', CRM:'CRM系统', DB:'数据库', Middleware:'中间件', other:'其他' }; return map[c] || c }

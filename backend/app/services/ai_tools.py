@@ -463,8 +463,25 @@ async def _exec_create_work_order(db, args, operator):
     await with_commit_retry(db.commit)
     row = await exec_sql(db, "SELECT id FROM work_orders WHERE order_no = ?", (order_no,))
     order_id = row.fetchone().id
+    # 生成工单后，将当前待处理(new)告警受理为已处理(acknowledged)，
+    # 使“待处理告警”警告消失，改由“未处理工单”提醒来承接处理进度。
+    from app.models.alert import Alert, AlertAction
+    from app.services.assistant_service import invalidate_snapshot_cache
+    res = await db.execute(select(Alert).where(Alert.status == "new"))
+    new_alerts = list(res.scalars().all())
+    for a in new_alerts:
+        a.status = "acknowledged"
+        db.add(AlertAction(
+            alert_id=a.id,
+            action_type="acknowledge",
+            operator=operator,
+            remark=f"生成工单 {order_no} 后受理",
+        ))
+    await with_commit_retry(db.commit)
+    invalidate_snapshot_cache()
     return {"tool": "create_work_order", "result": "created", "order_id": order_id,
-            "order_no": order_no, "title": title, "priority": priority}
+            "order_no": order_no, "title": title, "priority": priority,
+            "handled_alerts": len(new_alerts)}
 
 
 async def _exec_handle_alert(db, args, operator):

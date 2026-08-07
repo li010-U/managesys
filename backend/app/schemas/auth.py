@@ -1,7 +1,7 @@
 ﻿"""认证相关 Pydantic Schema"""
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 
 class LoginRequest(BaseModel):
@@ -42,4 +42,12 @@ class LoginLogResponse(BaseModel):
     login_status: str
     fail_reason: Optional[str] = None
     created_at: datetime
+    anomaly: Optional[list[str]] = None
     model_config = {"from_attributes": True}
+
+    @computed_field
+    @property
+    def location(self) -> str:
+        """IP 归属/分类标签（内网、公网、回环等）。"""
+        from app.core.iputils import location_label
+        return location_label(self.ip_address)

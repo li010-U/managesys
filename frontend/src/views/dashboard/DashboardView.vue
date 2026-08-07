@@ -98,7 +98,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, markRaw, onMounted, onUnmounted } from "vue"
+defineOptions({ name: 'Dashboard' })
+import { computed, ref, markRaw, onMounted, onUnmounted, onActivated } from "vue"
 import { useRouter } from "vue-router"
 import { useAuthStore } from "../../stores/auth"
 import { Cpu, OfficeBuilding, WarningFilled, Monitor, Setting, UserFilled } from "@element-plus/icons-vue"
@@ -203,6 +204,13 @@ onMounted(() => {
   timer = setInterval(updateTime, 1000)
   loadStats()
   stats.value.forEach(s => animateValue(s))
+})
+
+onActivated(() => {
+  // keep-alive 下组件被缓存，切回时重新同步时钟与统计数据
+  updateTime()
+  loadStats()
+  stats.value.forEach((s) => animateValue(s))
 })
 
 onUnmounted(() => {

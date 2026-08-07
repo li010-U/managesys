@@ -132,18 +132,17 @@ html.dark .el-breadcrumb {
    页面过渡动画 - 流畅弹性效果
    ========================================== */
 .page-fade-enter-active {
-  transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: all 0.18s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 .page-fade-leave-active {
-  transition: all 0.25s cubic-bezier(0.55, 0, 1, 0.45);
+  transition: all 0.12s ease;
 }
 .page-fade-enter-from {
   opacity: 0;
-  transform: translateY(16px) scale(0.98);
+  transform: translateY(6px);
 }
 .page-fade-leave-to {
   opacity: 0;
-  transform: translateY(-8px) scale(0.99);
 }
 
 /* 侧边栏滑入 */
