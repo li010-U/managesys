@@ -18,48 +18,50 @@
       <svg
         class="pet-char"
         :class="{ sleeping: !panelOpen && !hasReminder, squash: squash, jumping: hasReminder && !panelOpen }"
-        viewBox="0 0 72 76"
+        viewBox="0 0 72 84"
         xmlns="http://www.w3.org/2000/svg"
       >
-        <!-- 天线（顶部） -->
-        <line class="antenna" x1="36" y1="17" x2="36" y2="7" stroke="#64748b" stroke-width="2.4" stroke-linecap="round"/>
-        <circle class="antenna-ball" cx="36" cy="5.5" r="4" :class="{ 'blink-warning': dangerCount > 0 }"/>
-        <!-- 侧耳（头盔侧板） -->
-        <ellipse class="ear" cx="13" cy="31" rx="4.2" ry="9"/>
-        <ellipse class="ear" cx="59" cy="31" rx="4.2" ry="9"/>
-        <!-- 头盔主体（铁甲小宝红） -->
-        <path class="svg-body" d="M17 47 C17 16 55 16 55 47 Q55 69 36 69 Q17 69 17 47 Z"/>
+        <!-- 天线（顶部黑色角状，还原卡布达触角） -->
+        <line class="antenna" x1="36" y1="17" x2="36" y2="6" stroke="#111827" stroke-width="2.6" stroke-linecap="round"/>
+        <circle class="antenna-ball" cx="36" cy="5" r="3.8" :class="{ 'blink-warning': dangerCount > 0 }"/>
+        <!-- 侧耳（头盔红色护片） -->
+        <ellipse class="ear" cx="9" cy="33" rx="3.6" ry="7.5"/>
+        <ellipse class="ear" cx="63" cy="33" rx="3.6" ry="7.5"/>
+        <!-- 手臂与圆手（还原卡布达的圆球手） -->
+        <ellipse class="arm" cx="15" cy="50" rx="5" ry="7"/>
+        <circle class="hand" cx="12" cy="58" r="6.5"/>
+        <ellipse class="arm" cx="57" cy="50" rx="5" ry="7"/>
+        <circle class="hand" cx="60" cy="58" r="6.5"/>
+        <!-- 头盔主体：圆润红色甲壳 -->
+        <path class="svg-body" d="M17 58 C17 20 55 20 55 58 Q55 80 36 80 Q17 80 17 58 Z"/>
         <!-- 头顶高光 -->
-        <ellipse class="svg-body-high" cx="30" cy="18" rx="12" ry="4"/>
-        <!-- 脸板（奶油色） -->
-        <rect class="face" x="21" y="20" width="30" height="24" rx="9" fill="#fff7e6"/>
+        <ellipse class="svg-body-high" cx="30" cy="26" rx="13" ry="4.5"/>
+        <!-- 大脸板（卡布达标志性大面积脸部） -->
+        <rect class="face" x="19.5" y="28" width="33" height="30" rx="13" fill="#fff7e6"/>
         <!-- 腮红 -->
-        <circle class="cheek" cx="23" cy="35" r="2.8"/>
-        <circle class="cheek" cx="49" cy="35" r="2.8"/>
-        <!-- 眼睛 -->
+        <circle class="cheek" cx="22.5" cy="41" r="2.6"/>
+        <circle class="cheek" cx="49.5" cy="41" r="2.6"/>
+        <!-- 眼睛：卡布达白色大眼+黑色圆瞳孔 -->
         <g class="eye left-eye">
-          <ellipse class="eyeball" cx="30" cy="29.5" rx="4" ry="5"/>
-          <circle class="pupil" cx="30" cy="29.5" r="2.2"/>
+          <ellipse class="eyeball" cx="30" cy="36.5" rx="5.5" ry="6.5"/>
+          <circle class="pupil" cx="30" cy="36.5" r="2.6"/>
         </g>
         <g class="eye right-eye">
-          <ellipse class="eyeball" cx="42" cy="29.5" rx="4" ry="5"/>
-          <circle class="pupil" cx="42" cy="29.5" r="2.2"/>
+          <ellipse class="eyeball" cx="42" cy="36.5" rx="5.5" ry="6.5"/>
+          <circle class="pupil" cx="42" cy="36.5" r="2.6"/>
         </g>
         <!-- 眉毛 -->
-        <line class="brow left-brow" x1="24" y1="23" x2="35" y2="21"/>
-        <line class="brow right-brow" x1="48" y1="21" x2="37" y2="23"/>
+        <line class="brow left-brow" x1="23" y1="30" x2="35" y2="28"/>
+        <line class="brow right-brow" x1="49" y1="28" x2="37" y2="30"/>
         <!-- 嘴 -->
-        <path class="mouth mouth-smile" d="M32 37 Q36 41 40 37" fill="none" stroke="#7f1d1d" stroke-width="2.2" stroke-linecap="round"/>
-        <path class="mouth mouth-flat" d="M33 38 L39 38" fill="none" stroke="#7f1d1d" stroke-width="2.2" stroke-linecap="round"/>
-        <path class="mouth mouth-open" d="M33 36 Q36 42 39 36" fill="#7f1d1d" stroke="#7f1d1d" stroke-width="2.2" stroke-linecap="round"/>
-        <!-- 胸甲（奶油色徽记） -->
-        <circle class="belly" cx="36" cy="56" r="8.5" fill="#fff7e6"/>
-        <!-- 手臂 -->
-        <ellipse class="arm" cx="15.5" cy="52" rx="4.4" ry="8" fill="#dc2626"/>
-        <ellipse class="arm" cx="56.5" cy="52" rx="4.4" ry="8" fill="#dc2626"/>
-        <!-- 脚 -->
-        <ellipse class="foot" cx="28" cy="73" rx="7.5" ry="3.6" fill="#b91c1c"/>
-        <ellipse class="foot" cx="44" cy="73" rx="7.5" ry="3.6" fill="#b91c1c"/>
+        <path class="mouth mouth-smile" d="M30 44 Q36 48.5 42 44" fill="none" stroke="#7f1d1d" stroke-width="2.2" stroke-linecap="round"/>
+        <path class="mouth mouth-flat" d="M32 45.5 L40 45.5" fill="none" stroke="#7f1d1d" stroke-width="2.2" stroke-linecap="round"/>
+        <path class="mouth mouth-open" d="M32 42 Q36 49 40 42" fill="#7f1d1d" stroke="#7f1d1d" stroke-width="2.2" stroke-linecap="round"/>
+        <!-- 胸腹（奶油色圆徽） -->
+        <circle class="belly" cx="36" cy="64" r="8" fill="#fff7e6"/>
+        <!-- 脚：卡布达圆球脚 -->
+        <ellipse class="foot" cx="26" cy="79" rx="6.5" ry="5.5"/>
+        <ellipse class="foot" cx="46" cy="79" rx="6.5" ry="5.5"/>
 </svg>
       <transition name="pop">
         <div v-if="newReminders > 0" class="pet-badge">{{ newReminders }}</div>
@@ -575,14 +577,16 @@ onBeforeUnmount(() => {
 .svg-body-high { fill: rgba(255,255,255,0.35); }
 .ear { fill: #b91c1c; transition: fill 0.3s ease; }
 .cheek { fill: rgba(255,161,161,0.55); }
-.foot { fill: rgba(15,23,42,0.16); }
+.foot { fill: #fff7e6; stroke: #e0cfa9; stroke-width: 1; }
 /* ===== 天线 ===== */
-.antenna { stroke: #64748b; }
+.arm { fill: #dc2626; }
+.hand { fill: #fff7e6; stroke: #e0cfa9; stroke-width: 1; }
+.antenna { stroke: #111827; }
 .antenna-ball { fill: #22c55e; box-shadow: none; }
 .antenna-ball.blink-warning { fill: #ef4444; animation: blink-warning 1s infinite; }
 /* ===== 眼睛与瞳孔 ===== */
 .eye { }
-.eyeball { fill: #1e293b; transition: fill 0.25s ease; transform-box: fill-box; transform-origin: center; }
+.eyeball { fill: #ffffff; transition: fill 0.25s ease; transform-box: fill-box; transform-origin: center; stroke: #d9c9a8; stroke-width: 0.6; }
 .pupil {
   fill: #fff;
   transform: translate(var(--eye-x, 0px), var(--eye-y, 0px));
