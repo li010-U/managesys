@@ -14,6 +14,7 @@ from app.api.v1.work_orders import router as work_orders_router
 from app.api.v1.inspection import router as inspection_router
 from app.api.v1.assistant import router as assistant_router
 from app.api.v1.knowledge import router as knowledge_router
+from app.api.v1.auto_rules import router as auto_rules_router
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(chat_router)
@@ -31,4 +32,5 @@ router.include_router(work_orders_router)
 router.include_router(inspection_router)
 router.include_router(assistant_router)
 router.include_router(knowledge_router)
+router.include_router(auto_rules_router)
 

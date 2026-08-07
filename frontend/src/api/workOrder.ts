@@ -102,6 +102,32 @@ export const recommendKnowledge = (keyword: string) => {
   return http.get('/kb/recommend', { params: { keyword } })
 }
 
+// ============ 自动化规则 ============
+export const getAutoRules = () => {
+  return http.get('/work-order-rules')
+}
+
+export const createAutoRule = (data: any) => {
+  return http.post('/work-order-rules', data)
+}
+
+export const updateAutoRule = (id: number, data: any) => {
+  return http.put(`/work-order-rules/${id}`, data)
+}
+
+export const deleteAutoRule = (id: number) => {
+  return http.delete(`/work-order-rules/${id}`)
+}
+
+// ============ ?? ============
+export const approveWorkOrder = (id: number) => {
+  return http.post(`/work-orders/${id}/approve`)
+}
+
+export const rejectWorkOrder = (id: number, data: any) => {
+  return http.post(`/work-orders/${id}/reject`, data)
+}
+
 // ============ 工单附件 ============
 export const uploadWorkOrderAttachment = (orderId: number, file: File) => {
   const form = new FormData()

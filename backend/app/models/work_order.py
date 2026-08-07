@@ -17,6 +17,8 @@ class WorkOrderCategory(Base):
     icon: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, comment="图标")
     sort: Mapped[int] = mapped_column(Integer, default=0, comment="排序")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    need_approval: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否需要审批")
+
 
     def __repr__(self) -> str:
         return f"<WorkOrderCategory {self.name}>"
@@ -56,6 +58,9 @@ class WorkOrder(Base):
     result: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="处理结果")
     satisfaction: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="满意度评分 1-5")
     feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="用户反馈")
+    approved_by: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, comment="审批人")
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment="审批时间")
+    reject_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="拒绝原因")
     
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
@@ -108,3 +113,24 @@ class WorkOrderAttachment(Base):
 
     def __repr__(self) -> str:
         return f"<WorkOrderAttachment {self.file_name}>"
+
+
+class WorkOrderAutoRule(Base):
+    """???????"""
+    __tablename__ = "work_order_auto_rules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False, comment="????")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, comment="????")
+    match_keyword: Mapped[Optional[str]] = mapped_column(String(256), nullable=True, comment="?????(??/??)")
+    match_category_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="????ID")
+    match_priority: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, comment="?????")
+    action_set_priority: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, comment="??:?????")
+    action_assign_user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="??:??????")
+    action_auto_complete: Mapped[bool] = mapped_column(Boolean, default=False, comment="??:????(??????)")
+    sort: Mapped[int] = mapped_column(Integer, default=0, comment="??(??????)")
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    def __repr__(self) -> str:
+        return f"<WorkOrderAutoRule {self.name}>"

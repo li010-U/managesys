@@ -48,6 +48,24 @@ async def _seed_default_facility():
         logger.info("Created default data center and room")
 
 
+def _ensure_columns(conn):
+    """幂等补齐已有表的列（SQLite 不支持 create_all 加列，需手动 ALTER）"""
+    import sqlalchemy as sa
+    inspector = sa.inspect(conn)
+    def _has(table, col):
+        cols = [c["name"] for c in inspector.get_columns(table)]
+        return col in cols
+    if not _has("work_order_categories", "need_approval"):
+        conn.exec_driver_sql("ALTER TABLE work_order_categories ADD COLUMN need_approval BOOLEAN DEFAULT 0")
+    for table, col, ddl in [
+        ("work_orders", "approved_by", "ALTER TABLE work_orders ADD COLUMN approved_by INTEGER"),
+        ("work_orders", "approved_at", "ALTER TABLE work_orders ADD COLUMN approved_at DATETIME"),
+        ("work_orders", "reject_reason", "ALTER TABLE work_orders ADD COLUMN reject_reason TEXT"),
+    ]:
+        if not _has(table, col):
+            conn.exec_driver_sql(ddl)
+
+
 async def _init_builtin_data():
     """初始化内置角色和权限数据（幂等）"""
     from app.models.role import Role
@@ -309,6 +327,7 @@ async def lifespan(app: FastAPI):
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            await conn.run_sync(_ensure_columns)
         logger.info("数据库表结构检查/创建完成")
     except Exception as e:
         logger.error("数据库表创建失败: %s", str(e))

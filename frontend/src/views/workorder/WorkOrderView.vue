@@ -55,6 +55,7 @@
           <el-select v-model="searchForm.status" placeholder="全部" clearable style="width: 120px">
             <el-option label="全部" value="" />
             <el-option label="待分配" value="pending" />
+            <el-option label="待审批" value="awaiting_approval" />
             <el-option label="已指派" value="assigned" />
             <el-option label="处理中" value="processing" />
             <el-option label="待验收" value="pending_verify" />
@@ -83,6 +84,12 @@
           </el-button>
           <el-button type="primary" @click="handleCreate">
             <el-icon><Plus /></el-icon> 创建工单
+          </el-button>
+          <el-button @click="handleOpenRules">
+            <el-icon><SetUp /></el-icon> 自动化规则
+          </el-button>
+          <el-button @click="handleOpenCategories">
+            <el-icon><Collection /></el-icon> 分类配置
           </el-button>
         </el-form-item>
       </el-form>
@@ -407,6 +414,15 @@
 
         <!-- 操作按钮 -->
         <div class="action-buttons" v-if="currentOrder.status !== 'closed'">
+          <template v-if="currentOrder.status === 'awaiting_approval'">
+            <el-button type="success" @click="handleApprove(currentOrder)">
+              审批通过
+            </el-button>
+            <el-button type="danger" @click="handleReject(currentOrder)">
+              拒绝
+            </el-button>
+            <span class="approval-hint" v-if="currentOrder.need_approval">该工单分类需要审批</span>
+          </template>
           <el-button
             v-if="currentOrder.status === 'pending' && isAdmin"
             type="primary"
@@ -558,6 +574,147 @@
         <el-button type="primary" @click="submitClose" :loading="submitLoading">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 自动化规则管理 -->
+    <el-dialog v-model="rulesVisible" title="自动化规则" width="860px" :close-on-click-modal="false">
+      <div class="rules-toolbar">
+        <el-button type="primary" size="small" @click="handleNewRule">
+          <el-icon><Plus /></el-icon> 新增规则
+        </el-button>
+        <span class="rules-tip">创建工单时按排序依次匹配，命中后自动设置优先级/指派处理人，可配置自动完成</span>
+      </div>
+      <el-table :data="autoRules" v-loading="rulesLoading" stripe size="small">
+        <el-table-column prop="name" label="规则名称" min-width="140" />
+        <el-table-column label="启用" width="70">
+          <template #default="{ row }">
+            <el-switch v-model="row.enabled" @change="toggleRule(row)" />
+          </template>
+        </el-table-column>
+        <el-table-column prop="match_keyword" label="匹配关键词" width="120" show-overflow-tooltip>
+          <template #default="{ row }"><span v-if="row.match_keyword">{{ row.match_keyword }}</span><span v-else class="text-muted">-</span></template>
+        </el-table-column>
+        <el-table-column prop="category_name" label="匹配分类" width="100">
+          <template #default="{ row }"><span v-if="row.category_name">{{ row.category_name }}</span><span v-else class="text-muted">-</span></template>
+        </el-table-column>
+        <el-table-column label="动作" min-width="180">
+          <template #default="{ row }">
+            <span class="rule-action">
+              <span v-if="row.action_set_priority">优先级→{{ getPriorityLabel(row.action_set_priority) }}</span>
+              <span v-if="row.action_assign_user_id">指派→{{ row.assign_username }}</span>
+              <span v-if="row.action_auto_complete" class="auto-complete-tag">自动完成</span>
+              <span v-if="!row.action_set_priority && !row.action_assign_user_id && !row.action_auto_complete" class="text-muted">-</span>
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="sort" label="排序" width="60" />
+        <el-table-column label="操作" width="120" fixed="right">
+          <template #default="{ row }">
+            <el-button type="primary" link size="small" @click="handleEditRule(row)">编辑</el-button>
+            <el-button type="danger" link size="small" @click="handleDeleteRule(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
+
+    <!-- 规则编辑 -->
+    <el-dialog v-model="ruleDialogVisible" :title="ruleForm.id ? '编辑规则' : '新增规则'" width="520px" :close-on-click-modal="false">
+      <el-form :model="ruleForm" label-width="110px">
+        <el-form-item label="规则名称" required>
+          <el-input v-model="ruleForm.name" placeholder="如：网络故障自动指派" />
+        </el-form-item>
+        <el-form-item label="匹配关键词">
+          <el-input v-model="ruleForm.match_keyword" placeholder="标题/描述包含该词即命中" />
+        </el-form-item>
+        <el-form-item label="匹配分类">
+          <el-select v-model="ruleForm.match_category_id" clearable placeholder="全部" style="width: 100%">
+            <el-option v-for="cat in categories" :key="cat.id" :label="cat.name" :value="cat.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="匹配优先级">
+          <el-select v-model="ruleForm.match_priority" clearable placeholder="全部" style="width: 100%">
+            <el-option label="低" value="low" />
+            <el-option label="普通" value="normal" />
+            <el-option label="高" value="high" />
+            <el-option label="紧急" value="urgent" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="动作:设优先级">
+          <el-select v-model="ruleForm.action_set_priority" clearable placeholder="不调整" style="width: 100%">
+            <el-option label="低" value="low" />
+            <el-option label="普通" value="normal" />
+            <el-option label="高" value="high" />
+            <el-option label="紧急" value="urgent" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="动作:指派处理人">
+          <el-select v-model="ruleForm.action_assign_user_id" clearable placeholder="不指派" style="width: 100%">
+            <el-option v-for="u in assignableUsers" :key="u.id" :label="`${u.username} (${u.real_name})`" :value="u.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="自动完成">
+          <el-switch v-model="ruleForm.action_auto_complete" />
+          <span class="rules-tip">命中后直接置为已完成（用于自动化处置）</span>
+        </el-form-item>
+        <el-form-item label="启用">
+          <el-switch v-model="ruleForm.enabled" />
+        </el-form-item>
+        <el-form-item label="排序">
+          <el-input-number v-model="ruleForm.sort" :min="0" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="ruleDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="ruleSaving" @click="submitRule">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 分类配置 -->
+    <el-dialog v-model="categoriesVisible" title="分类配置" width="760px" :close-on-click-modal="false">
+      <el-form :inline="true" class="cat-form">
+        <el-form-item label="分类名称">
+          <el-input v-model="catForm.name" placeholder="名称" style="width:140px" />
+        </el-form-item>
+        <el-form-item label="编码">
+          <el-input v-model="catForm.code" placeholder="code" style="width:140px" />
+        </el-form-item>
+        <el-form-item label="需要审批">
+          <el-switch v-model="catForm.need_approval" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" size="default" @click="submitCategory">{{ catForm.id ? '更新' : '新增' }}</el-button>
+          <el-button v-if="catForm.id" size="default" @click="resetCatForm">取消编辑</el-button>
+        </el-form-item>
+      </el-form>
+      <el-table :data="categories" size="small" class="cat-table">
+        <el-table-column prop="name" label="分类名称" width="140" />
+        <el-table-column prop="code" label="编码" width="140" />
+        <el-table-column prop="sort" label="排序" width="70" />
+        <el-table-column label="需要审批" width="100">
+          <template #default="{ row }">
+            <el-switch v-model="row.need_approval" @change="toggleCategoryApproval(row)" />
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="140">
+          <template #default="{ row }">
+            <el-button type="primary" link size="small" @click="editCategory(row)">编辑</el-button>
+            <el-button type="danger" link size="small" @click="removeCategory(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
+
+    <!-- 拒绝工单 -->
+    <el-dialog v-model="rejectVisible" title="拒绝工单" width="480px" :close-on-click-modal="false">
+      <el-form :model="rejectForm" label-width="90px">
+        <el-form-item label="拒绝原因">
+          <el-input v-model="rejectForm.reason" type="textarea" :rows="4" placeholder="请输入拒绝原因" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="rejectVisible = false">取消</el-button>
+        <el-button type="danger" :loading="rejecting" @click="submitReject">确认拒绝</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -565,7 +722,7 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Document, Clock, Loading, Check, Search, Refresh, Plus, Upload, Paperclip, Reading
+  Document, Clock, Loading, Check, Search, Refresh, Plus, Upload, Paperclip, Reading, SetUp, Collection
 } from '@element-plus/icons-vue'
 import {
   getWorkOrderList,
@@ -581,12 +738,21 @@ import {
   closeWorkOrder,
   addWorkOrderComment,
   getWorkOrderCategories,
+  createWorkOrderCategory,
+  updateWorkOrderCategory,
+  deleteWorkOrderCategory,
   getAssignableUsers,
   uploadWorkOrderAttachment,
   downloadWorkOrderAttachment,
   deleteWorkOrderAttachment,
   recommendKnowledge,
-  createKnowledge
+  createKnowledge,
+  getAutoRules,
+  createAutoRule,
+  updateAutoRule,
+  deleteAutoRule,
+  approveWorkOrder,
+  rejectWorkOrder
 } from '@/api/workOrder'
 import { getDevicesApi } from '@/api/device'
 import { getAllRoomsApi } from '@/api/facility'
@@ -675,6 +841,39 @@ const commentContent = ref('')
 const uploading = ref(false)
 const knowledgeArticles = ref<any[]>([])
 const kbSaving = ref(false)
+
+// 自动化规则
+const rulesVisible = ref(false)
+const ruleDialogVisible = ref(false)
+const rulesLoading = ref(false)
+const ruleSaving = ref(false)
+const autoRules = ref<any[]>([])
+const ruleForm = reactive({
+  id: null as number | null,
+  name: '',
+  enabled: true,
+  match_keyword: '',
+  match_category_id: null as number | null,
+  match_priority: '',
+  action_set_priority: '',
+  action_assign_user_id: null as number | null,
+  action_auto_complete: false,
+  sort: 0
+})
+
+// 分类配置
+const categoriesVisible = ref(false)
+const catForm = reactive({
+  id: null as number | null,
+  name: '',
+  code: '',
+  need_approval: false
+})
+
+// 审批
+const rejectVisible = ref(false)
+const rejecting = ref(false)
+const rejectForm = reactive({ reason: '' })
 
 // 指派表单
 const assignForm = reactive({
@@ -1162,6 +1361,7 @@ const getPriorityLabel = (priority: string) => {
 const getStatusType = (status: string) => {
   const map: Record<string, string> = {
     pending: 'warning',
+    awaiting_approval: 'danger',
     assigned: 'primary',
     processing: 'warning',
     pending_verify: 'info',
@@ -1174,6 +1374,7 @@ const getStatusType = (status: string) => {
 const getStatusLabel = (status: string) => {
   const map: Record<string, string> = {
     pending: '待分配',
+    awaiting_approval: '待审批',
     assigned: '已指派',
     processing: '处理中',
     pending_verify: '待验收',
@@ -1181,6 +1382,205 @@ const getStatusLabel = (status: string) => {
     closed: '已关闭'
   }
   return map[status] || status
+}
+
+const loadAutoRules = async () => {
+  rulesLoading.value = true
+  try {
+    const res = await getAutoRules()
+    autoRules.value = (res as any)?.data?.data || []
+  } catch (e) {
+    console.error(e)
+  } finally {
+    rulesLoading.value = false
+  }
+}
+
+const handleOpenRules = () => {
+  rulesVisible.value = true
+  loadAutoRules()
+}
+
+const handleNewRule = () => {
+  Object.assign(ruleForm, {
+    id: null, name: '', enabled: true, match_keyword: '',
+    match_category_id: null, match_priority: '', action_set_priority: '',
+    action_assign_user_id: null, action_auto_complete: false, sort: 0
+  })
+  ruleDialogVisible.value = true
+}
+
+const handleEditRule = (row: any) => {
+  Object.assign(ruleForm, {
+    id: row.id, name: row.name, enabled: !!row.enabled, match_keyword: row.match_keyword || '',
+    match_category_id: row.match_category_id ?? null, match_priority: row.match_priority || '',
+    action_set_priority: row.action_set_priority || '', action_assign_user_id: row.action_assign_user_id ?? null,
+    action_auto_complete: !!row.action_auto_complete, sort: row.sort || 0
+  })
+  ruleDialogVisible.value = true
+}
+
+const toggleRule = async (row: any) => {
+  try {
+    await updateAutoRule(row.id, { enabled: row.enabled })
+    ElMessage.success(row.enabled ? '规则已启用' : '规则已停用')
+  } catch (e: any) {
+    row.enabled = !row.enabled
+    ElMessage.error(e?.message || '操作失败')
+  }
+}
+
+const submitRule = async () => {
+  if (!ruleForm.name.trim()) {
+    ElMessage.warning('请输入规则名称')
+    return
+  }
+  ruleSaving.value = true
+  try {
+    const payload: any = {
+      name: ruleForm.name.trim(),
+      enabled: ruleForm.enabled,
+      match_keyword: ruleForm.match_keyword?.trim() || null,
+      match_category_id: ruleForm.match_category_id ?? null,
+      match_priority: ruleForm.match_priority || null,
+      action_set_priority: ruleForm.action_set_priority || null,
+      action_assign_user_id: ruleForm.action_assign_user_id ?? null,
+      action_auto_complete: ruleForm.action_auto_complete,
+      sort: ruleForm.sort || 0
+    }
+    if (ruleForm.id) {
+      await updateAutoRule(ruleForm.id, payload)
+      ElMessage.success('规则已更新')
+    } else {
+      await createAutoRule(payload)
+      ElMessage.success('规则已创建')
+    }
+    ruleDialogVisible.value = false
+    loadAutoRules()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '保存失败')
+  } finally {
+    ruleSaving.value = false
+  }
+}
+
+const handleDeleteRule = (row: any) => {
+  ElMessageBox.confirm(`确定删除规则「${row.name}」吗？`, '提示', {
+    confirmButtonText: '确定',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(async () => {
+    try {
+      await deleteAutoRule(row.id)
+      ElMessage.success('删除成功')
+      loadAutoRules()
+    } catch (e: any) {
+      ElMessage.error(e?.message || '删除失败')
+    }
+  })
+}
+
+const handleApprove = async (row: any) => {
+  try {
+    await approveWorkOrder(row.id)
+    ElMessage.success('审批通过')
+    await loadDetail()
+    loadData()
+    loadStats()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '审批失败')
+  }
+}
+
+const handleReject = (row: any) => {
+  currentOrder.value = row
+  rejectForm.reason = ''
+  rejectVisible.value = true
+}
+
+const submitReject = async () => {
+  if (!currentOrder.value) return
+  rejecting.value = true
+  try {
+    await rejectWorkOrder(currentOrder.value.id, { reason: rejectForm.reason })
+    ElMessage.success('已拒绝')
+    rejectVisible.value = false
+    await loadDetail()
+    loadData()
+    loadStats()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '拒绝失败')
+  } finally {
+    rejecting.value = false
+  }
+}
+
+// 分类配置
+const handleOpenCategories = () => {
+  categoriesVisible.value = true
+  resetCatForm()
+  loadOptions()
+}
+
+const resetCatForm = () => {
+  Object.assign(catForm, { id: null, name: '', code: '', need_approval: false })
+}
+
+const editCategory = (row: any) => {
+  Object.assign(catForm, {
+    id: row.id, name: row.name, code: row.code, need_approval: !!row.need_approval
+  })
+}
+
+const submitCategory = async () => {
+  if (!catForm.name.trim() || !catForm.code.trim()) {
+    ElMessage.warning('请输入分类名称和编码')
+    return
+  }
+  const payload = {
+    name: catForm.name.trim(),
+    code: catForm.code.trim(),
+    need_approval: catForm.need_approval
+  }
+  try {
+    if (catForm.id) {
+      await updateWorkOrderCategory(catForm.id, payload)
+      ElMessage.success('分类已更新')
+    } else {
+      await createWorkOrderCategory(payload)
+      ElMessage.success('分类已新增')
+    }
+    resetCatForm()
+    await loadOptions()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '保存失败')
+  }
+}
+
+const toggleCategoryApproval = async (row: any) => {
+  try {
+    await updateWorkOrderCategory(row.id, { need_approval: row.need_approval })
+    ElMessage.success(row.need_approval ? '该分类已开启审批' : '该分类已关闭审批')
+  } catch (e: any) {
+    row.need_approval = !row.need_approval
+    ElMessage.error(e?.message || '操作失败')
+  }
+}
+
+const removeCategory = (row: any) => {
+  ElMessageBox.confirm(`确定删除分类「${row.name}」吗？`, '提示', {
+    confirmButtonText: '确定',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(async () => {
+    try {
+      await deleteWorkOrderCategory(row.id)
+      ElMessage.success('删除成功')
+      await loadOptions()
+    } catch (e: any) {
+      ElMessage.error(e?.message || '删除失败')
+    }
+  })
 }
 
 onMounted(() => {
@@ -1522,5 +1922,45 @@ onMounted(() => {
   color: #c0c4cc;
   font-size: 13px;
   margin-top: 10px;
+}
+
+.rules-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.rules-tip {
+  color: #909399;
+  font-size: 12px;
+}
+
+.rule-action {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.auto-complete-tag {
+  color: #67c23a;
+  background: #f0f9eb;
+  border-radius: 4px;
+  padding: 1px 8px;
+  font-size: 12px;
+}
+
+.approval-hint {
+  color: #e6a23c;
+  font-size: 13px;
+  line-height: 32px;
+}
+
+.cat-form {
+  margin-bottom: 12px;
+}
+
+.cat-table {
+  margin-top: 8px;
 }
 </style>

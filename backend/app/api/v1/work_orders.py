@@ -9,8 +9,10 @@ from app.db.retry import with_commit_retry
 from app.db.compat_sql import exec_sql
 from app.models import User
 from app.services.file_service import file_service
+from app.api.v1.auto_rules import apply_auto_rules, resolve_auto_complete
 from app.schemas.work_order import (
     WorkOrderCategoryCreate,
+    WorkOrderCategoryUpdate,
     WorkOrderCreate,
     WorkOrderUpdate,
     WorkOrderAssign,
@@ -45,15 +47,50 @@ async def create_category(
     code = data.code
     icon = data.icon
     sort = data.sort
+    need_approval = data.need_approval
     
     await exec_sql(db, 
-        "INSERT INTO work_order_categories (name, code, icon, sort) VALUES (?, ?, ?, ?)",
-        (name, code, icon, sort)
+        "INSERT INTO work_order_categories (name, code, icon, sort, need_approval) VALUES (?, ?, ?, ?, ?)",
+        (name, code, icon, sort, need_approval)
     )
     await with_commit_retry(db.commit)
     
     result = await exec_sql(db, "SELECT * FROM work_order_categories WHERE code = ?", (code,))
     return {"data": dict(result.fetchone()._mapping)}
+
+
+@router.put("/categories/{category_id}", summary="Update category")
+async def update_category(
+    category_id: int,
+    data: WorkOrderCategoryUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("work:edit"))
+):
+    row = (await exec_sql(db, "SELECT id FROM work_order_categories WHERE id = ?", (category_id,))).fetchone()
+    if not row:
+        raise HTTPException(404, "Category not found")
+    updates, params = [], []
+    for key, value in data.model_dump(exclude_unset=True).items():
+        updates.append(f"{key} = ?")
+        params.append(value)
+    params.append(category_id)
+    await exec_sql(db, "UPDATE work_order_categories SET {} WHERE id = ?".format(", ".join(updates)), tuple(params))
+    await with_commit_retry(db.commit)
+    result = (await exec_sql(db, "SELECT * FROM work_order_categories WHERE id = ?", (category_id,))).fetchone()
+    return {"data": dict(result._mapping)}
+
+
+@router.delete("/categories/{category_id}", summary="Delete category")
+async def delete_category(
+    category_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("work:delete"))
+):
+    await exec_sql(db, "DELETE FROM work_order_categories WHERE id = ?", (category_id,))
+    await with_commit_retry(db.commit)
+    return {"message": "Category deleted"}
 
 
 # ============ Work Orders ============
@@ -161,13 +198,15 @@ async def get_work_order(
                creator.username as creator_name,
                assignee.username as assignee_name,
                d.name as device_name,
-               f.name as facility_name
+               f.name as facility_name,
+               u2.username as approver_name
         FROM work_orders w
         LEFT JOIN work_order_categories c ON w.category_id = c.id
         LEFT JOIN users creator ON w.creator_id = creator.id
         LEFT JOIN users assignee ON w.assignee_id = assignee.id
         LEFT JOIN devices d ON w.device_id = d.id
         LEFT JOIN rooms f ON w.facility_id = f.id
+        LEFT JOIN users u2 ON w.approved_by = u2.id
         WHERE w.id = ?
     """, (work_order_id,))
     order = result.fetchone()
@@ -208,6 +247,11 @@ async def get_work_order(
             "feedback": order.feedback, "created_at": order.created_at,
             "updated_at": order.updated_at, "comments": comments,
             "comment_count": len(comments), "attachments": attachments,
+            "need_approval": getattr(order, "need_approval", None),
+            "approved_by": getattr(order, "approved_by", None),
+            "approver_name": getattr(order, "approver_name", None),
+            "approved_at": getattr(order, "approved_at", None),
+            "reject_reason": getattr(order, "reject_reason", None),
         }
     }
 
@@ -232,6 +276,21 @@ async def create_work_order(
 
     status = "assigned" if assignee_id else "pending"
 
+    priority, assignee_id, applied_rule = await apply_auto_rules(
+        db, title, description, category_id, priority, assignee_id
+    )
+    if applied_rule and assignee_id:
+        status = "assigned"
+
+    # 若分类需要审批，则进入待审批状态
+    need_approval = False
+    if category_id:
+        cat_row = (await exec_sql(db, "SELECT need_approval FROM work_order_categories WHERE id = ?", (category_id,))).fetchone()
+        if cat_row and cat_row.need_approval:
+            need_approval = True
+            status = "awaiting_approval"
+            assignee_id = None
+
     await exec_sql(db, """
         INSERT INTO work_orders (order_no, title, description, category_id, priority, device_id, facility_id, assignee_id, plan_date, estimated_hours, status, creator_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -240,6 +299,13 @@ async def create_work_order(
 
     result = await exec_sql(db, "SELECT id FROM work_orders WHERE order_no = ?", (order_no,))
     order_id = result.fetchone().id
+
+    if applied_rule:
+        await exec_sql(db, "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
+            (order_id, current_user.id, "Auto rule applied: " + applied_rule, "process"))
+        await with_commit_retry(db.commit)
+
+    await resolve_auto_complete(db, order_id)
 
     return await get_work_order(order_id, db, current_user)
 
@@ -499,6 +565,50 @@ async def delete_attachment(
     await with_commit_retry(db.commit)
     file_service.delete_file(row.file_path)
     return {"message": "Attachment deleted"}
+
+
+
+@router.post("/{work_order_id}/approve", summary="Approve work order")
+async def approve_work_order(
+    work_order_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("work:edit"))
+):
+    row = (await exec_sql(db, "SELECT status, assignee_id, title FROM work_orders WHERE id = ?", (work_order_id,))).fetchone()
+    if not row:
+        raise HTTPException(404, "Work order not found")
+    if row.status != "awaiting_approval":
+        raise HTTPException(400, "Only work orders awaiting approval can be approved")
+    new_status = "assigned" if row.assignee_id else "pending"
+    await exec_sql(db, "UPDATE work_orders SET status = ?, approved_by = ?, approved_at = CURRENT_TIMESTAMP, reject_reason = NULL WHERE id = ?",
+        (new_status, current_user.id, work_order_id))
+    await exec_sql(db, "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
+        (work_order_id, current_user.id, "Approved by " + current_user.username, "process"))
+    await with_commit_retry(db.commit)
+    return await get_work_order(work_order_id, db, current_user)
+
+
+@router.post("/{work_order_id}/reject", summary="Reject work order")
+async def reject_work_order(
+    work_order_id: int,
+    data: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _ = Depends(require_permission("work:edit"))
+):
+    reason = (data or {}).get("reason") or ""
+    row = (await exec_sql(db, "SELECT status FROM work_orders WHERE id = ?", (work_order_id,))).fetchone()
+    if not row:
+        raise HTTPException(404, "Work order not found")
+    if row.status != "awaiting_approval":
+        raise HTTPException(400, "Only work orders awaiting approval can be rejected")
+    await exec_sql(db, "UPDATE work_orders SET status = 'closed', approved_by = ?, approved_at = CURRENT_TIMESTAMP, reject_reason = ? WHERE id = ?",
+        (current_user.id, reason, work_order_id))
+    await exec_sql(db, "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
+        (work_order_id, current_user.id, "Rejected: " + reason, "close"))
+    await with_commit_retry(db.commit)
+    return await get_work_order(work_order_id, db, current_user)
 
 
 @router.get("/users/list", summary="Get assignable users")

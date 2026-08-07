@@ -10,6 +10,7 @@ class WorkOrderCategoryBase(BaseModel):
     code: str = Field(..., max_length=32, description="分类编码")
     icon: Optional[str] = Field(None, max_length=32, description="图标")
     sort: int = Field(0, description="排序")
+    need_approval: bool = Field(False, description="是否需要审批")
 
 
 class WorkOrderCategoryCreate(WorkOrderCategoryBase):
@@ -21,6 +22,7 @@ class WorkOrderCategoryUpdate(BaseModel):
     code: Optional[str] = Field(None, max_length=32)
     icon: Optional[str] = Field(None, max_length=32)
     sort: Optional[int] = None
+    need_approval: Optional[bool] = None
 
 
 class WorkOrderCategoryResponse(WorkOrderCategoryBase):
