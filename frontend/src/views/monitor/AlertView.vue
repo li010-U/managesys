@@ -117,6 +117,14 @@
           <el-form-item label="处理备注"><el-input v-model="handleForm.remark" type="textarea" :rows="3" placeholder="填写处理措施..." /></el-form-item>
           <el-form-item label="根因分析"><el-input v-model="handleForm.root_cause" type="textarea" :rows="2" placeholder="可选：分析问题根因" /></el-form-item>
         </el-form>
+        <el-divider content-position="left">AI 归因建议</el-divider>
+        <div v-loading="attributionLoading" class="attribution-box">
+          <el-button size="small" type="warning" plain :loading="attributionLoading" @click="loadAttribution">
+            <el-icon style="margin-right:4px"><MagicStick /></el-icon>生成归因建议
+          </el-button>
+          <div v-if="attributionText" class="attribution-text">{{ attributionText }}</div>
+          <div v-else class="attribution-hint">点击按钮，由 AI 结合告警信息与设备状态分析可能根因与处置步骤。</div>
+        </div>
       </div>
       <template #footer><el-button @click="handleDialog.visible=false">取消</el-button><el-button type="primary" :loading="handleSubmitting" @click="submitHandle">提交处理</el-button></template>
     </el-dialog>
@@ -127,8 +135,8 @@
 defineOptions({ name: 'AlertManagement' })
 import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Edit, Delete, Refresh, Search, Bell, Warning, Clock, CircleCheck } from '@element-plus/icons-vue'
-import { getAlertRulesApi, createAlertRuleApi, updateAlertRuleApi, deleteAlertRuleApi, getAlertsApi, getAlertStatsApi, handleAlertApi } from '../../api/alert'
+import { Plus, Edit, Delete, Refresh, Search, Bell, Warning, Clock, CircleCheck, MagicStick } from '@element-plus/icons-vue'
+import { getAlertRulesApi, createAlertRuleApi, updateAlertRuleApi, deleteAlertRuleApi, getAlertsApi, getAlertStatsApi, handleAlertApi, getAlertAttributionApi } from '../../api/alert'
 
 const activeTab = ref('rules')
 const ruleList = ref<any[]>([])
@@ -162,9 +170,22 @@ const alertTotal = ref(0)
 const handleSubmitting = ref(false)
 const handleDialog = reactive({ visible: false, alert: null as any })
 const handleForm = ref({ action_type: 'acknowledge', remark: '', root_cause: '' })
+const attributionLoading = ref(false)
+const attributionText = ref('')
+
+async function loadAttribution() {
+  if (!handleDialog.alert) return
+  attributionLoading.value = true
+  attributionText.value = ''
+  try {
+    const r: any = await getAlertAttributionApi(handleDialog.alert.id)
+    attributionText.value = r.data?.suggestion || '（未生成建议）'
+  } catch { attributionText.value = '（AI 归因建议生成失败，请稍后重试）' }
+  finally { attributionLoading.value = false }
+}
 
 async function loadAlerts() { alertLoading.value = true; try { const [a, s] = await Promise.all([getAlertsApi({ page: alertPage.value, page_size: alertPageSize.value, keyword: alertSearch.value || undefined, level: alertLevel.value || undefined, status: alertStatus.value || undefined }), getAlertStatsApi()]); alertList.value = a.data.items; alertTotal.value = a.data.total; alertStats.value = s.data } catch { alertList.value = [] } finally { alertLoading.value = false } }
-function openHandleDialog(alert: any) { handleDialog.visible = true; handleDialog.alert = alert; handleForm.value = { action_type: 'acknowledge', remark: '', root_cause: '' } }
+function openHandleDialog(alert: any) { handleDialog.visible = true; handleDialog.alert = alert; handleForm.value = { action_type: 'acknowledge', remark: '', root_cause: '' }; attributionText.value = '' }
 async function submitHandle() { if (!handleForm.value.action_type) { ElMessage.warning('请选择处理操作'); return } handleSubmitting.value = true; try { await handleAlertApi(handleDialog.alert.id, handleForm.value); ElMessage.success('处理成功'); handleDialog.visible = false; await loadAlerts() } catch { /* interceptor */ } finally { handleSubmitting.value = false } }
 
 function metricLabel(m: string) { const map: Record<string,string> = { temperature:'温度', humidity:'湿度', cpu:'CPU', memory:'内存', disk:'磁盘' }; return map[m] || m }
@@ -198,4 +219,7 @@ onMounted(() => { loadRules(); loadAlerts() })
 .mini-stat-val { font-size: 18px; font-weight: 700; line-height: 1.2; }
 .mini-stat-lbl { font-size: 11px; color: var(--app-text-muted); }
 .alert-detail-box { }
+.attribution-box { margin-top: 8px; padding: 12px; background: var(--el-fill-color-lighter); border: 1px dashed var(--app-border); border-radius: 8px; }
+.attribution-hint { margin-top: 8px; font-size: 12px; color: var(--app-text-muted); }
+.attribution-text { margin-top: 8px; font-size: 13px; line-height: 1.7; color: var(--app-text-color); white-space: pre-wrap; word-break: break-word; }
 </style>

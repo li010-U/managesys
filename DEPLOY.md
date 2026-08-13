@@ -99,3 +99,33 @@ AI 助手需要**能正确识别中文**的模型。两个可用方向\uff1a
 | 升级后仍乱码/英文 | 模型 key 退化 | 按 \u7b2c 3 节换 key/\u5207 provider |
 | 登录不了 | SECRET_KEY 未改或重置 | 检查 .env 的 SECRET_KEY 是否一致 |
 | 内网接口 503 | coding/paas 渠道不可用 | 暂时切到能用的 provider |
+
+
+---
+
+## 10. 安全加固清单（本版本新增）说明
+
+部署前请在 `backend/.env` 中确认以下配置（`backend/.env.example` 已含注释）：
+
+1. **SECRET_KEY（必须）**：务必设置为随机强密钥，不要使用默认值。
+   否则攻击者可用已知密钥伪造任意用户登录。生成方式：
+   `python -c "import secrets; print(secrets.token_urlsafe(64))"`
+2. **INIT_ADMIN_PASSWORD（必须）**：首次初始化管理员初始密码的随机值。
+   默认管理员账号首次登录会被**强制修改密码**（前端弹窗），但初始值本身
+   仍应设置为强随机值，避免初始化后被猜到。
+3. **DEBUG=false**：生产环境必须关闭，避免回显完整 SQL / 详细报错。
+4. **ENABLE_CAPTCHA=true**：公网暴露时建议开启验证码。
+5. **ENABLE_CAPTCHA / LOGIN_MAX_ATTEMPTS**：登录失败锁定已内置。
+
+本版本新增/强化的行为：
+- JWT 采用 `PyJWT`（`requirements.txt` 已替换 `python-jose`，修复相关 CVE；
+  若旧环境未安装，请 `pip install -r requirements.txt`）。
+- 修改密码后使已签发令牌全部失效（`token_version` 递增），实现会话作废。
+- 新增 `ALLOWED_HOSTS`：校验 Host 头，防 Host 头投毒（生产按实际域名配置）。
+- 新增安全响应头（CSP / X-Frame-Options / X-Content-Type-Options 等）。
+- AI 助手与聊天接口：需要 `monitor:view_dashboard` 权限，并按用户限流
+  （`CHAT_RATE_LIMIT_MAX` / `CHAT_RATE_LIMIT_WINDOW_SECONDS`），防 LLM 成本滥用。
+- 通用文件上传 `/files/upload` 收紧为仅超级管理员可用，头像上传校验真实图片文件头。
+
+> 注：`DEPLOY.md` 全文历史说明（如"回帖重复/模型渠道"等）对应此前迭代，
+> 与本次安全加固无关，可保留。

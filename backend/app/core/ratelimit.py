@@ -1,8 +1,9 @@
-﻿"""\u7b80\u6613 IP \u7aef\u53e3\u9650\u6d41\u5668\uff08\u5185\u5b58\u6ed1\u52a8\u7a97\u53e3\uff09\u3002
+# -*- coding: utf-8 -*-
+"""简易 IP/用户端口限流器（内存滑动窗口）。
 
-\u7528\u4e8e\u767b\u5f55 / \u6ce8\u518c\u7b49\u65e0\u9274\u6743\u7aef\u70b9\uff0c\u9632\u6b62\u66b4\u529b\u78b0\u5e93\u4e0e\u5927\u91cf\u6ce8\u518c\u5783\u573e\u8d26\u53f7\u3002
-\u6ce8\u610f\uff1a\u5185\u5b58\u4e3a\u5355\u8fdb\u7a0b\u72b6\u6001\uff0c\u591a worker \u90e8\u7f72\u65f6\u9700\u8981 Redis \u7b49\u5916\u90e8\u5b58\u50a8\uff1b
-\u5355 worker\uff08SQLite \u9ed8\u8ba4\uff09\u4e0b\u6709\u6548\u3002
+用于登录/注册等无鉴权端点的 IP 限流，以及 AI 聊天等登录端点的按用户限流，
+防止暴力碰库、注册垃圾账号，以及 LLM 资源/成本滥用。
+注意：内存为单进程状态，多 worker 部署时需 Redis 等外部存储。
 """
 import asyncio
 import time
@@ -12,7 +13,7 @@ from fastapi import Depends, HTTPException, Request, status
 
 
 class SlidingWindowLimiter:
-    """\u57fa\u4e8e\u53cc\u7aef\u961f\u5217\u7684\u6ed1\u52a8\u7a97\u53e3\u9650\u6d41\u3002"""
+    """基于双端队列的滑动窗口限流。"""
 
     def __init__(self):
         self._hits: dict[str, deque] = defaultdict(deque)
@@ -23,14 +24,14 @@ class SlidingWindowLimiter:
         now = time.monotonic()
         async with self._lock:
             q = self._hits[key]
-            # \u79fb\u9664\u8d85\u51fa\u7a97\u53e3\u7684\u65f6\u95f4\u6233
+            # 移出超出窗口的时间戳
             while q and now - q[0] > window_seconds:
                 q.popleft()
             if len(q) >= max_attempts:
                 return False
             q.append(now)
-            # \u6982\u7387\u6027\u6e05\u7406\u5df2\u7a7a\u7684 key\uff0c\u907f\u514d\u5185\u5b58\u589e\u957f
-            if now - self._last_cleanup > 60:
+            # 概率性清理已空的 key，避免内存增长
+            if now - self._last_cleanup > 60 and (len(self._hits) > 512):
                 self._cleanup(now)
                 self._last_cleanup = now
             return True
@@ -41,7 +42,7 @@ class SlidingWindowLimiter:
             del self._hits[k]
 
 
-# \u5168\u5c40\u5355\u4f8b
+# 全局单例
 limiter = SlidingWindowLimiter()
 
 
@@ -54,14 +55,31 @@ def get_client_ip(request: Request) -> str:
         request.client.host if request.client else None,
     )
 
+
 def rate_limit(max_attempts: int, window_seconds: float, scope: str):
-    """\u751f\u6210\u4e00\u4e2a\u9650\u6d41\u4f9d\u8d56\uff0c\u8d85\u9650\u65f6\u8fd4\u56de 429\u3002"""
+    """基于 IP 的限流依赖，超限时返回 429。"""
     async def check(request: Request):
         key = f"{scope}:{get_client_ip(request)}"
         allowed = await limiter.allow(key, max_attempts, window_seconds)
         if not allowed:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="\u8bf7\u6c42\u592a\u9891\u7e41\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5",
+                detail="请求太频繁，请稍后重试",
+            )
+    return check
+
+
+def user_rate_limit(max_attempts: int, window_seconds: float, scope: str):
+    """基于当前登录用户的限流依赖（防 LLM/写接口资源滥用）。"""
+    from app.core.deps import get_current_user
+
+    async def check(current_user=Depends(get_current_user)):
+        uid = getattr(current_user, "id", None) or "anon"
+        key = f"{scope}:user:{uid}"
+        allowed = await limiter.allow(key, max_attempts, window_seconds)
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="操作过于频繁，请稍后重试",
             )
     return check

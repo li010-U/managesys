@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="dashboard">
     <el-card class="welcome-banner" :body-style="{ padding: 0 }">
       <div class="welcome-content">
@@ -105,7 +105,7 @@ import { useAuthStore } from "../../stores/auth"
 import { Cpu, OfficeBuilding, WarningFilled, Monitor, Setting, UserFilled } from "@element-plus/icons-vue"
 import { getDevicesApi } from "../../api/device"
 import { getRoomsApi, getRacksApi } from "../../api/facility"
-import { getAlertStatsApi } from "../../api/alert"
+import { getAlertStatsApi, getRecentActivitiesApi } from "../../api/alert"
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -129,7 +129,7 @@ const greeting = computed(() => {
   return "晚上好"
 })
 
-const activities = ref<{ text: string; time: string; color: string }[]>([])
+const activities = ref<{ type: string; text: string; time: string; color: string }[]>([])
 
 const stats = ref([
   { label: "设备总数", value: 0, animatedValue: 0, icon: markRaw(Cpu), bg: "linear-gradient(135deg, #1a5276, #2980b9)", trend: "待接入数据", trendColor: "#909399", target: 0 },
@@ -178,6 +178,13 @@ async function loadStats() {
   }
 }
 
+async function loadActivities() {
+  try {
+    const r = await getRecentActivitiesApi(12)
+    activities.value = (r.data || []).map(a => ({ type: a.type, text: a.text, time: a.time, color: a.color }))
+  } catch { /* ignore */ }
+}
+
 function updateTime() {
   const now = new Date()
   currentDate.value = now.toLocaleDateString("zh-CN")
@@ -203,6 +210,7 @@ onMounted(() => {
   updateTime()
   timer = setInterval(updateTime, 1000)
   loadStats()
+  loadActivities()
   stats.value.forEach(s => animateValue(s))
 })
 
@@ -210,6 +218,7 @@ onActivated(() => {
   // keep-alive 下组件被缓存，切回时重新同步时钟与统计数据
   updateTime()
   loadStats()
+  loadActivities()
   stats.value.forEach((s) => animateValue(s))
 })
 

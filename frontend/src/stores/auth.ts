@@ -57,9 +57,13 @@ export const useAuthStore = defineStore('auth', () => {
     router.push('/login')
   }
 
+  // 是否需要强制修改初始密码（默认管理员首次登录）
+  const mustChangePassword = computed(() => !!user.value?.must_change_password)
+
   return {
     token, user, isAuthenticated,
     userPermissions, hasPermission,
+    mustChangePassword,
     login, fetchUserInfo, logout,
   }
 })

@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+﻿import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import NProgress from 'nprogress'
 import { useAuthStore } from '../stores/auth'
@@ -60,6 +60,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'IP资源', icon: 'Connection', permission: 'device:view' },
       },
       {
+        path: 'system/ip-conflict-center',
+        name: 'IpConflictCenter',
+        component: () => import('../views/system/IpConflictCenter.vue'),
+        meta: { title: 'IP冲突处理', icon: 'Warning', permission: 'device:view', parentTitle: 'IP??', parentPath: '/system/ip-resources' },
+      },
+      {
         path: 'workorder/list',
         name: 'WorkOrderList',
         component: () => import('../views/workorder/WorkOrderView.vue'),
@@ -90,10 +96,22 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '机柜视图', icon: 'Monitor', permission: '' },
       },
       {
+        path: 'room/racks/3d',
+        name: 'Rack3D',
+        component: () => import('../views/room3d/Rack3DView.vue'),
+        meta: { title: '机柜3D视图', icon: 'View', permission: '', hidden: true },
+      },
+      {
         path: 'device/list',
         name: 'DeviceList',
         component: () => import('../views/device/DeviceView.vue'),
         meta: { title: '设备台账', icon: 'Cpu', permission: '' },
+      },
+      {
+        path: 'device/ip-edit/:id',
+        name: 'DeviceIpEdit',
+        component: () => import('../views/device/DeviceIpEditView.vue'),
+        meta: { title: '??IP??', icon: 'Edit', permission: 'device:edit', parentTitle: '设备台账', parentPath: '/device/list' },
       },
       {
         path: 'device/types',
@@ -131,6 +149,11 @@ const routes: RouteRecordRaw[] = [
         name: 'CanvasView',
         component: () => import('../views/canvas/CanvasView.vue'),
         meta: { title: 'Canvas投屏', icon: 'Monitor', permission: '' },
+      },      {
+        path: 'insight',
+        name: 'Insight',
+        component: () => import('../views/insight/InsightView.vue'),
+        meta: { title: 'AI智能分析', icon: 'Aim', permission: '' },
       },
     ],
   },

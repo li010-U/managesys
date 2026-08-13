@@ -73,6 +73,7 @@ class DeviceBase(BaseModel):
     memory_info: Optional[str] = Field(None, max_length=256)
     disk_info: Optional[str] = Field(None, max_length=512)
     network_info: Optional[str] = Field(None, max_length=256)
+    power_rating: Optional[float] = Field(None, description="额定功率(kW)")
     purchase_order: Optional[str] = Field(None, max_length=128)
     purchase_date: Optional[date] = None
     vendor: Optional[str] = Field(None, max_length=128)
@@ -105,6 +106,7 @@ class DeviceUpdate(BaseModel):
     memory_info: Optional[str] = None
     disk_info: Optional[str] = None
     network_info: Optional[str] = None
+    power_rating: Optional[float] = None
     purchase_order: Optional[str] = None
     purchase_date: Optional[date] = None
     vendor: Optional[str] = None

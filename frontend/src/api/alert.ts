@@ -38,6 +38,9 @@ export function getAlertStatsApi() {
 export function handleAlertApi(id: number, data: { action_type: string; operator?: string; remark?: string; root_cause?: string }) {
   return http.put(`/alerts/${id}/handle`, data)
 }
+export function getAlertAttributionApi(id: number) {
+  return http.get<{ alert_id: number; suggestion: string }>(`/alerts/${id}/attribution`)
+}
 
 /* ===== 业务系统管理 API ===== */
 export interface BizSystemInfo {
@@ -78,4 +81,15 @@ export function createDeploymentApi(systemId: number, data: any) {
 }
 export function deleteDeploymentApi(systemId: number, depId: number) {
   return http.delete(`/systems/${systemId}/deployments/${depId}`)
+}
+
+/* ===== 工作台 - 最近活动 ===== */
+export interface RecentActivityItem {
+  type: string
+  text: string
+  time: string
+  color: string
+}
+export function getRecentActivitiesApi(limit = 12) {
+  return http.get<RecentActivityItem[]>('/dashboard/activities', { params: { limit } })
 }

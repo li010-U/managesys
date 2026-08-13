@@ -1,10 +1,14 @@
 ﻿"""FastAPI 应用入口"""
+import asyncio
 import logging
 import sys
 from contextlib import asynccontextmanager
+from typing import Optional
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from app.core.security_headers import SecurityHeadersMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
@@ -61,9 +65,45 @@ def _ensure_columns(conn):
         ("work_orders", "approved_by", "ALTER TABLE work_orders ADD COLUMN approved_by INTEGER"),
         ("work_orders", "approved_at", "ALTER TABLE work_orders ADD COLUMN approved_at DATETIME"),
         ("work_orders", "reject_reason", "ALTER TABLE work_orders ADD COLUMN reject_reason TEXT"),
+        ("users", "must_change_password", "ALTER TABLE users ADD COLUMN must_change_password BOOLEAN DEFAULT 0"),
+        ("users", "token_version", "ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 0"),
+        ("sensor_data", "source_mark", "ALTER TABLE sensor_data ADD COLUMN source_mark VARCHAR(16) DEFAULT 'normal'"),
+        ("devices", "power_rating", "ALTER TABLE devices ADD COLUMN power_rating FLOAT"),
+        ("racks", "pos_x_m", "ALTER TABLE racks ADD COLUMN pos_x_m FLOAT"),
+        ("racks", "pos_z_m", "ALTER TABLE racks ADD COLUMN pos_z_m FLOAT"),
+        ("racks", "width_m", "ALTER TABLE racks ADD COLUMN width_m FLOAT"),
+        ("racks", "depth_m", "ALTER TABLE racks ADD COLUMN depth_m FLOAT"),
+        ("racks", "facing_deg", "ALTER TABLE racks ADD COLUMN facing_deg FLOAT"),
+        ("alerts", "dedupe_key", "ALTER TABLE alerts ADD COLUMN dedupe_key VARCHAR(128)"),
+        ("alerts", "occurrences", "ALTER TABLE alerts ADD COLUMN occurrences INTEGER DEFAULT 1"),
+        ("alerts", "first_seen_at", "ALTER TABLE alerts ADD COLUMN first_seen_at DATETIME"),
+        ("alerts", "acknowledged_at", "ALTER TABLE alerts ADD COLUMN acknowledged_at DATETIME"),
+        ("alerts", "resolved_at", "ALTER TABLE alerts ADD COLUMN resolved_at DATETIME"),
+        ("alerts", "escalated_at", "ALTER TABLE alerts ADD COLUMN escalated_at DATETIME"),
+        ("alerts", "escalated_from", "ALTER TABLE alerts ADD COLUMN escalated_from VARCHAR(16)"),
     ]:
         if not _has(table, col):
             conn.exec_driver_sql(ddl)
+    if _has("alerts", "dedupe_key"):
+        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_alerts_dedupe_key ON alerts(dedupe_key)")
+
+    # 传感器异常留痕独立表 + 时序按 (sensor_id, recorded_at) 索引（幂等）
+    conn.exec_driver_sql("""
+        CREATE TABLE IF NOT EXISTS sensor_anomaly_gap (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sensor_id INTEGER NOT NULL REFERENCES sensors(id) ON DELETE CASCADE,
+            alert_id INTEGER,
+            detected_at DATETIME,
+            window_start DATETIME,
+            window_end DATETIME,
+            anomaly_type VARCHAR(32) DEFAULT 'between_points_breach',
+            severity VARCHAR(16) DEFAULT 'warning',
+            remark TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_sensor_data_sensor_time ON sensor_data(sensor_id, recorded_at)")
+    conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_anomaly_gap_sensor_time ON sensor_anomaly_gap(sensor_id, detected_at)")
 
 
 async def _init_builtin_data():
@@ -172,18 +212,25 @@ async def _init_builtin_data():
                 select(Role).where(Role.code == "super_admin")
             )).scalar_one()
 
+            admin_password = settings.INIT_ADMIN_PASSWORD
             admin = User(
                 username="admin",
                 real_name="系统管理员",
                 email="admin@managesys.local",
-                hashed_password=hash_password("admin@123456"),
+                hashed_password=hash_password(admin_password),
                 is_active=True,
                 is_super_admin=True,
+                must_change_password=True,
             )
             admin.roles = [admin_role]
             session.add(admin)
             await session.commit()
             logger.info("内置数据初始化完成（31权限 + 6角色 + admin用户）")
+            if not admin_password or admin_password == "admin@123456":
+                logger.warning("=" * 60)
+                logger.warning("检测到初始管理员使用默认密码 admin@123456！")
+                logger.warning("请立即登录并修改密码，或通过环境变量 INIT_ADMIN_PASSWORD 配置强随机初始密码。")
+                logger.warning("=" * 60)
 
         except Exception as e:
             await session.rollback()
@@ -194,6 +241,101 @@ async def _init_builtin_data():
 
 
 # ???????????????????????
+
+_retention_task: Optional[asyncio.Task] = None
+
+
+async def _run_retention_pass() -> dict:
+    """执行一次保留清理 + 异常留痕对账。独立会话，失败不影响主流程。"""
+    from app.services.sensor_anomaly_service import SensorAnomalyService
+    async with async_session_factory() as db:
+        svc = SensorAnomalyService(db)
+        gap_added = await svc.reconcile_from_alerts(since=None)
+        retention = await svc.run_retention()
+        logger.info("数据保留清理完成: %s, 异常留痕新增 %d", retention, gap_added)
+        return retention
+
+
+async def _retention_loop():
+    """进程内每日保留清理任务（启动即跑一次，然后每日一次）。"""
+    try:
+        await _run_retention_pass()
+    except Exception as e:
+        logger.warning("数据保留清理(启动)失败: %s", str(e))
+    while True:
+        await asyncio.sleep(24 * 3600)
+        try:
+            await _run_retention_pass()
+        except Exception as e:
+            logger.warning("数据保留清理(每日)失败: %s", str(e))
+
+
+def _start_retention_task():
+    global _retention_task
+    if not settings.DATA_RETENTION_TASK_ENABLED:
+        logger.info("数据保留清理任务未启用（DATA_RETENTION_TASK_ENABLED=false）")
+        return
+    _retention_task = asyncio.create_task(_retention_loop())
+
+
+def _stop_retention_task():
+    global _retention_task
+    if _retention_task is not None:
+        _retention_task.cancel()
+
+_alert_intel_task: Optional[asyncio.Task] = None
+
+
+async def _alert_escalation_loop():
+    """进程内告警自动升级任务：周期扫描未确认 emergency 告警。"""
+    from app.services.alert_intelligence_service import AlertIntelligenceService
+    while True:
+        try:
+            async with async_session_factory() as db:
+                svc = AlertIntelligenceService(db, escalate_after_minutes=30)
+                ids = await svc.auto_escalate()
+                if ids:
+                    logger.info("告警自动升级 %d 条: %s", len(ids), ids)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning("告警自动升级扫描失败: %s", e)
+        await asyncio.sleep(300)
+
+
+def _start_alert_intel_task():
+    global _alert_intel_task
+    _alert_intel_task = asyncio.create_task(_alert_escalation_loop())
+
+
+def _stop_alert_intel_task():
+    global _alert_intel_task
+    if _alert_intel_task is not None:
+        _alert_intel_task.cancel()
+
+async def _flag_default_password_admin():
+    """对仍在使用默认初始密码的账号打上"需强制改密"标记（兼容历史库 admin）。
+
+    幂等：仅当密码仍等于默认 INIT_ADMIN_PASSWORD 时置位；修改密码后自动清除。
+    用于把本版本之前创建的、未改过默认密码的 admin 也纳入强制改密流程。
+    """
+    from app.core.security import verify_password
+    from app.models.user import User
+    default = settings.INIT_ADMIN_PASSWORD
+    if not default:
+        return
+    async with async_session_factory() as session:
+        try:
+            result = await session.execute(select(User).where(User.username == "admin"))
+            admin = result.scalar_one_or_none()
+            if admin and not admin.must_change_password and verify_password(default, admin.hashed_password):
+                admin.must_change_password = True
+                await session.commit()
+                logger.warning("检测到 admin 仍使用默认初始密码，已标记为需强制修改密码。")
+        except Exception as e:
+            await session.rollback()
+            logger.warning("默认密码检查失败: %s", str(e))
+
 BUILTIN_PERMISSIONS = [
     ("\u67e5\u770b\u673a\u623f", "room:view", "\u673a\u623f\u7ba1\u7406"),
     ("\u521b\u5efa\u673a\u623f", "room:create", "\u673a\u623f\u7ba1\u7406"),
@@ -344,6 +486,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("内置数据同步异常: %s", str(e))
 
+    # 兼容历史库：把仍使用默认初始密码的 admin 标记为"需强制改密"
+    try:
+        await _flag_default_password_admin()
+    except Exception as e:
+        logger.warning("默认密码检查失败: %s", str(e))
+
 
     try:
         await _seed_default_facility()
@@ -368,9 +516,18 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("邮件服务未启用（SMTP_ENABLED=false 或 SMTP_HOST 未配置）")
 
+    # 启动进程内每日数据保留清理任务（含启动即跑一次作为兜底）
+    try:
+        _start_retention_task()
+        _start_alert_intel_task()
+    except Exception as e:
+        logger.warning("启动保留清理任务失败: %s", str(e))
+
     yield
 
     # 关闭时释放资源
+    _stop_alert_intel_task()
+    _stop_retention_task()
     await engine.dispose()
     logger.info("应用已关闭，数据库连接已释放")
 
@@ -421,6 +578,12 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # 全局并发请求限流：防止“点快了加载不出来”与多人同时在线时的资源恜死。
+    app.add_middleware(ConcurrencyLimitMiddleware)
+    # 安全响应头 + Host 头校验（防 Host 头投毒 / 浏览器端加固）
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
 
     # 全局并发请求限流：防止“点快了加载不出来”与多人同时在线时的资源恜死。
     app.add_middleware(ConcurrencyLimitMiddleware)

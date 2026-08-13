@@ -1,8 +1,9 @@
-"""安全工具：密码哈希、JWT令牌生成与验证"""
+# -*- coding: utf-8 -*-
+"""安全工具：密码哈希、JWT 令牌生成与验证。"""
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from jose import JWTError, jwt
+import jwt
 from passlib.context import CryptContext
 
 from app.core.config import settings
@@ -20,19 +21,35 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """创建JWT访问令牌"""
+def create_access_token(
+    data: dict,
+    expires_delta: Optional[timedelta] = None,
+    token_version: int = 0,
+) -> str:
+    """创建 JWT 访问令牌。
+
+    - 嵌入 token_version (ver)：修改密码/注销后递增，使旧令牌失效（会话作废）。
+    """
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
-    to_encode.update({"exp": expire})
+    to_encode.update({
+        "exp": expire,
+        "iat": datetime.now(timezone.utc),
+        "ver": token_version,
+    })
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
 def decode_access_token(token: str) -> Optional[dict]:
-    """解码JWT令牌"""
+    """解码 JWT 令牌，失败/过期返回 None。"""
     try:
-        return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-    except JWTError:
+        return jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+            options={"require": ["exp", "iat", "sub"]},
+        )
+    except jwt.PyJWTError:
         return None

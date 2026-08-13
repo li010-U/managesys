@@ -27,6 +27,22 @@ ALLOWED_EXTENSIONS = {
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
 
 
+def _is_valid_image_bytes(head: bytes, ext: str) -> bool:
+    """按扩展名校验图片文件头（magic bytes），防止伪造图片。"""
+    if ext == ".png":
+        return head[:8] == b"\x89PNG\r\n\x1a\n"
+    if ext in (".jpg", ".jpeg"):
+        return head[:3] == b"\xff\xd8\xff"
+    if ext == ".gif":
+        return head[:6] in (b"GIF87a", b"GIF89a")
+    if ext == ".webp":
+        return head[:4] == b"RIFF" and head[8:12] == b"WEBP"
+    if ext == ".bmp":
+        return head[:2] == b"BM"
+    # 未知类型：交由上传白名单/下载 octet-stream 兜底
+    return True
+
+
 class FileService:
     """文件存储服务"""
 
@@ -99,6 +115,10 @@ class FileService:
         content = await file.read()
         if len(content) > 5 * 1024 * 1024:  # 5MB
             raise ValueError("头像文件不能超过5MB")
+
+        # 校验真实图片文件头（防伪装成图片上传可执行/脚本文件）
+        if not _is_valid_image_bytes(content[:16], ext):
+            raise ValueError("文件内容与图片格式不匹配")
 
         safe_name = f"avatar_{user_id}{ext}"
         relative_path = f"avatars/{safe_name}"

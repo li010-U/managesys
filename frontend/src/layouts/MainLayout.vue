@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="app-container" :class="{ dark: themeStore.isDark }">
     <el-container>
       <el-aside width="200px" class="sidebar">
@@ -41,6 +41,7 @@
             <el-menu-item index="/monitor/dashboard">可视化监控</el-menu-item>
             <el-menu-item index="/monitor/alerts">告警管理</el-menu-item>
             <el-menu-item index="/canvas">Canvas投屏</el-menu-item>
+            <el-menu-item index="/insight">AI智能分析</el-menu-item>
           </el-sub-menu>
           <el-sub-menu index="/system">
             <template #title><el-icon><Setting /></el-icon><span>系统管理</span></template>
@@ -50,6 +51,7 @@
             <el-menu-item index="/system/audit-logs">审计日志</el-menu-item>
             <el-menu-item index="/system/login-logs">登录日志</el-menu-item>
             <el-menu-item index="/system/ip-resources">IP资源</el-menu-item>
+            <el-menu-item index="/system/ip-conflict-center">IP冲突处理</el-menu-item>
           </el-sub-menu>
         </el-menu>
         <div v-show="!appStore.sidebarCollapsed" class="sidebar-footer">
@@ -139,6 +141,34 @@
       </el-container>
     </el-container>
   </div>
+
+  <!-- 强制修改初始密码对话框 -->
+  <el-dialog
+    v-model="forcePwdVisible"
+    title="首次登录需修改密码"
+    :close-on-click-modal="false"
+    :close-on-press-escape="false"
+    :show-close="false"
+    width="440px"
+    append-to-body
+  >
+    <el-form ref="forcePwdRef" :model="forcePwdForm" :rules="forcePwdRules" label-width="90px">
+      <el-alert type="warning" :closable="false" show-icon
+        title="检测到您仍在使用初始密码，为保障系统安全，请先修改密码。" style="margin-bottom: 12px" />
+      <el-form-item label="原密码" prop="old_password">
+        <el-input v-model="forcePwdForm.old_password" type="password" show-password placeholder="请输入初始密码" />
+      </el-form-item>
+      <el-form-item label="新密码" prop="new_password">
+        <el-input v-model="forcePwdForm.new_password" type="password" show-password placeholder="至少8位，含字母和数字" />
+      </el-form-item>
+      <el-form-item label="确认密码" prop="confirm_password">
+        <el-input v-model="forcePwdForm.confirm_password" type="password" show-password placeholder="再次输入新密码" @keyup.enter="handleForceChange" />
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button type="primary" :loading="forcePwdLoading" @click="handleForceChange">确认修改</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup lang="ts">
@@ -154,6 +184,10 @@ import { useThemeStore } from "../stores/theme"
 import { useTabsStore } from "../stores/tabs"
 import ChatPanel from "../components/chat/ChatPanel.vue"
 import PetAssistant from "../components/assistant/PetAssistant.vue"
+import { ElMessage } from "element-plus"
+import type { FormInstance, FormRules } from "element-plus"
+import { reactive, watch } from "vue"
+import { changePasswordApi } from "../api/auth"
 
 const route = useRoute()
 const router = useRouter()
@@ -171,6 +205,65 @@ function handleCommand(cmd: string) {
     router.push("/login") 
   }
   else if (cmd === "profile") router.push("/profile")
+}
+
+// ---- 强制修改初始密码 ----
+const forcePwdVisible = ref(false)
+const forcePwdLoading = ref(false)
+const forcePwdRef = ref<FormInstance>()
+const forcePwdForm = reactive({ old_password: "", new_password: "", confirm_password: "" })
+const forcePwdRules: FormRules = {
+  old_password: [{ required: true, message: "请输入原密码", trigger: "blur" }],
+  new_password: [
+    { required: true, message: "请输入新密码", trigger: "blur" },
+    { min: 8, message: "密码不能少于8位", trigger: "blur" },
+    {
+      validator: (_r: any, v: string, cb: any) => {
+        if (v && !/[A-Za-z]/.test(v)) return cb(new Error("密码需包含字母"))
+        if (v && !/[0-9]/.test(v)) return cb(new Error("密码需包含数字"))
+        cb()
+      },
+      trigger: "blur",
+    },
+  ],
+  confirm_password: [
+    { required: true, message: "请再次输入新密码", trigger: "blur" },
+    {
+      validator: (_r: any, v: string, cb: any) => {
+        if (v !== forcePwdForm.new_password) return cb(new Error("两次输入的密码不一致"))
+        cb()
+      },
+      trigger: "blur",
+    },
+  ],
+}
+
+watch(() => authStore.mustChangePassword, (val) => {
+  forcePwdVisible.value = !!val
+  if (val) {
+    forcePwdForm.old_password = ""
+    forcePwdForm.new_password = ""
+    forcePwdForm.confirm_password = ""
+  }
+}, { immediate: true })
+
+async function handleForceChange() {
+  const valid = await forcePwdRef.value?.validate().catch(() => false)
+  if (!valid) return
+  forcePwdLoading.value = true
+  try {
+    await changePasswordApi({
+      old_password: forcePwdForm.old_password,
+      new_password: forcePwdForm.new_password,
+    })
+    await authStore.fetchUserInfo()
+    forcePwdVisible.value = false
+    ElMessage.success("密码修改成功")
+  } catch {
+    // 错误已由拦截器处理
+  } finally {
+    forcePwdLoading.value = false
+  }
 }
 </script>
 

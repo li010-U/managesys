@@ -1,4 +1,4 @@
-"""业务系统 Schema"""
+﻿"""业务系统 Schema"""
 from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional
@@ -24,6 +24,15 @@ class BusinessSystemUpdate(BaseModel):
     remark: Optional[str] = None
     status: Optional[str] = None
 
+class DeviceBrief(BaseModel):
+    id: int
+    name: str
+    rack_name: Optional[str] = None
+    management_ip: Optional[str] = None
+    class Config:
+        from_attributes = True
+
+
 class BusinessSystemResponse(BaseModel):
     id: int
     name: str
@@ -37,6 +46,7 @@ class BusinessSystemResponse(BaseModel):
     status: str
     device_count: int = 0
     doc_count: int = 0
+    deployed_devices: list[DeviceBrief] = []
     created_at: datetime
     updated_at: datetime
     class Config:

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page">
     <div class="page-header">
       <div>
@@ -22,7 +22,7 @@
         </div>
       </template>
       <TableSkeleton v-if="loading" :rows="8" />
-<el-table v-else :data="list" stripe height="calc(100vh - 360px)" virtual>
+        <el-table ref="tableRef" v-else :data="list" stripe height="calc(100vh - 360px)" virtual :row-class-name="rowClassName">
         <el-table-column prop="name" label="名称" min-width="140" />
         <el-table-column prop="asset_number" label="资产号" width="120" />
         <el-table-column prop="device_type_name" label="类型" width="100" />
@@ -31,6 +31,9 @@
         <el-table-column prop="rack_name" label="机柜" width="90" />
         <el-table-column label="U位" width="70" align="center">
           <template #default="{ row }">{{ row.start_u || "-" }}-{{ row.end_u || "-" }}</template>
+        </el-table-column>
+        <el-table-column label="功率(kW)" width="90" align="center">
+          <template #default="{ row }">{{ row.power_rating ?? "-" }}</template>
         </el-table-column>
         <el-table-column label="状态" width="90" align="center">
           <template #default="{ row }">
@@ -128,6 +131,11 @@
               <el-col :span="6">
                 <el-form-item label="结束U位">
                   <el-input-number v-model="form.end_u" :min="1" :step="1" style="width:100%" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="6">
+                <el-form-item label="额定功率(kW)">
+                  <el-input-number v-model="form.power_rating" :min="0" :max="100" :step="0.1" :precision="2" :controls="false" style="width:100%" placeholder="如 2.0" />
                 </el-form-item>
               </el-col>
             </el-row>
@@ -241,7 +249,8 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'DeviceList' })
-import { ref, onMounted } from "vue";
+import { ref, onMounted, nextTick } from "vue";
+import { useRoute } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { Plus, Edit, Delete } from "@element-plus/icons-vue";
 import { getDevicesApi, createDeviceApi, updateDeviceApi, deleteDeviceApi, getDeviceLifecyclesApi, getAllDeviceTypesApi } from "../../api/device";
@@ -263,6 +272,8 @@ interface LifecycleRecord {
 
 const loading = ref(false);
 const list = ref<DeviceInfo[]>([]);
+const tableRef = ref<any>(null);
+const highlightId = ref<number | null>(null);
 const keyword = ref("");
 const page = ref(1);
 const pageSize = ref(10);
@@ -290,7 +301,7 @@ const dialog = ref({ visible: false, isEdit: false, id: 0 });
 const form = ref<any>({
   name: "", asset_number: "", device_type_id: undefined, brand: "", model: "", serial_number: "", management_ip: "", business_ip: "", out_of_band_ip: "", mac_address: "",
   cpu_info: "", memory_info: "", disk_info: "", vendor: "", purchase_date: null, warranty_start: null, warranty_end: null,
-  rack_id: null, start_u: null, end_u: null, purchase_order: ""
+  rack_id: null, start_u: null, end_u: null, power_rating: null, purchase_order: ""
 });
 
 const detailDialog = ref({ visible: false });
@@ -299,11 +310,34 @@ const currentDevice = ref<DeviceInfo | null>(null);
 const lifecycleList = ref<LifecycleRecord[]>([]);
 const deviceTypeThresholds = ref<ThresholdConfig[]>([]);
 
+const route = useRoute();
+
 onMounted(() => {
-  // ???????????????????? await ????
   Promise.all([fetchDeviceTypes(), fetchRacks()]);
-  fetchData();
+  fetchData().then(() => {
+    const did = Number(route.query.device || 0);
+    const dname = String(route.query.name || "");
+    if (did) {
+      if (dname) { keyword.value = dname; page.value = 1; }
+      fetchData().then(() => {
+        highlightId.value = did;
+        nextTick(() => { scrollToHighlight(); });
+      });
+    }
+  });
 });
+
+function rowClassName({ row }: any) {
+  return row && highlightId.value && row.id === highlightId.value ? "hl-device-row" : "";
+}
+
+
+function scrollToHighlight() {
+  if (!tableRef.value || !highlightId.value) return;
+  const el = tableRef.value.$el as HTMLElement;
+  const row = el?.querySelector('.hl-device-row') as HTMLElement | null;
+  if (row) { row.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+}
 
 async function fetchRacks() {
   try {
@@ -444,4 +478,6 @@ function alertLevelTag(l: string) {
 .threshold-item { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: #f5f7fa; border-radius: 6px; }
 .threshold-label { font-weight: 500; min-width: 100px; }
 .threshold-value { flex: 1; color: #606266; font-size: 13px; }
+:deep(.hl-device-row) { background: #fff7e6 !important; }
+:deep(.hl-device-row:hover) { background: #fff1cc !important; }
 </style>

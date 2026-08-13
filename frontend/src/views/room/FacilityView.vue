@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="facility-page">
     <div class="page-header">
       <div>
@@ -323,6 +323,12 @@
         <el-form-item label="描述">
           <el-input v-model="rackForm.description" type="textarea" :rows="2" />
         </el-form-item>
+        <el-form-item label="状态">
+          <el-select v-model="rackForm.status" style="width: 100%">
+            <el-option label="正常" value="active" />
+            <el-option label="停用" value="disabled" />
+          </el-select>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="rackDialog.visible = false">取消</el-button>
@@ -380,7 +386,7 @@ const roomForm = ref({
 const rackForm = ref({
   code: "", name: "", total_units: 42, rated_power: undefined as number | undefined,
   row_pos: undefined as number | undefined, col_pos: undefined as number | undefined,
-  description: ""
+  description: "", status: "active"
 })
 
 const rackRules: FormRules = {
@@ -591,12 +597,13 @@ function openRackDialog(rack?: RackInfo) {
       rated_power: rack.rated_power ?? undefined,
       row_pos: rack.row_pos ?? undefined,
       col_pos: rack.col_pos ?? undefined,
-      description: rack.description || ""
+      description: rack.description || "",
+      status: rack.status || "active"
     }
   } else {
     rackForm.value = {
       code: "", name: "", total_units: 42,
-      rated_power: undefined, row_pos: undefined, col_pos: undefined, description: ""
+      rated_power: undefined, row_pos: undefined, col_pos: undefined, description: "", status: "active"
     }
   }
   setTimeout(() => rackFormRef.value?.clearValidate(), 0)
@@ -616,7 +623,7 @@ async function submitRack() {
     if (rackForm.value.rated_power !== undefined) data.rated_power = rackForm.value.rated_power
     if (rackForm.value.row_pos !== undefined) data.row_pos = rackForm.value.row_pos
     if (rackForm.value.col_pos !== undefined) data.col_pos = rackForm.value.col_pos
-    if (rackForm.value.description) data.description = rackForm.value.description
+    if (rackForm.value.status) data.status = rackForm.value.status
 
     if (rackDialog.value.isEdit) {
       await updateRackApi(rackDialog.value.id, data)

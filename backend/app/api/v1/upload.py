@@ -19,7 +19,9 @@ async def upload_file(
     sub_dir: str = Query("", description="子目录分类"),
     current_user: User = Depends(get_current_user),
 ):
-    """上传文件（通用）"""
+    """上传文件（通用，仅超级管理员可用，防止任意登录用户耗尽服务器磁盘）"""
+    if not current_user.is_super_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="权限不足")
     try:
         file_info = await file_service.save_upload(file, sub_dir)
         return {"message": "上传成功", "data": file_info}

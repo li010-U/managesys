@@ -1,4 +1,4 @@
-import http from "./index"
+﻿import http from "./index"
 import { dictGet } from "./dictCache"
 
 /* ===== DataCenter ===== */
@@ -11,7 +11,7 @@ export interface DataCenterInfo {
   contact_person?: string
   contact_phone?: string
   contact_email?: string
-  status: string
+    status: string
   room_count: number
   created_at: string
   updated_at: string
@@ -62,7 +62,7 @@ export interface RoomInfo {
   admin_email?: string
   tier_level?: string
   description?: string
-  status: string
+    status: string
   rack_count: number
   data_center_name: string
   created_at: string
@@ -111,6 +111,12 @@ export interface RackInfo {
   total_units: number
   available_units: number
   rated_power?: number
+  pos_x_m?: number
+  pos_z_m?: number
+  width_m?: number
+  depth_m?: number
+  facing_deg?: number
+    status: string
   description?: string
   device_count: number
   room_name: string
@@ -147,4 +153,10 @@ export function updateRackApi(id: number, data: any) {
 
 export function deleteRackApi(id: number) {
   return http.delete(`/facilities/racks/${id}`)
+}
+export function getRoomRack3dApi(roomId: number) {
+  return http.get<any>(`/facilities/rooms/${roomId}/rack3d`)
+}
+export function getRackEnvironmentApi(id: number) {
+  return http.get<{ rack_id: number; room_id: number; sensors: any[]; active_alerts: number; rack_alerts: Record<number, number> }>(`/facilities/racks/${id}/environment`)
 }

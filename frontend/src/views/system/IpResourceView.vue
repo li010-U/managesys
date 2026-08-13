@@ -5,6 +5,7 @@
         <h3 class="page-title">IP 资源管理</h3>
         <p class="page-desc">基于设备台账的 IP 字段实时聚合：占用统计、网段分组与冲突检测</p>
       </div>
+      <el-button type="primary" :icon="Warning" @click="goConflictCenter()">冲突处理中心</el-button>
       <el-button type="primary" :loading="loading" @click="fetchData">
         <el-icon><Refresh /></el-icon>刷新
       </el-button>
@@ -52,6 +53,12 @@
             <span v-for="(d, i) in row.devices" :key="i" class="dev-chip">{{ d.name }}（{{ d.asset_number }}）</span>
           </template>
         </el-table-column>
+
+        <el-table-column label="处理" width="150" align="center">
+          <template #default="{ row }">
+            <el-button size="small" text type="primary" @click="goConflictCenter(row)">立即处理</el-button>
+          </template>
+        </el-table-column>
       </el-table>
       <div v-if="!data.conflicts.length" class="empty">无冲突，IP 分配正常</div>
     </el-card>
@@ -77,9 +84,11 @@
 <script setup lang="ts">
 defineOptions({ name: 'IpResources' })
 import { ref, onMounted } from "vue"
-import { Refresh } from "@element-plus/icons-vue"
+import { Refresh, Warning } from "@element-plus/icons-vue"
+import { useRouter } from "vue-router"
 import { getIpOverviewApi, type IpOverview } from "@/api/ipResource"
 
+const router = useRouter()
 const loading = ref(false)
 const data = ref<IpOverview | null>(null)
 
@@ -98,6 +107,10 @@ async function fetchData() {
 }
 
 onMounted(fetchData)
+
+function goConflictCenter(row?: any) {
+  router.push({ path: '/system/ip-conflict-center', query: row ? { ip: row.ip } : undefined })
+}
 </script>
 
 <style scoped>

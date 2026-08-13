@@ -1,4 +1,4 @@
-"""告警规则/告警/告警处理模型"""
+﻿"""告警规则/告警/告警处理模型"""
 from datetime import datetime
 from typing import Optional, List
 from sqlalchemy import String, Integer, DateTime, Float, Text, ForeignKey, Boolean, JSON
@@ -41,6 +41,14 @@ class Alert(Base):
     status: Mapped[str] = mapped_column(String(16), default="new", comment="状态：new/acknowledged/resolved/ignored")
     source: Mapped[str] = mapped_column(String(16), default="system", comment="来源：sensor/monitor/system")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
+    # ==== 智能告警增强（告警收敛/升级） ====
+    dedupe_key: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True, comment="收敛去重键(设备+标题)，同类连续告警归并")
+    occurrences: Mapped[int] = mapped_column(Integer, default=1, comment="收敛后的累计发生次数")
+    first_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment="收敛窗口首次发生时间")
+    acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment="确认时间")
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment="解决时间")
+    escalated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment="自动升级时间")
+    escalated_from: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, comment="升级前级别")
 
     rule: Mapped[Optional["AlertRule"]] = relationship("AlertRule", back_populates="alerts", lazy="selectin")
     actions: Mapped[List["AlertAction"]] = relationship("AlertAction", back_populates="alert", lazy="selectin", cascade="all, delete-orphan")

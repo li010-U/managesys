@@ -189,12 +189,30 @@ class DeviceService:
         if not device:
             return None
         old_status = device.status
+        old_rack = device.rack_id
+        old_start = device.start_u
+        old_end = device.end_u
         data = req.model_dump(exclude_unset=True)
         for k, v in data.items():
             setattr(device, k, v)
         new_status = data.get("status", old_status)
         if old_status != new_status:
             self._add_lifecycle(device_id, "change", old_status, new_status)
+        # 上架/下架/挪位检测 -> 追加生命周期留痕（变更审计）
+        new_rack = device.rack_id
+        new_start = device.start_u
+        new_end = device.end_u
+        rack_moved = (old_rack is None and new_rack is not None) or \
+                     (old_rack is not None and new_rack is None) or \
+                     (old_rack != new_rack)
+        upos_changed = (old_start, old_end) != (new_start, new_end)
+        if rack_moved or upos_changed:
+            if new_rack is not None and old_rack is None:
+                self._add_lifecycle(device_id, "mount", "in_stock" if old_status in ("in_stock",) else old_status, "mounted")
+            elif new_rack is None and old_rack is not None:
+                self._add_lifecycle(device_id, "unmount", old_status, "in_stock")
+            else:
+                self._add_lifecycle(device_id, "move", old_status, new_status)
         await self.db.flush()
         await self.db.refresh(device)
 
@@ -203,15 +221,29 @@ class DeviceService:
         detail = f"更新设备: {device.name}"
         if old_status != new_status:
             detail += f", 状态变更: {old_status} -> {new_status}"
-        AuditService.log(
-            self.db,
-            username=operator_username or "system",
-            action="update",
-            target_type="device",
-            target_id=str(device.id),
-            detail=detail,
-            ip_address=operator_ip,
-        )
+        if rack_moved or upos_changed:
+            action = "mount" if (new_rack is not None and old_rack is None) else \
+                     "unmount" if (new_rack is None and old_rack is not None) else "move"
+            detail += f", 位置: 机柜 {old_rack or '-'}->{new_rack or '-'}, U位 {old_start or '-'}-{old_end or '-'} -> {new_start or '-'}-{new_end or '-'}"
+            AuditService.log(
+                self.db,
+                username=operator_username or "system",
+                action=action,
+                target_type="device",
+                target_id=str(device.id),
+                detail=detail,
+                ip_address=operator_ip,
+            )
+        else:
+            AuditService.log(
+                self.db,
+                username=operator_username or "system",
+                action="update",
+                target_type="device",
+                target_id=str(device.id),
+                detail=detail,
+                ip_address=operator_ip,
+            )
 
         return device
 

@@ -38,6 +38,7 @@ class Device(Base):
     business_ip: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, comment="业务IP")
     mac_address: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, comment="MAC地址")
     out_of_band_ip: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, comment="带外地址")
+    power_rating: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="额定功率(kW)，用于机柜功率负载计算")
 
     status: Mapped[str] = mapped_column(String(16), default="in_stock", comment="状态：in_stock/mounted/running/offline/scrapped")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")

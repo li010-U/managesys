@@ -122,3 +122,177 @@ class IpResourceService:
             "conflict_count": len(conflicts),
             "subnets": sorted(subnets.values(), key=lambda x: x["subnet"]),
         }
+
+    def _collect(self, rows):
+        """???? IP ???????? overview/conflicts ???"""
+        from collections import defaultdict
+        by_role = defaultdict(lambda: defaultdict(list))  # role -> ip -> [device]
+        global_ip = defaultdict(set)                      # ip -> roles
+        all_ips = []
+        for r in rows:
+            device = {
+                "id": r.id, "name": r.name, "asset_number": r.asset_number,
+                "status": r.status, "rack_id": r.rack_id,
+            }
+            roles = {
+                "management": _clean_multi(r.management_ip),
+                "business": _clean_multi(r.business_ip),
+                "oob": _clean_multi(r.out_of_band_ip),
+            }
+            for role, iplist in roles.items():
+                for ip in iplist:
+                    by_role[role][ip].append({**device, "role": role})
+                    global_ip[ip].add(role)
+                    all_ips.append({**device, "role": role, "ip": ip})
+        return by_role, global_ip, all_ips
+
+
+    async def _rack_room_map(self) -> dict:
+        """?? {rack_id: (rack_name, room_id)} ??????????"""
+        from app.models.facility import Rack
+        out = {}
+        try:
+            res = await self.db.execute(select(Rack.id, Rack.name, Rack.room_id))
+            for rid, rname, room_id in res.all():
+                out[rid] = (rname, room_id)
+        except Exception:
+            out = {}
+        return out
+
+    async def conflicts(self) -> dict:
+        """??????????????? + ??????????????"""
+        result = await self.db.execute(
+            select(
+                Device.id, Device.name, Device.asset_number,
+                Device.management_ip, Device.business_ip, Device.out_of_band_ip,
+                Device.rack_id, Device.status,
+            )
+        )
+        rows = result.all()
+        room_map = await self._rack_room_map()
+        by_role, global_ip, _ = self._collect(rows)
+
+        def _enrich(devices):
+            for d in devices:
+                rid = d.get("rack_id")
+                if rid in room_map:
+                    d["rack_name"] = room_map[rid][0]
+                    d["room_id"] = room_map[rid][1]
+            return devices
+
+        explicit = []
+        for role, mapping in by_role.items():
+            for ip, devices in mapping.items():
+                if len(devices) > 1:
+                    explicit.append({
+                        "ip": ip, "role": role, "devices": _enrich(devices),
+                        "conflict_type": "explicit",
+                    })
+        explicit.sort(key=lambda x: (x["role"], x["ip"]))
+
+        potential = []
+        for ip, roles in global_ip.items():
+            if len(roles) > 1:
+                potential.append({
+                    "ip": ip, "roles": sorted(roles),
+                    "devices": _enrich(self._devices_for_ip(rows, ip)),
+                    "conflict_type": "potential",
+                })
+        potential.sort(key=lambda x: x["ip"])
+
+        return {
+            "explicit": explicit,
+            "potential": potential,
+            "total": len(explicit) + len(potential),
+        }
+
+    @staticmethod
+    def _devices_for_ip(rows, ip: str) -> list:
+        out = []
+        for r in rows:
+            roles = {"management": _clean_multi(r.management_ip),
+                     "business": _clean_multi(r.business_ip),
+                     "oob": _clean_multi(r.out_of_band_ip)}
+            for role, iplist in roles.items():
+                if ip in iplist:
+                    out.append({
+                        "id": r.id, "name": r.name, "asset_number": r.asset_number,
+                        "status": r.status, "rack_id": r.rack_id, "role": role,
+                    })
+        return out
+
+    async def resolve_conflict(self, device_id: int, role: str, new_ip: str,
+                               operator_username: str = None, operator_ip: str = None) -> dict:
+        """??????????? role ???? IP?????????????
+
+        ???{"device": {...}, "ip": new_ip, "role": role, "remaining_conflicts": int}
+        """
+        from app.models.device import Device
+        from app.services.audit_service import AuditService
+
+        role_field = {"management": "management_ip",
+                      "business": "business_ip",
+                      "oob": "out_of_band_ip"}.get(role)
+        if role_field is None:
+            raise ValueError("??? IP ????")
+        new_ip = (new_ip or "").strip()
+        if not new_ip:
+            raise ValueError("? IP ????")
+
+        # ??? IP ???????
+        try:
+            ipaddress.ip_address(new_ip.split("%")[0])
+        except ValueError:
+            raise ValueError("? IP ?????")
+
+        device = (await self.db.execute(
+            select(Device).where(Device.id == device_id)
+        )).scalar_one_or_none()
+        if device is None:
+            raise ValueError("?????")
+
+        old_value = getattr(device, role_field) or ""
+        setattr(device, role_field, new_ip)
+        await self.db.commit()
+
+        # ??? IP ??????????? conflicts???????????
+        remaining = await self._count_conflicts_after(device_id, role, new_ip)
+
+        AuditService.log(
+            self.db,
+            username=operator_username or "system",
+            action="ip_conflict_resolve",
+            target_type="device",
+            user_id=None,
+            target_id=str(device_id),
+            detail=("?? IP ???%s[%s] ??=%s?IP %s -> %s"
+                    % (device.name, device.asset_number, role, old_value, new_ip)),
+            ip_address=operator_ip,
+        )
+        await self.db.commit()
+
+        return {
+            "device": {"id": device.id, "name": device.name, "asset_number": device.asset_number,
+                       "new_ip": new_ip, "role": role},
+            "old_ip": old_value,
+            "new_ip": new_ip,
+            "remaining_conflicts": remaining,
+        }
+
+    async def _count_conflicts_after(self, device_id: int, role: str, new_ip: str) -> int:
+        """????????????????????????????"""
+        result = await self.db.execute(
+            select(
+                Device.id, Device.name, Device.asset_number,
+                Device.management_ip, Device.business_ip, Device.out_of_band_ip,
+                Device.rack_id, Device.status,
+            )
+        )
+        rows = result.all()
+        by_role, _, _ = self._collect(rows)
+        count = 0
+        for r, mapping in by_role.items():
+            for ip, devices in mapping.items():
+                if len(devices) > 1:
+                    count += 1
+        return count

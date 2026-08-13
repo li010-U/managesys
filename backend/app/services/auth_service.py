@@ -122,7 +122,10 @@ class AuthService:
         await self.db.flush()
 
         # 生成JWT
-        token = create_access_token(data={"sub": str(user.id)})
+        token = create_access_token(
+            data={"sub": str(user.id)},
+            token_version=user.token_version or 0,
+        )
         await self._record_login_log(username, ip_address, "success")
         return token, user
 
@@ -144,4 +147,7 @@ class AuthService:
         if not verify_password(old_password, user.hashed_password):
             raise ValueError("原密码错误")
         user.hashed_password = hash_password(new_password)
+        # 修改密码后：使已签发令牌全部失效，并清除“需强制改密”标记
+        user.token_version = (user.token_version or 0) + 1
+        user.must_change_password = False
         await self.db.flush()

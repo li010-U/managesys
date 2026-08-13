@@ -83,6 +83,7 @@ export interface DeviceInfo {
   business_ip?: string;
   mac_address?: string;
   out_of_band_ip?: string;
+  power_rating?: number;
   status: string;
   device_type_name: string;
   device_type_category: string;

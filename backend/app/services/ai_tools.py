@@ -1,4 +1,4 @@
-"""AI assistant write-tools: intent parsing + confirmed execution.
+﻿"""AI assistant write-tools: intent parsing + confirmed execution.
 
 Write tools never run from raw LLM output. chat.py parses the user
 request into a proposal, the UI asks the human to confirm, and only the
@@ -497,3 +497,47 @@ async def _exec_handle_alert(db, args, operator):
     if not alert:
         raise ValueError("alert " + str(alert_id) + " not found")
     return {"tool": "handle_alert", "result": "handled", "alert_id": alert_id, "status": alert.status}
+
+# 参数中文名，用于多轮澄清时给 AI 的提示（缺参时追问用户）
+PARAM_LABELS = {
+    "title": "工单标题",
+    "description": "工单描述",
+    "priority": "优先级",
+    "device_id": "设备ID",
+    "facility_id": "机房/设施ID",
+    "alert_id": "告警ID",
+    "action_type": "处理动作(acknowledge/resolve/ignore)",
+    "remark": "备注",
+    "root_cause": "根因",
+    "order_id": "工单ID",
+    "assignee_username": "指派人用户名",
+    "satisfaction": "满意度评分(1-5)",
+    "accept": "是否验收(true/false)",
+    "feedback": "反馈意见",
+    "rack_id": "机柜ID",
+    "name": "规则名称",
+    "code": "规则代码",
+    "metric": "监控指标",
+    "condition": "比较条件",
+    "threshold": "阈值",
+    "alert_level": "告警级别",
+    "enabled": "是否启用",
+    "notify_methods": "通知方式",
+}
+
+
+def missing_params(tool: str, args: Dict[str, Any]) -> List[str]:
+    """返回某个工具 request 中缺失的必填参数名列表。
+
+    配合 parse_proposal 使用：当命中工具但必填参数不全时，
+    chat 端会先向用户澄清（多轮补全），而不是直接提交残缺操作。
+    """
+    spec = TOOLS.get(tool)
+    if not spec:
+        return []
+    missing = []
+    for key in spec.get("required", []):
+        val = args.get(key)
+        if val is None or val == "" or val == []:
+            missing.append(key)
+    return missing

@@ -1,4 +1,4 @@
-"""AI chat tool-calling / confirmed-execution tests."""
+﻿"""AI chat tool-calling / confirmed-execution tests."""
 
 import pytest
 
@@ -174,3 +174,21 @@ async def test_create_work_order_acknowledges_new_alerts(db_session):
     assert len(alerts) == 1
     assert alerts[0].status == "acknowledged"
 
+
+
+def test_missing_params_required():
+    from app.services import ai_tools
+    # create_work_order requires title
+    assert ai_tools.missing_params("create_work_order", {"priority": "high"}) == ["title"]
+    assert ai_tools.missing_params("create_work_order", {"title": "?????"}) == []
+    # assign_work_order requires order_id + assignee_username
+    m = ai_tools.missing_params("assign_work_order", {"order_id": 5})
+    assert m == ["assignee_username"]
+    # close_work_order requires order_id
+    assert ai_tools.missing_params("close_work_order", {}) == ["order_id"]
+    assert ai_tools.missing_params("close_work_order", {"order_id": 3}) == []
+    # handle_alert requires alert_id + action_type
+    m = ai_tools.missing_params("handle_alert", {"alert_id": 1})
+    assert m == ["action_type"]
+    # unknown tool -> no required spec -> []
+    assert ai_tools.missing_params("nope", {}) == []

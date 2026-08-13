@@ -9,10 +9,24 @@ from app.models.user import User
 from app.models.business_system import BusinessSystem, DeploymentRelation
 from app.schemas.business import (
     BusinessSystemCreate, BusinessSystemUpdate, BusinessSystemResponse, BusinessSystemPageResponse,
-    DeploymentCreate, DeploymentResponse,
+    DeploymentCreate, DeploymentResponse, DeviceBrief,
 )
 
 router = APIRouter(prefix="/systems", tags=["业务系统管理"])
+
+def _fill_system(r, item):
+    r.device_count = len(item.deployments) if item.deployments else 0
+    r.doc_count = len(item.documents) if item.documents else 0
+    devs = []
+    for dep in (item.deployments or []):
+        d = dep.device
+        if d is None:
+            continue
+        rack = getattr(d, 'rack', None)
+        devs.append(DeviceBrief(id=d.id, name=d.name, rack_name=(rack.name if rack else None), management_ip=getattr(d, 'management_ip', None)))
+    r.deployed_devices = devs
+    return r
+
 
 
 @router.get("", response_model=BusinessSystemPageResponse)
@@ -38,9 +52,7 @@ async def list_systems(
     items = (await db.execute(q)).scalars().all()
     resp = []
     for item in items:
-        r = BusinessSystemResponse.model_validate(item)
-        r.device_count = len(item.deployments) if item.deployments else 0
-        r.doc_count = len(item.documents) if item.documents else 0
+        r = _fill_system(BusinessSystemResponse.model_validate(item), item)
         resp.append(r)
     return BusinessSystemPageResponse(items=resp, total=total, page=page, page_size=page_size)
 
@@ -52,9 +64,7 @@ async def get_system(sys_id: int, db: AsyncSession = Depends(get_db), _current_u
     if not item:
         from fastapi import HTTPException
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="系统不存在")
-    r = BusinessSystemResponse.model_validate(item)
-    r.device_count = len(item.deployments) if item.deployments else 0
-    r.doc_count = len(item.documents) if item.documents else 0
+    r = _fill_system(BusinessSystemResponse.model_validate(item), item)
     return r
 
 
@@ -83,9 +93,7 @@ async def update_system(sys_id: int, req: BusinessSystemUpdate, db: AsyncSession
         setattr(obj, k, v)
     await with_commit_retry(db.commit)
     await db.refresh(obj)
-    r = BusinessSystemResponse.model_validate(obj)
-    r.device_count = len(obj.deployments) if obj.deployments else 0
-    r.doc_count = len(obj.documents) if obj.documents else 0
+    r = _fill_system(BusinessSystemResponse.model_validate(obj), obj)
     return r
 
 

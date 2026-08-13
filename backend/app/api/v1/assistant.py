@@ -9,7 +9,7 @@ import asyncio
 
 from app.core.concurrency import sse_semaphore
 
-from app.core.deps import get_db, get_current_user
+from app.core.deps import get_db, get_current_user, require_permission
 from app.models.user import User
 from app.services.assistant_service import AssistantService, get_cached_snapshot
 
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/assistant", tags=["AI 桌宠助手"])
 
 @router.get("/snapshot")
 async def assistant_snapshot(
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("monitor:view_dashboard")),
 ):
     """\u8fd4\u56de\u4e00\u6b21\u5b9e\u65f6\u7edf\u8ba1\u6570\u636e\u5feb\u7167 + \u4e3b\u52a8\u63d0\u9192/\u5efa\u8bae\uff08\u5e26\u77ed TTL \u7f13\u5b58\uff09\u3002"""
     snapshot = await get_cached_snapshot()
@@ -33,7 +33,7 @@ async def assistant_snapshot(
 
 @router.get("/prompts")
 async def assistant_prompts(
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("monitor:view_dashboard")),
 ):
     """动态推荐聊天问题（基于当天快照，随每日实际情况变化）。"""
     snapshot = await get_cached_snapshot()
@@ -46,7 +46,7 @@ async def assistant_prompts(
 async def assistant_stream(
     request: Request,
     interval: int = 10,
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_permission("monitor:view_dashboard")),
 ):
     """实时 SSE 推送，包含数据快照 + 提醒/建议。
 

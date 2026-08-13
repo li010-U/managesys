@@ -75,16 +75,27 @@ class SensorService:
         return list(result.scalars().all())
 
     async def record_data(self, sensor_id: int, value: float):
-        sd = SensorData(sensor_id=sensor_id, value=value)
-        self.db.add(sd)
+        sd = SensorData(sensor_id=sensor_id, value=value, source_mark="normal")
         sensor = await self.get_by_id(sensor_id)
         if sensor:
+            # 越阈则标记为 abnormal（与告警互补，作为告警源数据）
+            if self._is_breach(sensor, value):
+                sd.source_mark = "abnormal"
             sensor.current_value = {"value": value, "unit": self._get_unit(sensor.sensor_type)}
             sensor.last_update_time = datetime.now(timezone.utc)
             sensor.status = "online"
+        self.db.add(sd)
         await self.db.flush()
         await self.db.refresh(sd)
         return sd
+
+    def _is_breach(self, sensor, value: float) -> bool:
+        """判断当前值是否越过阈值（上下限任一越界）。"""
+        if sensor.threshold_min is not None and value < sensor.threshold_min:
+            return True
+        if sensor.threshold_max is not None and value > sensor.threshold_max:
+            return True
+        return False
 
     def _get_unit(self, sensor_type: str) -> str:
         return {"temperature": "°C", "humidity": "%RH", "smoke": "", "water": "", "door_magnetic": ""}.get(sensor_type, "")

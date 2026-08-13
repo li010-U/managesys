@@ -10,6 +10,7 @@ export interface UserInfo {
   position?: string
   is_active: boolean
   is_super_admin: boolean
+  must_change_password?: boolean
   _loading?: boolean
   last_login?: string
   created_at: string

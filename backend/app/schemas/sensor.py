@@ -1,4 +1,4 @@
-"""传感器管理 Pydantic Schema"""
+﻿"""传感器管理 Pydantic Schema"""
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field
@@ -46,4 +46,41 @@ class SensorDataResponse(BaseModel):
     sensor_id: int
     value: float
     recorded_at: datetime
+    source_mark: str = "normal"
     model_config = {"from_attributes": True}
+
+
+class SensorAnomalyGapResponse(BaseModel):
+    id: int
+    sensor_id: int
+    sensor_name: Optional[str] = None
+    alert_id: Optional[int] = None
+    detected_at: datetime
+    window_start: Optional[datetime] = None
+    window_end: Optional[datetime] = None
+    anomaly_type: str = "between_points_breach"
+    severity: str = "warning"
+    remark: Optional[str] = None
+    created_at: datetime
+    model_config = {"from_attributes": True}
+
+
+class RetentionResultResponse(BaseModel):
+    days: int
+    buffer_days: int
+    cutoff: Optional[str] = None
+    sensor_data_deleted: int = 0
+    anomaly_gap_deleted: int = 0
+    anomaly_gap_reconciled: int = 0
+
+class RetentionStatusResponse(BaseModel):
+    retention_days: int
+    buffer_days: int
+    task_enabled: bool
+    cutoff: Optional[str] = None
+    sensor_data_count: int = 0
+    sensor_data_oldest: Optional[datetime] = None
+    sensor_data_newest: Optional[datetime] = None
+    anomaly_gap_count: int = 0
+    anomaly_gap_oldest: Optional[datetime] = None
+    anomaly_gap_newest: Optional[datetime] = None

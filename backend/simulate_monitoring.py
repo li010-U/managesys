@@ -1,4 +1,5 @@
-﻿"""模拟实时监控数据更新"""
+import os
+"""模拟实时监控数据更新"""
 import requests
 import random
 import time
@@ -7,7 +8,7 @@ from datetime import datetime
 BASE_URL = 'http://localhost:8000/api/v1'
 
 def get_token():
-    resp = requests.post(f'{BASE_URL}/auth/login', json={'username':'admin','password':'admin@123456'})
+    resp = requests.post(f'{BASE_URL}/auth/login', json={'username':'admin','password': os.environ.get('ADMIN_PASSWORD', 'CHANGE_ME')})
     return resp.json()['access_token']
 
 def get_sensors(token):

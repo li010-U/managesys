@@ -41,3 +41,30 @@ export function getSensorDataApi(id: number, limit?: number) {
 export function recordSensorDataApi(id: number, value: number) {
   return http.post<SensorDataInfo>("/sensors/" + id + "/data?value=" + value)
 }
+
+/* ===== 数据保留与异常留痕 ===== */
+export interface RetentionStatus {
+  retention_days: number
+  buffer_days: number
+  task_enabled: boolean
+  cutoff?: string | null
+  sensor_data_count: number
+  sensor_data_oldest?: string | null
+  sensor_data_newest?: string | null
+  anomaly_gap_count: number
+  anomaly_gap_oldest?: string | null
+  anomaly_gap_newest?: string | null
+}
+export interface AnomalyGapInfo {
+  id: number; sensor_id: number; sensor_name?: string | null
+  alert_id?: number | null; detected_at: string
+  window_start?: string | null; window_end?: string | null
+  anomaly_type: string; severity: string; remark?: string | null
+  created_at: string
+}
+export function getRetentionStatusApi() {
+  return http.get<RetentionStatus>("/sensors/retention-status")
+}
+export function getAnomalyGapsApi(params?: { sensor_id?: number; limit?: number }) {
+  return http.get<AnomalyGapInfo[]>("/sensors/anomaly-gaps", { params })
+}

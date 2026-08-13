@@ -1,4 +1,5 @@
 ﻿"""传感器管理 API 路由"""
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,7 +8,12 @@ from app.models.user import User
 from app.services.sensor_service import SensorService
 from app.schemas.sensor import (
     SensorCreate, SensorUpdate, SensorResponse, SensorPageResponse, SensorDataResponse,
+    SensorAnomalyGapResponse, RetentionResultResponse, RetentionStatusResponse,
 )
+from app.models.sensor import SensorAnomalyGap, SensorData
+from app.services.sensor_anomaly_service import SensorAnomalyService
+from app.core.config import settings
+from sqlalchemy import select, func
 
 router = APIRouter(prefix="/sensors", tags=["环境监测"])
 
@@ -138,3 +144,71 @@ async def record_sensor_data(
     service = SensorService(db)
     sd = await service.record_data(sensor_id, value)
     return SensorDataResponse.model_validate(sd)
+
+
+@router.get("/anomaly-gaps", response_model=list[SensorAnomalyGapResponse])
+async def list_anomaly_gaps(
+    sensor_id: int = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(require_permission("device:view")),
+):
+    """查询"两采集点之间越阈但采集点正常"的异常留痕。"""
+    stmt = select(SensorAnomalyGap).order_by(SensorAnomalyGap.detected_at.desc()).limit(limit)
+    if sensor_id is not None:
+        stmt = stmt.where(SensorAnomalyGap.sensor_id == sensor_id)
+    rows = (await db.execute(stmt)).scalars().all()
+    resp = []
+    for r in rows:
+        sr = SensorAnomalyGapResponse.model_validate(r)
+        if r.sensor:
+            sr.sensor_name = r.sensor.name
+        resp.append(sr)
+    return resp
+
+
+@router.post("/retention", response_model=RetentionResultResponse)
+async def run_retention(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """手动触发数据保留清理（滚动删除超期 sensor_data / 异常留痕），仅超级管理员。"""
+    if not current_user.is_super_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="权限不足")
+    svc = SensorAnomalyService(db)
+    gap_added = await svc.reconcile_from_alerts(since=None)
+    result = await svc.run_retention()
+    result["anomaly_gap_reconciled"] = gap_added
+    return result
+
+
+@router.get("/retention-status", response_model=RetentionStatusResponse)
+async def retention_status(
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(require_permission("device:view")),
+):
+    """查询数据保留配置与当前数据量（保留期内数据详情）。"""
+    days = settings.DATA_RETENTION_DAYS
+    buffer_days = settings.DATA_RETENTION_BUFFER_DAYS
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days + buffer_days)
+
+    sd_count = (await db.execute(select(func.count()).select_from(SensorData))).scalar() or 0
+    sd_oldest = (await db.execute(select(func.min(SensorData.recorded_at)))).scalar()
+    sd_newest = (await db.execute(select(func.max(SensorData.recorded_at)))).scalar()
+
+    ag_count = (await db.execute(select(func.count()).select_from(SensorAnomalyGap))).scalar() or 0
+    ag_oldest = (await db.execute(select(func.min(SensorAnomalyGap.detected_at)))).scalar()
+    ag_newest = (await db.execute(select(func.max(SensorAnomalyGap.detected_at)))).scalar()
+
+    return RetentionStatusResponse(
+        retention_days=days,
+        buffer_days=buffer_days,
+        task_enabled=settings.DATA_RETENTION_TASK_ENABLED,
+        cutoff=cutoff.isoformat(),
+        sensor_data_count=sd_count,
+        sensor_data_oldest=sd_oldest,
+        sensor_data_newest=sd_newest,
+        anomaly_gap_count=ag_count,
+        anomaly_gap_oldest=ag_oldest,
+        anomaly_gap_newest=ag_newest,
+    )

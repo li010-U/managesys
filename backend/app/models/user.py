@@ -34,6 +34,10 @@ class User(Base):
     login_attempts: Mapped[int] = mapped_column(Integer, default=0, comment="登录失败次数")
     locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment="锁定至")
     last_login: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment="最后登录时间")
+    # 登录后是否需要强制修改密码（如默认管理员初始化后）
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 令牌原作版本号：修改密码/注销时+1，用于使已发出 JWT 失效
+    token_version: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), comment="创建时间"
     )

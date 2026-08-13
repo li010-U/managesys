@@ -104,9 +104,15 @@ class RackBase(BaseModel):
     code: str = Field(..., min_length=1, max_length=64, description="机柜编号")
     row_pos: Optional[int] = Field(None, description="所在行")
     col_pos: Optional[int] = Field(None, description="所在列")
+    pos_x_m: Optional[float] = Field(None, description="3D世界X坐标(米)")
+    pos_z_m: Optional[float] = Field(None, description="3D世界Z坐标(米)")
+    width_m: Optional[float] = Field(None, description="机柜宽(米)")
+    depth_m: Optional[float] = Field(None, description="机柜深(米)")
+    facing_deg: Optional[float] = Field(None, description="朝向角(绕Y轴，度)")
     total_units: int = Field(42, description="总U位数")
     rated_power: Optional[float] = Field(None, description="额定功率(kW)")
     description: Optional[str] = Field(None, max_length=512)
+    status: str = Field("active", description="状态: active/disabled")
 
 
 class RackCreate(RackBase):
@@ -119,9 +125,15 @@ class RackUpdate(BaseModel):
     code: Optional[str] = Field(None, min_length=1, max_length=64)
     row_pos: Optional[int] = None
     col_pos: Optional[int] = None
+    pos_x_m: Optional[float] = None
+    pos_z_m: Optional[float] = None
+    width_m: Optional[float] = None
+    depth_m: Optional[float] = None
+    facing_deg: Optional[float] = None
     total_units: Optional[int] = None
     rated_power: Optional[float] = None
     description: Optional[str] = None
+    status: Optional[str] = None
 
 
 class RackResponse(RackBase):

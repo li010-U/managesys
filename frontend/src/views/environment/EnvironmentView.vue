@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="env-page">
     <div class="page-header">
       <div>
@@ -83,6 +83,8 @@
           </el-select>
         </div>
         <div style="flex:1"></div>
+        <el-button :icon="DataAnalysis" @click="openRetentionDialog()">数据保留状态</el-button>
+        <el-button :icon="Warning" @click="openAnomalyDialog()">异常留痕</el-button>
         <el-button type="primary" :icon="Plus" @click="openDialog()">新增传感器</el-button>
         <el-button :icon="Refresh" @click="fetchData">刷新</el-button>
       </div>
@@ -182,6 +184,36 @@
       </div>
       <template #footer><el-button @click="historyDialog.visible = false">关闭</el-button></template>
     </el-dialog>
+
+    <!-- 数据保留状态对话框 -->
+    <el-dialog v-model="retentionDialog.visible" title="数据保留状态" width="720px">
+      <el-descriptions :column="2" border v-if="retention">
+        <el-descriptions-item label="保留天数">{{ retention.retention_days }} 天</el-descriptions-item>
+        <el-descriptions-item label="安全余量">{{ retention.buffer_days }} 天</el-descriptions-item>
+        <el-descriptions-item label="自动清理任务">{{ retention.task_enabled ? "已启用" : "未启用" }}</el-descriptions-item>
+        <el-descriptions-item label="清理阈值时间">{{ formatTime(retention.cutoff) || "-" }}</el-descriptions-item>
+        <el-descriptions-item label="传感器数据量">{{ retention.sensor_data_count }} 条</el-descriptions-item>
+        <el-descriptions-item label="传感器数据范围">{{ (formatTime(retention.sensor_data_oldest) || "-") + " ~ " + (formatTime(retention.sensor_data_newest) || "-") }}</el-descriptions-item>
+        <el-descriptions-item label="异常留痕量">{{ retention.anomaly_gap_count }} 条</el-descriptions-item>
+        <el-descriptions-item label="留痕时间范围">{{ (formatTime(retention.anomaly_gap_oldest) || "-") + " ~ " + (formatTime(retention.anomaly_gap_newest) || "-") }}</el-descriptions-item>
+      </el-descriptions>
+      <el-alert v-else title="暂无数据保留状态" type="info" :closable="false" style="margin-top:8px" />
+      <template #footer><el-button @click="retentionDialog.visible = false">关闭</el-button></template>
+    </el-dialog>
+
+    <!-- 异常留痕列表对话框 -->
+    <el-dialog v-model="anomalyDialog.visible" title="异常留痕（两采集点之间越阈但采集点正常）" width="780px">
+      <el-table :data="anomalyGaps" stripe border size="small" max-height="420">
+        <el-table-column prop="sensor_name" label="传感器" min-width="120"><template #default="{ row }">{{ row.sensor_name || ("#" + row.sensor_id) }}</template></el-table-column>
+        <el-table-column prop="detected_at" label="发现时间" width="150"><template #default="{ row }">{{ formatTime(row.detected_at) }}</template></el-table-column>
+        <el-table-column label="严重度" width="90" align="center"><template #default="{ row }"><el-tag :type="severityType(row.severity)" size="small">{{ severityLabel(row.severity) }}</el-tag></template></el-table-column>
+        <el-table-column prop="window_start" label="窗口起" width="150"><template #default="{ row }">{{ formatTime(row.window_start) || "-" }}</template></el-table-column>
+        <el-table-column prop="window_end" label="窗口止" width="150"><template #default="{ row }">{{ formatTime(row.window_end) || "-" }}</template></el-table-column>
+        <el-table-column prop="remark" label="说明" min-width="180" show-overflow-tooltip />
+      </el-table>
+      <el-empty v-if="anomalyGaps.length === 0" description="暂无异常留痕记录" :image-size="60" />
+      <template #footer><el-button @click="anomalyDialog.visible = false">关闭</el-button></template>
+    </el-dialog>
   </div>
 </template>
 
@@ -190,8 +222,8 @@ defineOptions({ name: 'Environment' })
 import { ref, computed, onMounted } from "vue"
 import { ElMessage, ElMessageBox } from "element-plus"
 import type { FormInstance } from "element-plus"
-import { Plus, Edit, Delete, Refresh, DataLine, Upload, Warning } from "@element-plus/icons-vue"
-import { getSensorsApi, createSensorApi, updateSensorApi, deleteSensorApi, getSensorDataApi, recordSensorDataApi } from "../../api/sensor"
+import { Plus, Edit, Delete, Refresh, DataLine, Upload, Warning, DataAnalysis } from "@element-plus/icons-vue"
+import { getSensorsApi, createSensorApi, updateSensorApi, deleteSensorApi, getSensorDataApi, recordSensorDataApi, getRetentionStatusApi, getAnomalyGapsApi } from "../../api/sensor"
 import { getRoomsApi } from "../../api/facility"
 import type { SensorInfo } from "../../api/sensor"
 import type { RoomInfo } from "../../api/facility"
@@ -216,6 +248,10 @@ const rules = {
 }
 const historyDialog = ref({ visible: false })
 const historyData = ref<any[]>([])
+const retentionDialog = ref({ visible: false })
+const retention = ref<any>(null)
+const anomalyDialog = ref({ visible: false })
+const anomalyGaps = ref<any[]>([])
 
 // Computed
 const onlineCount = computed(() => sensors.value.filter(s => s.status === "online").length)
@@ -276,6 +312,18 @@ function formatValue(v: number, type: string): string {
   if (type === "temperature" || type === "humidity") return v.toFixed(1)
   return String(v)
 }
+async function openRetentionDialog() {
+  retentionDialog.value.visible = true
+  try { const r = await getRetentionStatusApi(); retention.value = r.data } catch { retention.value = null }
+}
+async function openAnomalyDialog() {
+  anomalyDialog.value.visible = true
+  anomalyGaps.value = []
+  try { const r = await getAnomalyGapsApi({ limit: 100 }); anomalyGaps.value = r.data || [] } catch { anomalyGaps.value = [] }
+}
+function severityLabel(s: string) { const m: Record<string,string> = { info:"一般", warning:"警告", emergency:"紧急" }; return m[s] || s }
+function severityType(s: string) { const m: Record<string,string> = { info:"info", warning:"warning", emergency:"danger" }; return m[s] || "info" }
+
 function formatTime(t: string | null): string {
   if (!t) return "--"
   try {

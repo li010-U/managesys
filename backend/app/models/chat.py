@@ -1,4 +1,4 @@
-"""AI对话模型"""
+﻿"""AI对话模型"""
 from datetime import datetime
 from typing import Optional, List
 from sqlalchemy import String, Integer, DateTime, Text, ForeignKey, JSON
@@ -12,6 +12,7 @@ class ChatConversation(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, comment="用户ID")
     title: Mapped[str] = mapped_column(String(256), default="新对话", comment="对话标题")
+    summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="滚动会话记忆摘要")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
 

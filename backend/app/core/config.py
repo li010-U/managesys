@@ -6,7 +6,7 @@ from typing import Optional, List
 class Settings(BaseSettings):
     APP_NAME: str = "数据中心资源智能管理系统"
     APP_VERSION: str = "1.0.0"
-    DEBUG: bool = True
+    DEBUG: bool = False
 
     # ===== 数据库 =====
     DATABASE_URL: str = "sqlite+aiosqlite:///./data/managesys.db"
@@ -15,7 +15,10 @@ class Settings(BaseSettings):
     # ===== JWT =====
     SECRET_KEY: str = "dev-secret-key-change-in-production-2024"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8
+    # ===== 初始管理员密码（仅首次初始化时使用，建议从环境变量设置）=====
+    # 生产环境必须通过环境变量 INIT_ADMIN_PASSWORD 设置为强随机密码，不要使用默认。
+    INIT_ADMIN_PASSWORD: str = "admin@123456"
 
     # ===== AI / LLM =====
     LLM_PROVIDER: str = "deepseek"
@@ -42,6 +45,11 @@ class Settings(BaseSettings):
     # --- 端口限流（防止暴力碰库 / 注册垃圾账号） ---
     # 每个 IP 每窗口内允许的请求数与窗口长度（秒）
     RATE_LIMIT_LOGIN_MAX: int = 10
+    # 允许的 Host 头（防 Host 头投毒；若需多域名请在 .env 使用 ALLOWED_HOSTS，逗号分隔）
+    ALLOWED_HOSTS: list[str] = [
+        "localhost", "127.0.0.1",
+        "testserver", "test", "localhost:5173", "localhost:3000",
+    ]
     RATE_LIMIT_REGISTER_MAX: int = 5
     RATE_LIMIT_WINDOW_SECONDS: int = 60
     LOGIN_MAX_ATTEMPTS: int = 5
@@ -65,6 +73,21 @@ class Settings(BaseSettings):
     HTTP_MAX_CONCURRENCY: int = 200
     # 全局 SSRF功能（SSE长连接）并发上限
     SSE_MAX_CONNECTIONS: int = 30
+    # ===== AI 聊天限流（防止 LLM 资源/成本滥用）=====
+    # 每个用户每窗口内允许的聊天请求数与窗口长度（秒）
+    CHAT_RATE_LIMIT_MAX: int = 20
+    CHAT_RATE_LIMIT_WINDOW_SECONDS: int = 60
+    # ===== 数据保留与异常留痕 =====
+    # 业务数据（传感器时序/异常留痕）最低保留天数
+    DATA_RETENTION_DAYS: int = 180
+    # 删除时保留的额外"安全余量"天数（避免时区/边界误删，实际删 now-(DAYS+BUFFER) 前的数据）
+    DATA_RETENTION_BUFFER_DAYS: int = 3
+    # 期望的采集间隔（秒）：默认每小时一条
+    SENSOR_EXPECTED_INTERVAL_SECONDS: int = 3600
+    # 缺失/异常窗口判定容差倍数：间隔 > 期望*c 视为"不在采集点"的异常窗口
+    SENSOR_GAP_TOLERANCE: float = 1.5
+    # 进程内每日保留清理任务：是否启用
+    DATA_RETENTION_TASK_ENABLED: bool = True
 
     # ===== 邮件服务 =====
     SMTP_HOST: str = ""

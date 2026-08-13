@@ -47,19 +47,35 @@ async def get_current_user(
         )
 
     user_id: str = payload.get("sub")
+    token_ver: int = payload.get("ver", 0)
     if user_id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="无效的认证凭证",
         )
 
-    result = await db.execute(select(User).where(User.id == int(user_id)))
+    try:
+        uid = int(user_id)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的认证凭证",
+        )
+
+    result = await db.execute(select(User).where(User.id == uid))
     user = result.scalar_one_or_none()
 
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户不存在",
+        )
+
+    # 令牌版本校验：修改密码/注销后 token_version 递增，旧令牌立即失效（会话作废）
+    if token_ver != (user.token_version or 0):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="登录已失效，请重新登录",
         )
 
     if not user.is_active:

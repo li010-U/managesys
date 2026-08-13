@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="biz-page">
     <div class="page-header">
       <div>
@@ -38,7 +38,14 @@
         <el-table-column prop="status" label="状态" width="80" align="center">
           <template #default="{ row }"><el-tag size="small" :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag></template>
         </el-table-column>
-        <el-table-column label="关联设备" width="90" align="center"><template #default="{ row }"><el-badge :value="row.device_count" :max="99" /></template></el-table-column>
+        <el-table-column label="关联设备" min-width="180">
+          <template #default="{ row }">
+            <template v-if="row.deployed_devices && row.deployed_devices.length">
+              <el-tag v-for="d in row.deployed_devices" :key="d.id" size="small" effect="plain" style="margin:2px;cursor:pointer" @click="locateDevice(d.id, d.name)">{{ d.name }}</el-tag>
+            </template>
+            <span v-else style="color:#999">-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
             <el-button :icon="Link" size="small" text @click="openDeployDialog(row)">关联</el-button>
@@ -76,7 +83,7 @@
         <el-table-column prop="process_name" label="进程名" width="120" />
         <el-table-column prop="system_version" label="系统版本" width="100" />
         <el-table-column prop="middleware_version" label="中间件版本" width="110" />
-        <el-table-column label="操作" width="80"><template #default="{ row }"><el-button icon="Delete" size="small" text type="danger" @click="removeDeploy(row)" /></template></el-table-column>
+        <el-table-column label="操作" width="140"><template #default="{ row }"><el-button icon="Position" size="small" text type="primary" @click="locateDevice(row.device_id, row.device_name)">定位</el-button><el-button icon="Delete" size="small" text type="danger" @click="removeDeploy(row)" /></template></el-table-column>
       </el-table>
     </el-dialog>
     <el-dialog v-model="addDeviceDialog.visible" title="添加设备关联" width="500px" :close-on-click-modal="false">
@@ -105,9 +112,10 @@
 <script setup lang="ts">
 defineOptions({ name: 'BusinessSystems' })
 import { ref, reactive, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import TableSkeleton from "@/components/common/TableSkeleton.vue"
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Edit, Delete, Search, Link } from '@element-plus/icons-vue'
+import { Plus, Edit, Delete, Search, Link, Position } from '@element-plus/icons-vue'
 import { getBizSystemsApi, createBizSystemApi, updateBizSystemApi, deleteBizSystemApi, getDeploymentsApi, createDeploymentApi, deleteDeploymentApi } from '../../api/alert'
 import { getDevicesApi } from '../../api/device'
 
@@ -118,6 +126,8 @@ const rules = { name: [{ required: true, message: '请输入系统名称', trigg
 const deployDialog = reactive({ visible: false, system: null as any }); const deployments = ref<any[]>([]); const addDeviceDialog = reactive({ visible: false }); const addDeviceForm = ref<any>({ device_id: null, service_port: '', process_name: '', system_version: '', middleware_version: '' }); const availableDevices = ref<any[]>([])
 
 async function loadData() { loading.value = true; try { const r = await getBizSystemsApi({ page: page.value, page_size: pageSize.value, keyword: search.value || undefined, category: filterCategory.value || undefined, status: filterStatus.value || undefined }); list.value = r.data.items; total.value = r.data.total } catch { list.value = [] } finally { loading.value = false } }
+const router = useRouter()
+function locateDevice(deviceId: number, name?: string) { if(!deviceId) return; router.push({ path: '/device/list', query: { device: String(deviceId), name: name || '' } }) }
 function openDialog(sys?: any) { dialog.visible = true; dialog.isEdit = !!sys; dialog.id = sys?.id || 0; if (sys) { form.value = { name: sys.name, code: sys.code, category: sys.category, access_url: sys.access_url || '', admin_name: sys.admin_name || '', admin_phone: sys.admin_phone || '', admin_email: sys.admin_email || '', remark: sys.remark || '', status: sys.status } } else { form.value = { name: '', code: '', category: 'OA', access_url: '', admin_name: '', admin_phone: '', admin_email: '', remark: '', status: 'active' } } setTimeout(() => formRef.value?.clearValidate(), 0) }
 async function submit() { const valid = await formRef.value?.validate().catch(() => false); if (!valid) return; submitting.value = true; try { if (dialog.isEdit) { await updateBizSystemApi(dialog.id, form.value); ElMessage.success('已更新') } else { await createBizSystemApi(form.value); ElMessage.success('已创建') } dialog.visible = false; await loadData() } catch { /* interceptor */ } finally { submitting.value = false } }
 async function deleteRow(sys: any) { try { await ElMessageBox.confirm('确定删除系统「' + sys.name + '」？', '确认删除', { type: 'warning' }); await deleteBizSystemApi(sys.id); ElMessage.success('已删除'); await loadData() } catch { /* cancelled */ } }

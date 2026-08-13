@@ -61,6 +61,14 @@ class AlertResponse(BaseModel):
     rule_name: Optional[str] = None
     device_name: Optional[str] = None
     created_at: datetime
+    # ==== 智能告警增强：收敛/升级 ====
+    dedupe_key: Optional[str] = None
+    occurrences: Optional[int] = 1
+    first_seen_at: Optional[datetime] = None
+    acknowledged_at: Optional[datetime] = None
+    resolved_at: Optional[datetime] = None
+    escalated_at: Optional[datetime] = None
+    escalated_from: Optional[str] = None
 
 class AlertPageResponse(BaseModel):
     items: list[AlertResponse]

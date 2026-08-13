@@ -1,11 +1,12 @@
-﻿"""生成完整的模拟数据"""
+import os
+"""生成完整的模拟数据"""
 import requests
 import random
 from datetime import datetime, timedelta
 
 BASE_URL = 'http://localhost:8000/api/v1'
 
-resp = requests.post(f'{BASE_URL}/auth/login', json={'username':'admin','password':'admin@123456'})
+resp = requests.post(f'{BASE_URL}/auth/login', json={'username':'admin','password': os.environ.get('ADMIN_PASSWORD', 'CHANGE_ME')})
 token = resp.json()['access_token']
 headers = {'Authorization': f'Bearer {token}'}
 

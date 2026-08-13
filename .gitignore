@@ -1,42 +1,35 @@
-# Python
+﻿# Python
 __pycache__/
 *.py[cod]
 venv/
 .env
 *.db
-
 # Node
 node_modules/
 dist/
 .pnp
 .pnp.js
 *.log
-
 # IDE
 .vscode/
 .idea/
 *.swp
-
 # OS
 .DS_Store
 Thumbs.db
-
 # Backend
 backend/__pycache__/
 *.egg-info/
 .pytest_cache/
-
 # Frontend build
 frontend/dist/
 frontend/.env.local
-
 # 临时/调试脚本与产物（不入库）
 # 数据库运行时侧文件
 *.db-shm
 *.db-wal
 *.db.bak*
 backend/data/*.db-*
-
 # 一次性调试/巡检脚本
 backend/_*.py
 backend/check_*.py
@@ -52,7 +45,6 @@ frontend/update_rack.py
 frontend/debug_rack.py
 frontend/apply_changes.py
 frontend/clean_styles.py
-
 # 调试截图 / 日志 / 杂项
 frontend/_dbg_*.png
 backend/uvicorn*.err
@@ -60,3 +52,50 @@ backend/uvicorn*.out
 frontend/vite*.err
 temp_script.txt
 temp_srs.txt
+# 零散调试/一次性脚本与产物（不入库）
+/_*.ps1
+/_*.py
+/_*.txt
+/_*.json
+/_*.html
+/*.pid
+/_pw/
+/_ref/
+/_kabuto_refs/
+/_seed_systems.py
+/_live.py
+/_mig.py
+/_mig2.py
+/_t1.py
+/_q*.py
+/_dump*.py
+/_h*.py
+/_hc.py
+/_bc.py
+/backfill_power_rating.py
+/backend/_*.py
+/backend/_*.txt
+/backend/*.pid
+/backend/_run_backend.pid
+/backend/_restart*.log
+/dev_server.py
+/shangce_inventory.json
+/start_dev.bat.bak
+/stop_dev.bat
+/*.webp
+/OIP-C.webp
+# 运行时日志与临时数据（不入库）
+/*.log
+/backend/*.log
+/backend/*.err
+/backend/uvicorn*
+/backend/nohup*
+/uvicorn_app*.log
+/backend/_insight_uv.*
+/.dev/
+/.idea/
+/data/
+/backend/data/
+/backend/data.db
+/*.docx
+/frontend/_run_frontend.pid

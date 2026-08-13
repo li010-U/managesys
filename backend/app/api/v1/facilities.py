@@ -286,6 +286,227 @@ async def get_rack(
     return r
 
 
+@router.get("/racks/{rack_id}/environment")
+async def rack_environment(
+    rack_id: int,
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(require_permission("rack:view")),
+):
+    """机柜环境覆盖：返回该机柜所在机房的传感器当前值 + 活跃告警数。
+
+    用于在前端机柜面上叠加温度/湿度/门磁等环境状态与告警标记。
+    """
+    from sqlalchemy import select, func
+    service = RackService(db)
+    rack = await service.get_by_id(rack_id)
+    if not rack:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="机柜不存在")
+
+    room_id = rack.room_id
+
+    # 该机房下的传感器
+    from app.models.sensor import Sensor
+    rows = (await db.execute(
+        select(Sensor).where(Sensor.room_id == room_id)
+    )).scalars().all()
+    sensors = []
+    for s in rows:
+        sensors.append({
+            "id": s.id,
+            "name": s.name,
+            "code": s.code,
+            "sensor_type": s.sensor_type,
+            "install_position": s.install_position,
+            "status": s.status,
+            "current_value": s.current_value or {},
+            "threshold_min": s.threshold_min,
+            "threshold_max": s.threshold_max,
+            "alert_level": s.alert_level,
+        })
+
+    # 该机房的活跃告警数（对应当机房设备/传感器）+ 各机柜告警数
+    from app.models.facility import Rack
+    from app.models.device import Device
+    from app.models.alert import Alert
+    rack_id_to_alerts = {}
+    active = 0
+    try:
+        rack_ids = list((await db.execute(
+            select(Rack.id).where(Rack.room_id == room_id)
+        )).scalars().all())
+        dev_ids = list((await db.execute(
+            select(Device.id).where(Device.rack_id.in_(rack_ids) if rack_ids else Device.id < 0)
+        )).scalars().all())
+        if dev_ids:
+            alerts = (await db.execute(
+                select(Alert.device_id).where(
+                    Alert.status.in_(["new", "acknowledged"]),
+                    Alert.device_id.in_(dev_ids),
+                )
+            )).scalars().all()
+            active = len(alerts)
+            # 按设备所属机柜聚合告警数
+            if alerts:
+                dev_rack = dict((await db.execute(
+                    select(Device.id, Device.rack_id).where(Device.rack_id.in_(rack_ids))
+                )).all())
+                for did in alerts:
+                    rid = dev_rack.get(did)
+                    if rid:
+                        rack_id_to_alerts[rid] = rack_id_to_alerts.get(rid, 0) + 1
+    except Exception:
+        active = 0
+
+    return {
+        "rack_id": rack_id,
+        "room_id": room_id,
+        "sensors": sensors,
+        "active_alerts": int(active),
+        "rack_alerts": rack_id_to_alerts,
+    }
+
+
+@router.get("/rooms/{room_id}/rack3d")
+async def room_rack3d(
+    room_id: int,
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(require_permission("rack:view")),
+):
+    """机房 3D 场景聚合数据：机房 + 机柜 + 设备 + 环境覆盖，供前端 Three.js 一次性渲染。
+
+    避免 3D 场景反复多次请求，减少首屏加载。
+    """
+    from fastapi import HTTPException
+    from sqlalchemy import select, func
+    from app.models.facility import Room, Rack
+    from app.models.device import Device
+    from app.models.sensor import Sensor
+    from app.models.alert import Alert
+
+    room = (await db.execute(select(Room).where(Room.id == room_id))).scalar_one_or_none()
+    if not room:
+        raise HTTPException(status_code=404, detail="机房不存在")
+
+    racks = (await db.execute(
+        select(Rack).where(Rack.room_id == room_id).order_by(Rack.row_pos, Rack.col_pos)
+    )).scalars().all()
+
+    rack_ids = [r.id for r in racks]
+    devices_by_rack = {}
+    if rack_ids:
+        devs = (await db.execute(
+            select(Device).where(Device.rack_id.in_(rack_ids))
+        )).scalars().all()
+        for d in devs:
+            devices_by_rack.setdefault(d.rack_id, []).append({
+                "id": d.id,
+                "name": d.name,
+                "asset_number": d.asset_number,
+                "device_type_name": d.device_type.name if d.device_type else "",
+                "device_type_category": d.device_type.category if d.device_type else "",
+                "start_u": d.start_u,
+                "end_u": d.end_u,
+                "power_rating": d.power_rating,
+                "status": d.status,
+                "management_ip": d.management_ip,
+            })
+
+    # 环境：机房传感器 + 各机柜告警数
+    sensors = (await db.execute(
+        select(Sensor).where(Sensor.room_id == room_id)
+    )).scalars().all()
+    env_sensors = [{
+        "id": s.id, "name": s.name, "sensor_type": s.sensor_type,
+        "install_position": s.install_position, "status": s.status,
+        "current_value": s.current_value or {},
+    } for s in sensors]
+
+    rack_alerts = {}
+    if rack_ids:
+        dev_ids = list((await db.execute(
+            select(Device.id).where(Device.rack_id.in_(rack_ids))
+        )).scalars().all())
+        if dev_ids:
+            active_devices = list((await db.execute(
+                select(Alert.device_id).where(
+                    Alert.status.in_(["new", "acknowledged"]),
+                    Alert.device_id.in_(dev_ids),
+                )
+            )).scalars().all())
+            if active_devices:
+                dev_rack = dict((await db.execute(
+                    select(Device.id, Device.rack_id).where(Device.rack_id.in_(rack_ids))
+                )).all())
+                for did in active_devices:
+                    rid = dev_rack.get(did)
+                    if rid:
+                        rack_alerts[rid] = rack_alerts.get(rid, 0) + 1
+
+    # 按机柜代号匹配安装于该机柜的温度传感器；未匹配则用机房平均温度兜底（用于 3D 温度热力层）
+    temp_sensors_by_rack = {}
+    for s in sensors:
+        if s.sensor_type != "temperature":
+            continue
+        cv = s.current_value or {}
+        v = cv.get("value")
+        if not isinstance(v, (int, float)):
+            continue
+        pos = (s.install_position or "").lower()
+        for r in racks:
+            if r.code and r.code.lower() in pos:
+                temp_sensors_by_rack.setdefault(r.id, []).append(float(v))
+
+    room_temp_list = [float(s.current_value.get("value")) for s in sensors
+                      if s.sensor_type == "temperature" and isinstance((s.current_value or {}).get("value"), (int, float))]
+    temp_avg = round(sum(room_temp_list) / len(room_temp_list), 1) if room_temp_list else None
+
+    rack_list = []
+    for r in racks:
+        util = 0
+        if r.total_units:
+            util = round((r.total_units - r.available_units) / r.total_units * 100)
+        devs = devices_by_rack.get(r.id, [])
+        power_load = round(sum((d.get("power_rating") or 0) for d in devs), 3)
+        power_load_pct = 0
+        if r.rated_power:
+            power_load_pct = round(power_load / r.rated_power * 100)
+        rack_temps = temp_sensors_by_rack.get(r.id)
+        rack_temp = round(sum(rack_temps) / len(rack_temps), 1) if rack_temps else temp_avg
+        rack_list.append({
+            "id": r.id,
+            "code": r.code,
+            "name": r.name,
+            "row_pos": r.row_pos,
+            "col_pos": r.col_pos,
+            "total_units": r.total_units,
+            "available_units": r.available_units,
+            "rated_power": r.rated_power,
+            "power_load": power_load,
+            "power_load_pct": power_load_pct,
+            "pos_x_m": r.pos_x_m,
+            "pos_z_m": r.pos_z_m,
+            "width_m": r.width_m,
+            "depth_m": r.depth_m,
+            "facing_deg": r.facing_deg,
+            "device_count": len(devs),
+            "utilization": util,
+            "alerts": rack_alerts.get(r.id, 0),
+            "temperature": rack_temp,
+            "devices": devs,
+        })
+
+    temp_min = round(min(room_temp_list), 1) if room_temp_list else None
+    temp_max = round(max(room_temp_list), 1) if room_temp_list else None
+
+    return {
+        "room": {"id": room.id, "name": room.name, "code": room.code, "floor": room.floor, "area": room.area, "status": room.status},
+        "racks": rack_list,
+        "sensors": env_sensors,
+        "rack_alerts": rack_alerts,
+        "temperature": {"avg": temp_avg, "min": temp_min, "max": temp_max},
+    }
+
+
 @router.post("/racks", response_model=RackResponse, status_code=status.HTTP_201_CREATED)
 async def create_rack(
     req: RackCreate,
