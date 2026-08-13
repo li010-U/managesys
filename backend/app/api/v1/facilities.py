@@ -68,8 +68,6 @@ async def get_data_center(
     dc = await service.get_by_id(dc_id)
     if not dc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="数据中心不存在")
-    from app.services.audit_service import AuditService
-    AuditService.log_request(db, request, current_user=current_user, action="update", target_type="data_center", target_id=str(dc_id), detail=f"更新数据中心: {dc.name}")
     r = DataCenterResponse.model_validate(dc)
     r.room_count = len(dc.rooms or [])
     return r
@@ -178,8 +176,6 @@ async def get_room(
     room = await service.get_by_id(room_id)
     if not room:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="机房不存在")
-    from app.services.audit_service import AuditService
-    AuditService.log_request(db, request, current_user=current_user, action="update", target_type="room", target_id=str(room_id), detail=f"更新机房: {room.name}")
     r = RoomResponse.model_validate(room)
     r.rack_count = len(room.racks or [])
     r.data_center_name = room.data_center.name if room.data_center else ""
@@ -292,8 +288,6 @@ async def get_rack(
     rack = await service.get_by_id(rack_id)
     if not rack:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="机柜不存在")
-    from app.services.audit_service import AuditService
-    AuditService.log_request(db, request, current_user=current_user, action="update", target_type="rack", target_id=str(rack_id), detail=f"更新机柜: {rack.name}")
     r = RackResponse.model_validate(rack)
     r.device_count = len(rack.devices or [])
     r.room_name = rack.room.name if rack.room else ""
