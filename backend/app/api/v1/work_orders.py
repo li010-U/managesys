@@ -1,7 +1,7 @@
 ﻿"""Work Order Management API"""
 from datetime import datetime, date
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, status as fastapi_status
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request, status as fastapi_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db, get_current_user, require_permission
@@ -38,6 +38,7 @@ async def get_categories(db: AsyncSession = Depends(get_db), _current_user: User
 
 @router.post("/categories", summary="Create category")
 async def create_category(
+    request: Request,
     data: WorkOrderCategoryCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -56,11 +57,14 @@ async def create_category(
     await with_commit_retry(db.commit)
     
     result = await exec_sql(db, "SELECT * FROM work_order_categories WHERE code = ?", (code,))
+    AuditService.log_request(db, request, current_user=current_user, action="create", target_type="work_order_category", target_id=None, detail='??????: ' + str(data.name))
+    from app.services.audit_service import AuditService
     return {"data": dict(result.fetchone()._mapping)}
 
 
 @router.put("/categories/{category_id}", summary="Update category")
 async def update_category(
+    request: Request,
     category_id: int,
     data: WorkOrderCategoryUpdate,
     db: AsyncSession = Depends(get_db),
@@ -78,11 +82,14 @@ async def update_category(
     await exec_sql(db, "UPDATE work_order_categories SET {} WHERE id = ?".format(", ".join(updates)), tuple(params))
     await with_commit_retry(db.commit)
     result = (await exec_sql(db, "SELECT * FROM work_order_categories WHERE id = ?", (category_id,))).fetchone()
+    AuditService.log_request(db, request, current_user=current_user, action="update", target_type="work_order_category", target_id=str(category_id), detail='??????')
+    from app.services.audit_service import AuditService
     return {"data": dict(result._mapping)}
 
 
 @router.delete("/categories/{category_id}", summary="Delete category")
 async def delete_category(
+    request: Request,
     category_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -90,6 +97,8 @@ async def delete_category(
 ):
     await exec_sql(db, "DELETE FROM work_order_categories WHERE id = ?", (category_id,))
     await with_commit_retry(db.commit)
+    AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="work_order_category", target_id=str(category_id), detail='??????')
+    from app.services.audit_service import AuditService
     return {"message": "Category deleted"}
 
 
@@ -258,6 +267,7 @@ async def get_work_order(
 
 @router.post("", summary="Create work order")
 async def create_work_order(
+    request: Request,
     data: WorkOrderCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -307,11 +317,14 @@ async def create_work_order(
 
     await resolve_auto_complete(db, order_id)
 
+    AuditService.log_request(db, request, current_user=current_user, action="create", target_type="work_order", target_id=str(order_id), detail='????: ' + str(title))
+    from app.services.audit_service import AuditService
     return await get_work_order(order_id, db, current_user)
 
 
 @router.put("/{work_order_id}", summary="Update work order")
 async def update_work_order(
+    request: Request,
     work_order_id: int,
     data: WorkOrderUpdate,
     db: AsyncSession = Depends(get_db),
@@ -337,11 +350,14 @@ async def update_work_order(
         await exec_sql(db, f"UPDATE work_orders SET {', '.join(updates)} WHERE id = ?", tuple(params))
         await with_commit_retry(db.commit)
 
+    AuditService.log_request(db, request, current_user=current_user, action="update", target_type="work_order", target_id=str(work_order_id), detail='????')
+    from app.services.audit_service import AuditService
     return await get_work_order(work_order_id, db, current_user)
 
 
 @router.post("/{work_order_id}/assign", summary="Assign work order")
 async def assign_work_order(
+    request: Request,
     work_order_id: int,
     data: WorkOrderAssign,
     db: AsyncSession = Depends(get_db),
@@ -362,11 +378,14 @@ async def assign_work_order(
     )
     await with_commit_retry(db.commit)
 
+    AuditService.log_request(db, request, current_user=current_user, action="assign", target_type="work_order", target_id=str(work_order_id), detail='????: ' + str(assignee_id))
+    from app.services.audit_service import AuditService
     return await get_work_order(work_order_id, db, current_user)
 
 
 @router.post("/{work_order_id}/start", summary="Start work order")
 async def start_work_order(
+    request: Request,
     work_order_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -390,11 +409,14 @@ async def start_work_order(
     )
     await with_commit_retry(db.commit)
 
+    AuditService.log_request(db, request, current_user=current_user, action="start", target_type="work_order", target_id=str(work_order_id), detail='??????')
+    from app.services.audit_service import AuditService
     return await get_work_order(work_order_id, db, current_user)
 
 
 @router.post("/{work_order_id}/complete", summary="Complete work order")
 async def complete_work_order(
+    request: Request,
     work_order_id: int,
     data: WorkOrderProcess,
     db: AsyncSession = Depends(get_db),
@@ -420,11 +442,14 @@ async def complete_work_order(
     )
     await with_commit_retry(db.commit)
 
+    AuditService.log_request(db, request, current_user=current_user, action="complete", target_type="work_order", target_id=str(work_order_id), detail='????')
+    from app.services.audit_service import AuditService
     return await get_work_order(work_order_id, db, current_user)
 
 
 @router.post("/{work_order_id}/verify", summary="Verify work order")
 async def verify_work_order(
+    request: Request,
     work_order_id: int,
     data: WorkOrderVerify,
     db: AsyncSession = Depends(get_db),
@@ -454,11 +479,14 @@ async def verify_work_order(
     )
     await with_commit_retry(db.commit)
 
+    AuditService.log_request(db, request, current_user=current_user, action="verify", target_type="work_order", target_id=str(work_order_id), detail='????')
+    from app.services.audit_service import AuditService
     return await get_work_order(work_order_id, db, current_user)
 
 
 @router.post("/{work_order_id}/close", summary="Close work order")
 async def close_work_order(
+    request: Request,
     work_order_id: int,
     data: WorkOrderClose,
     db: AsyncSession = Depends(get_db),
@@ -481,11 +509,14 @@ async def close_work_order(
     )
     await with_commit_retry(db.commit)
 
+    AuditService.log_request(db, request, current_user=current_user, action="close", target_type="work_order", target_id=str(work_order_id), detail='????')
+    from app.services.audit_service import AuditService
     return await get_work_order(work_order_id, db, current_user)
 
 
 @router.post("/{work_order_id}/comments", summary="Add comment")
 async def add_comment(
+    request: Request,
     work_order_id: int,
     data: WorkOrderCommentCreate,
     db: AsyncSession = Depends(get_db),
@@ -502,11 +533,14 @@ async def add_comment(
     await with_commit_retry(db.commit)
 
     result = await exec_sql(db, "SELECT * FROM work_order_comments ORDER BY id DESC LIMIT 1")
+    AuditService.log_request(db, request, current_user=current_user, action="comment", target_type="work_order", target_id=str(work_order_id), detail='??????')
+    from app.services.audit_service import AuditService
     return {"data": dict(result.fetchone()._mapping)}
 
 
 @router.post("/{work_order_id}/attachments", summary="Upload attachment")
 async def upload_attachment(
+    request: Request,
     work_order_id: int,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
@@ -530,6 +564,8 @@ async def upload_attachment(
         FROM work_order_attachments wa LEFT JOIN users u ON wa.uploader_id = u.id
         WHERE wa.work_order_id = ? ORDER BY wa.id DESC LIMIT 1
     """, (work_order_id,))).fetchone()
+    AuditService.log_request(db, request, current_user=current_user, action="upload", target_type="work_order", target_id=str(work_order_id), detail='??????')
+    from app.services.audit_service import AuditService
     return {"data": dict(result._mapping)}
 
 
@@ -551,6 +587,7 @@ async def download_attachment(
 
 @router.delete("/attachments/{attachment_id}", summary="Delete attachment")
 async def delete_attachment(
+    request: Request,
     attachment_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -564,12 +601,15 @@ async def delete_attachment(
     await exec_sql(db, "DELETE FROM work_order_attachments WHERE id = ?", (attachment_id,))
     await with_commit_retry(db.commit)
     file_service.delete_file(row.file_path)
+    AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="work_order", target_id=str(attachment_id), detail='??????')
+    from app.services.audit_service import AuditService
     return {"message": "Attachment deleted"}
 
 
 
 @router.post("/{work_order_id}/approve", summary="Approve work order")
 async def approve_work_order(
+    request: Request,
     work_order_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -586,11 +626,14 @@ async def approve_work_order(
     await exec_sql(db, "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
         (work_order_id, current_user.id, "Approved by " + current_user.username, "process"))
     await with_commit_retry(db.commit)
+    AuditService.log_request(db, request, current_user=current_user, action="approve", target_type="work_order", target_id=str(work_order_id), detail='??????')
+    from app.services.audit_service import AuditService
     return await get_work_order(work_order_id, db, current_user)
 
 
 @router.post("/{work_order_id}/reject", summary="Reject work order")
 async def reject_work_order(
+    request: Request,
     work_order_id: int,
     data: dict,
     db: AsyncSession = Depends(get_db),
@@ -608,6 +651,8 @@ async def reject_work_order(
     await exec_sql(db, "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
         (work_order_id, current_user.id, "Rejected: " + reason, "close"))
     await with_commit_retry(db.commit)
+    AuditService.log_request(db, request, current_user=current_user, action="reject", target_type="work_order", target_id=str(work_order_id), detail='????')
+    from app.services.audit_service import AuditService
     return await get_work_order(work_order_id, db, current_user)
 
 
@@ -647,6 +692,7 @@ async def get_assignable_users(
 
 @router.delete("/{work_order_id}", summary="Delete work order")
 async def delete_work_order(
+    request: Request,
     work_order_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -664,4 +710,6 @@ async def delete_work_order(
     await exec_sql(db, "DELETE FROM work_order_comments WHERE work_order_id = ?", (work_order_id,))
     await exec_sql(db, "DELETE FROM work_orders WHERE id = ?", (work_order_id,))
     await with_commit_retry(db.commit)
+    AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="work_order", target_id=str(work_order_id), detail='????')
+    from app.services.audit_service import AuditService
     return {"message": "Deleted successfully"}

@@ -1,7 +1,7 @@
 ﻿"""Device Inspection API"""
 from datetime import datetime, date
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 import json
 
@@ -33,6 +33,7 @@ async def get_templates(db: AsyncSession = Depends(get_db),
 @router.post("/templates", summary="Create inspection template")
 async def create_template(
     template_in: InspectionTemplateCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _ = Depends(require_permission("inspection:create"))
@@ -51,7 +52,10 @@ async def create_template(
     await with_commit_retry(db.commit)
     
     result = await exec_sql(db, "SELECT * FROM inspection_templates WHERE name = ? ORDER BY id DESC LIMIT 1", (name,))
-    return {"data": dict(result.fetchone()._mapping)}
+    from app.services.audit_service import AuditService
+    row = result.fetchone()
+    AuditService.log_request(db, request, current_user=current_user, action="create", target_type="inspection_template", target_id=str(row.id), detail=f"创建巡检模板: {name}")
+    return {"data": dict(row._mapping)}
 
 
 # ============ Inspection Plans ============
@@ -92,6 +96,7 @@ async def get_plans(
 @router.post("/plans", summary="Create inspection plan")
 async def create_plan(
     plan_in: InspectionPlanCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _ = Depends(require_permission("inspection:create"))
@@ -112,13 +117,17 @@ async def create_plan(
     await with_commit_retry(db.commit)
     
     result = await exec_sql(db, "SELECT * FROM inspection_plans WHERE name = ? ORDER BY id DESC LIMIT 1", (name,))
-    return {"data": dict(result.fetchone()._mapping)}
+    from app.services.audit_service import AuditService
+    row = result.fetchone()
+    AuditService.log_request(db, request, current_user=current_user, action="create", target_type="inspection_plan", target_id=str(row.id), detail=f"创建巡检计划: {name}")
+    return {"data": dict(row._mapping)}
 
 
 @router.put("/plans/{plan_id}", summary="Update inspection plan")
 async def update_plan(
     plan_id: int,
     plan_in: InspectionPlanUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _ = Depends(require_permission("inspection:edit"))
@@ -137,18 +146,24 @@ async def update_plan(
         await with_commit_retry(db.commit)
     
     result = await exec_sql(db, "SELECT * FROM inspection_plans WHERE id = ?", (plan_id,))
-    return {"data": dict(result.fetchone()._mapping)}
+    from app.services.audit_service import AuditService
+    row = result.fetchone()
+    AuditService.log_request(db, request, current_user=current_user, action="update", target_type="inspection_plan", target_id=str(plan_id), detail=f"更新巡检计划: {row.name if row else plan_id}")
+    return {"data": dict(row._mapping)}
 
 
 @router.delete("/plans/{plan_id}", summary="Delete inspection plan")
 async def delete_plan(
     plan_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _ = Depends(require_permission("inspection:delete"))
 ):
     await exec_sql(db, "DELETE FROM inspection_plans WHERE id = ?", (plan_id,))
     await with_commit_retry(db.commit)
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="inspection_plan", target_id=str(plan_id), detail="删除巡检计划")
     return {"message": "Deleted successfully"}
 
 
@@ -234,6 +249,7 @@ async def get_task(
 
 @router.post("/tasks", summary="Create inspection task")
 async def create_task(
+    request: Request,
     plan_id: int,
     scheduled_date: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
@@ -272,13 +288,15 @@ async def create_task(
             await exec_sql(db, "UPDATE inspection_tasks SET total_items = ? WHERE id = ?", (len(items), task.id))
     
     await with_commit_retry(db.commit)
-
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="create", target_type="inspection_task", target_id=str(task.id), detail=f"创建巡检任务: 计划{plan_id}")
     return await get_task(task.id, db, current_user)
 
 
 @router.post("/tasks/{task_id}/start", summary="Start task")
 async def start_task(
     task_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _ = Depends(require_permission("inspection:edit"))
@@ -292,12 +310,15 @@ async def start_task(
         raise HTTPException(403, "Only the assignee can manage this task")
     await exec_sql(db, "UPDATE inspection_tasks SET status = 'in_progress', start_time = CURRENT_TIMESTAMP WHERE id = ?", (task_id,))
     await with_commit_retry(db.commit)
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="start", target_type="inspection_task", target_id=str(task_id), detail="开始巡检任务")
     return await get_task(task_id, db, current_user)
 
 
 @router.post("/tasks/{task_id}/complete", summary="Complete task")
 async def complete_task(
     task_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _ = Depends(require_permission("inspection:edit"))
@@ -325,7 +346,8 @@ async def complete_task(
         WHERE id = ?
     """, (stats.completed or 0, stats.abnormal or 0, task_id))
     await with_commit_retry(db.commit)
-    
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="complete", target_type="inspection_task", target_id=str(task_id), detail="完成巡检任务")
     return await get_task(task_id, db, current_user)
 
 
@@ -334,6 +356,7 @@ async def complete_task(
 async def add_record(
     task_id: int,
     record_in: InspectionRecordCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _ = Depends(require_permission("inspection:edit"))
@@ -352,7 +375,10 @@ async def add_record(
     await with_commit_retry(db.commit)
     
     result = await exec_sql(db, "SELECT * FROM inspection_records ORDER BY id DESC LIMIT 1")
-    return {"data": dict(result.fetchone()._mapping)}
+    from app.services.audit_service import AuditService
+    row = result.fetchone()
+    AuditService.log_request(db, request, current_user=current_user, action="complete", target_type="inspection_task", target_id=str(task_id), detail=f"填写巡检记录: {item_name}")
+    return {"data": dict(row._mapping)}
 
 
 # ============ Inspection Issues ============
@@ -396,6 +422,7 @@ async def get_issues(
 async def create_issue(
     task_id: int,
     issue_in: InspectionIssueCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _ = Depends(require_permission("inspection:create"))
@@ -413,7 +440,10 @@ async def create_issue(
     await with_commit_retry(db.commit)
     
     result = await exec_sql(db, "SELECT * FROM inspection_issues ORDER BY id DESC LIMIT 1")
-    return {"data": dict(result.fetchone()._mapping)}
+    from app.services.audit_service import AuditService
+    row = result.fetchone()
+    AuditService.log_request(db, request, current_user=current_user, action="create", target_type="issue", target_id=str(row.id), detail=f"上报巡检问题: {issue_title}")
+    return {"data": dict(row._mapping)}
 
 
 # ============ Stats ============

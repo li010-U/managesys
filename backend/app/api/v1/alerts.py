@@ -1,5 +1,5 @@
 ﻿"""告警管理 API 路由"""
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db, get_current_user, require_permission
@@ -40,13 +40,16 @@ async def list_alert_rules(
 @router.post("/rules", response_model=AlertRuleResponse, status_code=status.HTTP_201_CREATED)
 async def create_alert_rule(
     req: AlertRuleCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     _ = Depends(require_permission("monitor:config_rule"))
 ):
     service = AlertRuleService(db)
     try:
         obj = await service.create(req)
+        from app.services.audit_service import AuditService
+        AuditService.log_request(db, request, current_user=current_user, action="create", target_type="alert_rule", target_id=str(obj.id), detail=f"创建告警规则: {obj.name}")
         return AlertRuleResponse.model_validate(obj)
     except Exception as e:
         from fastapi import HTTPException
@@ -57,8 +60,9 @@ async def create_alert_rule(
 async def update_alert_rule(
     rule_id: int,
     req: AlertRuleUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     _ = Depends(require_permission("monitor:config_rule"))
 ):
     service = AlertRuleService(db)
@@ -66,6 +70,8 @@ async def update_alert_rule(
     if not obj:
         from fastapi import HTTPException
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="规则不存在")
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="update", target_type="alert_rule", target_id=str(rule_id), detail=f"更新告警规则: {obj.name}")
     r = AlertRuleResponse.model_validate(obj)
     r.alert_count = len(obj.alerts) if obj.alerts else 0
     return r
@@ -74,14 +80,17 @@ async def update_alert_rule(
 @router.delete("/rules/{rule_id}")
 async def delete_alert_rule(
     rule_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     _ = Depends(require_permission("monitor:config_rule"))
 ):
     service = AlertRuleService(db)
     if not await service.delete(rule_id):
         from fastapi import HTTPException
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="规则不存在")
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="alert_rule", target_id=str(rule_id), detail="删除告警规则")
     return {"message": "规则已删除"}
 
 
@@ -122,6 +131,7 @@ async def alert_stats(
 async def handle_alert(
     alert_id: int,
     req: AlertHandleRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _ = Depends(require_permission("monitor:handle_alert"))
@@ -131,6 +141,8 @@ async def handle_alert(
     if not alert:
         from fastapi import HTTPException
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="告警不存在")
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="handle", target_type="alert", target_id=str(alert_id), detail=f"处理告警(状态: {alert.status})")
     return {"message": "处理成功", "status": alert.status}
 
 
@@ -202,8 +214,9 @@ async def alert_attribution(
 @router.post("", response_model=AlertResponse, status_code=status.HTTP_201_CREATED)
 async def create_alert(
     req: dict,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     _ = Depends(require_permission("monitor:handle_alert"))
 ):
     service = AlertService(db)
@@ -215,5 +228,7 @@ async def create_alert(
         obj = await intel.converge_new_alert(obj)
     except Exception:
         pass
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="create", target_type="alert", target_id=str(obj.id), detail=f"产生告警: {obj.title}")
     r = AlertResponse.model_validate(obj)
     return r

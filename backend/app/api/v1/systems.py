@@ -1,5 +1,5 @@
 ﻿"""业务系统管理 API 路由"""
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, or_
 
@@ -69,12 +69,14 @@ async def get_system(sys_id: int, db: AsyncSession = Depends(get_db), _current_u
 
 
 @router.post("", response_model=BusinessSystemResponse, status_code=status.HTTP_201_CREATED)
-async def create_system(req: BusinessSystemCreate, db: AsyncSession = Depends(get_db), _current_user: User = Depends(get_current_user), _ = Depends(require_permission("system:create"))):
+async def create_system(req: BusinessSystemCreate, request: Request, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user), _ = Depends(require_permission("system:create"))):
     try:
         obj = BusinessSystem(**req.model_dump())
         db.add(obj)
         await with_commit_retry(db.commit)
         await db.refresh(obj)
+        from app.services.audit_service import AuditService
+        AuditService.log_request(db, request, current_user=current_user, action="create", target_type="business_system", target_id=str(obj.id), detail=f"创建业务系统: {obj.name}")
         return BusinessSystemResponse.model_validate(obj)
     except Exception as e:
         from fastapi import HTTPException
@@ -83,7 +85,7 @@ async def create_system(req: BusinessSystemCreate, db: AsyncSession = Depends(ge
 
 
 @router.put("/{sys_id}", response_model=BusinessSystemResponse)
-async def update_system(sys_id: int, req: BusinessSystemUpdate, db: AsyncSession = Depends(get_db), _current_user: User = Depends(get_current_user), _ = Depends(require_permission("system:edit"))):
+async def update_system(sys_id: int, req: BusinessSystemUpdate, request: Request, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user), _ = Depends(require_permission("system:edit"))):
     result = await db.execute(select(BusinessSystem).where(BusinessSystem.id == sys_id))
     obj = result.scalar_one_or_none()
     if not obj:
@@ -93,17 +95,21 @@ async def update_system(sys_id: int, req: BusinessSystemUpdate, db: AsyncSession
         setattr(obj, k, v)
     await with_commit_retry(db.commit)
     await db.refresh(obj)
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="update", target_type="business_system", target_id=str(sys_id), detail=f"更新业务系统: {obj.name}")
     r = _fill_system(BusinessSystemResponse.model_validate(obj), obj)
     return r
 
 
 @router.delete("/{sys_id}")
-async def delete_system(sys_id: int, db: AsyncSession = Depends(get_db), _current_user: User = Depends(get_current_user), _ = Depends(require_permission("system:delete"))):
+async def delete_system(sys_id: int, request: Request, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user), _ = Depends(require_permission("system:delete"))):
     result = await db.execute(select(BusinessSystem).where(BusinessSystem.id == sys_id))
     obj = result.scalar_one_or_none()
     if not obj:
         from fastapi import HTTPException
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="系统不存在")
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="business_system", target_id=str(sys_id), detail=f"删除业务系统: {obj.name}")
     await db.delete(obj)
     await with_commit_retry(db.commit)
     return {"message": "系统已删除"}
@@ -123,13 +129,15 @@ async def list_deployments(sys_id: int, db: AsyncSession = Depends(get_db), _cur
 
 
 @router.post("/{sys_id}/deployments", response_model=DeploymentResponse, status_code=status.HTTP_201_CREATED)
-async def create_deployment(sys_id: int, req: DeploymentCreate, db: AsyncSession = Depends(get_db), _current_user: User = Depends(get_current_user), _ = Depends(require_permission("system:edit"))):
+async def create_deployment(sys_id: int, req: DeploymentCreate, request: Request, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user), _ = Depends(require_permission("system:edit"))):
     data = req.model_dump()
     data["system_id"] = sys_id
     obj = DeploymentRelation(**data)
     db.add(obj)
     await with_commit_retry(db.commit)
     await db.refresh(obj)
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="mount", target_type="business_system", target_id=str(sys_id), detail="关联部署设备")
     r = DeploymentResponse.model_validate(obj)
     if obj.device:
         r.device_name = obj.device.name
@@ -137,12 +145,14 @@ async def create_deployment(sys_id: int, req: DeploymentCreate, db: AsyncSession
 
 
 @router.delete("/{sys_id}/deployments/{dep_id}")
-async def delete_deployment(sys_id: int, dep_id: int, db: AsyncSession = Depends(get_db), _current_user: User = Depends(get_current_user), _ = Depends(require_permission("system:edit"))):
+async def delete_deployment(sys_id: int, dep_id: int, request: Request, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user), _ = Depends(require_permission("system:edit"))):
     result = await db.execute(select(DeploymentRelation).where(DeploymentRelation.id == dep_id, DeploymentRelation.system_id == sys_id))
     obj = result.scalar_one_or_none()
     if not obj:
         from fastapi import HTTPException
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="关联不存在")
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="unmount", target_type="business_system", target_id=str(sys_id), detail="解除设备关联")
     await db.delete(obj)
     await with_commit_retry(db.commit)
     return {"message": "关联已删除"}

@@ -1,6 +1,6 @@
 ﻿"""传感器管理 API 路由"""
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db, get_current_user, require_permission
@@ -75,13 +75,16 @@ async def get_sensor(
 @router.post("", response_model=SensorResponse, status_code=status.HTTP_201_CREATED)
 async def create_sensor(
     req: SensorCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     _ = Depends(require_permission("device:create"))
 ):
     service = SensorService(db)
     try:
         s = await service.create(req)
+        from app.services.audit_service import AuditService
+        AuditService.log_request(db, request, current_user=current_user, action="create", target_type="sensor", target_id=str(s.id), detail=f"创建传感器: {s.name}")
         r = SensorResponse.model_validate(s)
         if hasattr(s, "room") and s.room:
             r.room_name = s.room.name
@@ -94,14 +97,17 @@ async def create_sensor(
 async def update_sensor(
     sensor_id: int,
     req: SensorUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     _ = Depends(require_permission("device:edit"))
 ):
     service = SensorService(db)
     s = await service.update(sensor_id, req)
     if not s:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="传感器不存在")
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="update", target_type="sensor", target_id=str(sensor_id), detail=f"更新传感器: {s.name}")
     r = SensorResponse.model_validate(s)
     if hasattr(s, "room") and s.room:
         r.room_name = s.room.name
@@ -111,13 +117,16 @@ async def update_sensor(
 @router.delete("/{sensor_id}")
 async def delete_sensor(
     sensor_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     _ = Depends(require_permission("device:delete"))
 ):
     service = SensorService(db)
     if not await service.delete(sensor_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="传感器不存在")
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="sensor", target_id=str(sensor_id), detail="删除传感器")
     return {"message": "传感器已删除"}
 
 
@@ -135,14 +144,17 @@ async def get_sensor_data(
 
 @router.post("/{sensor_id}/data", response_model=SensorDataResponse)
 async def record_sensor_data(
+    request: Request,
     sensor_id: int,
     value: float = Query(...),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     _ = Depends(require_permission("monitor:handle_alert"))
 ):
     service = SensorService(db)
     sd = await service.record_data(sensor_id, value)
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="execute", target_type="sensor", target_id=str(sensor_id), detail="录入传感器数据")
     return SensorDataResponse.model_validate(sd)
 
 
@@ -169,6 +181,7 @@ async def list_anomaly_gaps(
 
 @router.post("/retention", response_model=RetentionResultResponse)
 async def run_retention(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -179,6 +192,8 @@ async def run_retention(
     gap_added = await svc.reconcile_from_alerts(since=None)
     result = await svc.run_retention()
     result["anomaly_gap_reconciled"] = gap_added
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="execute", target_type="sensor", detail="执行传感器数据保留清理")
     return result
 
 

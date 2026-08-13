@@ -54,6 +54,7 @@ async def list_rules(
 @router.post("", summary="Create auto rule")
 async def create_rule(
     data: AutoRuleCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _ = Depends(require_permission("work:edit")),
@@ -67,6 +68,8 @@ async def create_rule(
           data.action_set_priority, data.action_assign_user_id, data.action_auto_complete, data.sort, current_user.id))
     await with_commit_retry(db.commit)
     row = (await exec_sql(db, "SELECT * FROM work_order_auto_rules ORDER BY id DESC LIMIT 1")).fetchone()
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="create", target_type="auto_rule", target_id=str(row.id), detail=f"创建自动规则: {data.name}")
     return {"data": dict(row._mapping)}
 
 
@@ -74,8 +77,9 @@ async def create_rule(
 async def update_rule(
     rule_id: int,
     data: AutoRuleUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(require_permission("work:edit")),
+    current_user: User = Depends(require_permission("work:edit")),
 ):
     row = (await exec_sql(db, "SELECT id FROM work_order_auto_rules WHERE id = ?", (rule_id,))).fetchone()
     if not row:
@@ -89,17 +93,22 @@ async def update_rule(
     params.append(rule_id)
     await exec_sql(db, "UPDATE work_order_auto_rules SET {} WHERE id = ?".format(", ".join(updates)), tuple(params))
     await with_commit_retry(db.commit)
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="update", target_type="auto_rule", target_id=str(rule_id), detail=f"更新自动规则: {data.name or rule_id}")
     return {"message": "Rule updated"}
 
 
 @router.delete("/{rule_id}", summary="Delete auto rule")
 async def delete_rule(
     rule_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(require_permission("work:delete")),
+    current_user: User = Depends(require_permission("work:delete")),
 ):
     await exec_sql(db, "DELETE FROM work_order_auto_rules WHERE id = ?", (rule_id,))
     await with_commit_retry(db.commit)
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="auto_rule", target_id=str(rule_id), detail="删除自动规则")
     return {"message": "Rule deleted"}
 
 

@@ -63,6 +63,8 @@ async def create_role(
             operator_username=current_user.username,
             operator_ip=get_client_ip(request),
         )
+        from app.services.audit_service import AuditService
+        AuditService.log_request(db, request, current_user=current_user, action="create", target_type="role", target_id=str(role.id), detail=f"创建角色: {role.name}")
         return RoleResponse.model_validate(role)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -88,6 +90,8 @@ async def update_role(
         )
         if not role:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="角色不存在")
+        from app.services.audit_service import AuditService
+        AuditService.log_request(db, request, current_user=current_user, action="update", target_type="role", target_id=str(role_id), detail=f"更新角色: {role.name}")
         return RoleResponse.model_validate(role)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -112,6 +116,8 @@ async def delete_role(
         )
         if not result:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="角色不存在")
+        from app.services.audit_service import AuditService
+        AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="role", target_id=str(role_id), detail=f"删除角色: {result}")
         return {"message": "角色已删除"}
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

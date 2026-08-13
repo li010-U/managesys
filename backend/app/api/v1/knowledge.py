@@ -55,6 +55,7 @@ async def list_articles(
 @router.post("", summary="Create knowledge article")
 async def create_article(
     data: KnowledgeCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _ = Depends(require_permission("work:create")),
@@ -69,6 +70,8 @@ async def create_article(
         FROM kb_articles k LEFT JOIN users u ON k.created_by = u.id
         ORDER BY k.id DESC LIMIT 1
     """)).fetchone()
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="create", target_type="knowledge", target_id=str(row.id), detail=f"创建知识文章: {data.title}")
     return {"data": _row_to_dict(row)}
 
 

@@ -48,7 +48,13 @@ async def login(
     service = AuthService(db)
     try:
         ip_address = get_client_ip(request.headers.get("X-Forwarded-For"), request.headers.get("X-Real-IP"), request.client.host if request.client else None)
-        token, user = await service.login(req.username, req.password, ip_address)
+        token, user = await service.login(
+            req.username,
+            req.password,
+            ip_address,
+            request_path=request.url.path[:256],
+            user_agent=(request.headers.get("User-Agent") or "")[:512],
+        )
         return TokenResponse(access_token=token, token_type="bearer")
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
@@ -57,13 +63,21 @@ async def login(
 @router.post("/register", response_model=UserResponse)
 async def register(
     req: RegisterRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _rate: None = Depends(rate_limit(settings.RATE_LIMIT_REGISTER_MAX, settings.RATE_LIMIT_WINDOW_SECONDS, "register"))
 ):
     """用户注册"""
+    if not settings.REGISTER_ENABLED:
+        from fastapi import status as _status
+        raise HTTPException(status_code=_status.HTTP_403_FORBIDDEN, detail="注册功能已关闭，请联系管理员创建账号")
+
+    from app.services.audit_service import AuditService
     service = AuthService(db)
     try:
         user = await service.register(req)
+        # 注册审计（由 service.register 内部已写入一条 create 审计，这里无需重复；
+        # 若需更完整 request 信息可在此补充，但避免重复，暂不额外写。）
         return UserResponse.model_validate(user)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -82,6 +96,25 @@ async def change_password(
         return {"message": "密码修改成功"}
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+@router.post("/logout")
+async def logout(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """退出登录（JWT 无状态，仅记录审计日志）"""
+    from app.services.audit_service import AuditService
+    AuditService.log_request(
+        db,
+        request,
+        current_user=current_user,
+        action="logout",
+        target_type="auth",
+        detail=f"用户 {current_user.username} 退出登录",
+    )
+    return {"message": "已退出登录"}
+
 
 
 @router.get("/me", response_model=UserResponse)

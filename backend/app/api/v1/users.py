@@ -76,6 +76,8 @@ async def create_user(
             operator_username=current_user.username,
             operator_ip=get_client_ip(request),
         )
+        from app.services.audit_service import AuditService
+        AuditService.log_request(db, request, current_user=current_user, action="create", target_type="user", target_id=str(user.id), detail=f"创建用户: {user.username}")
         return UserResponse.model_validate(user)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -101,6 +103,8 @@ async def update_user(
         )
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+        from app.services.audit_service import AuditService
+        AuditService.log_request(db, request, current_user=current_user, action="update", target_type="user", target_id=str(user_id), detail=f"更新用户: {user.username}")
         return UserResponse.model_validate(user)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -125,6 +129,8 @@ async def delete_user(
         )
         if not result:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+        from app.services.audit_service import AuditService
+        AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="user", target_id=str(user_id), detail=f"删除用户: {user.username}")
         return {"message": "用户已停用"}
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

@@ -30,7 +30,8 @@ class AuthService:
         self.db = db
 
     async def _record_login_log(
-        self, username: str, ip_address: Optional[str], status: str, reason: Optional[str] = None
+        self, username: str, ip_address: Optional[str], status: str, reason: Optional[str] = None,
+        request_path: Optional[str] = None, user_agent: Optional[str] = None,
     ):
         """记录登录日志"""
         log = LoginLog(
@@ -41,6 +42,26 @@ class AuthService:
         )
         self.db.add(log)
         await self.db.flush()
+
+        # 同步写审计日志
+        from app.services.audit_service import AuditService
+        if status == "success":
+            detail = "登录成功"
+        else:
+            detail = "登录失败: " + (reason or "未知原因")
+        AuditService.log(
+            self.db,
+            username=username,
+            action="login" if status == "success" else "login_fail",
+            target_type="auth",
+            detail=detail,
+            ip_address=ip_address,
+            request_path=request_path,
+            user_agent=user_agent,
+        )
+        # 失败登录：立即提交，避免被外层异常回滚丢弃（登录失败也应留痕）
+        if status == "fail":
+            await self.db.commit()
 
     async def register(self, req: RegisterRequest) -> User:
         """用户注册"""
@@ -80,28 +101,40 @@ class AuthService:
         self.db.add(user)
         await self.db.flush()
         await self.db.refresh(user)
+
+        # 记录审计日志
+        from app.services.audit_service import AuditService
+        AuditService.log(
+            self.db,
+            username=req.username,
+            action="create",
+            target_type="user",
+            target_id=str(user.id),
+            detail="注册用户: " + req.username,
+        )
         return user
 
     async def login(
-        self, username: str, password: str, ip_address: Optional[str] = None
+        self, username: str, password: str, ip_address: Optional[str] = None,
+        request_path: Optional[str] = None, user_agent: Optional[str] = None,
     ) -> tuple[str, User]:
         """用户登录，返回 (token, user)"""
         result = await self.db.execute(select(User).where(User.username == username))
         user = result.scalar_one_or_none()
 
         if not user:
-            await self._record_login_log(username, ip_address, "fail", "用户不存在")
+            await self._record_login_log(username, ip_address, "fail", "用户不存在", request_path=request_path, user_agent=user_agent)
             raise ValueError("用户名或密码错误")
 
         # 检查账户是否锁定
         if user.locked_until and user.locked_until > datetime.now(timezone.utc):
             remaining = (user.locked_until - datetime.now(timezone.utc)).seconds // 60
-            await self._record_login_log(username, ip_address, "fail", "账户已锁定")
+            await self._record_login_log(username, ip_address, "fail", "账户已锁定", request_path=request_path, user_agent=user_agent)
             raise ValueError(f"账户已被锁定，请{remaining}分钟后重试")
 
         # 检查账户是否停用
         if not user.is_active:
-            await self._record_login_log(username, ip_address, "fail", "账户已停用")
+            await self._record_login_log(username, ip_address, "fail", "账户已停用", request_path=request_path, user_agent=user_agent)
             raise ValueError("账户已被停用，请联系管理员")
 
         # 验证密码
@@ -112,7 +145,7 @@ class AuthService:
                     minutes=settings.LOGIN_LOCK_MINUTES
                 )
             await self.db.flush()
-            await self._record_login_log(username, ip_address, "fail", "密码错误")
+            await self._record_login_log(username, ip_address, "fail", "密码错误", request_path=request_path, user_agent=user_agent)
             raise ValueError("用户名或密码错误")
 
         # 登录成功，重置失败次数
@@ -126,7 +159,7 @@ class AuthService:
             data={"sub": str(user.id)},
             token_version=user.token_version or 0,
         )
-        await self._record_login_log(username, ip_address, "success")
+        await self._record_login_log(username, ip_address, "success", request_path=request_path, user_agent=user_agent)
         return token, user
 
     async def change_password(self, user_id: int, old_password: str, new_password: str) -> None:
@@ -151,3 +184,15 @@ class AuthService:
         user.token_version = (user.token_version or 0) + 1
         user.must_change_password = False
         await self.db.flush()
+
+        # 记录审计日志
+        from app.services.audit_service import AuditService
+        AuditService.log(
+            self.db,
+            username=user.username,
+            user_id=user.id,
+            action="update",
+            target_type="user",
+            target_id=str(user.id),
+            detail="用户 " + user.username + " 修改密码",
+        )

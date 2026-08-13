@@ -16,6 +16,7 @@ from app.api.v1.assistant import router as assistant_router
 from app.api.v1.knowledge import router as knowledge_router
 from app.api.v1.auto_rules import router as auto_rules_router
 from app.api.v1.ip_resources import router as ip_resources_router
+from app.api.v1.ip_registry import router as ip_registry_router
 from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.insight import router as insight_router
 
@@ -37,6 +38,7 @@ router.include_router(assistant_router)
 router.include_router(knowledge_router)
 router.include_router(auto_rules_router)
 router.include_router(ip_resources_router)
+router.include_router(ip_registry_router)
 router.include_router(dashboard_router)
 router.include_router(insight_router)
 
