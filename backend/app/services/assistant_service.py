@@ -75,6 +75,20 @@ def _sensor_name(stype: str) -> str:
     return SENSOR_NAMES.get(stype, stype)
 
 
+def _data_quality(rack: Dict[str, Any], power: Dict[str, Any]) -> Dict[str, Any]:
+    """对快照数据质量做标记，让 AI 在数据不全时说实话而非编造。"""
+    flags: Dict[str, Any] = {}
+    if not rack.get("total"):
+        flags["rack_data_missing"] = True
+    # 电源数据缺失评估：没有任何设备功率或所有机柜都没逻额定功率
+    if power.get("power_load_kw", 0) <= 0 and power.get("loads_kw"):
+        flags["power_data_missing"] = True
+    if not power.get("rated_power_kw"):
+        flags["rated_power_missing"] = True
+        flags["power_util_unreliable"] = True
+    return flags
+
+
 class AssistantService:
     """聚合实时数据快照并基于规则生成提醒/建议。"""
 
@@ -85,7 +99,7 @@ class AssistantService:
     async def build_snapshot(self) -> Dict[str, Any]:
         alert_stats = await self._alert_stats()
         sensors = await self._all_sensors()
-        rack_summary, high_racks = await self._rack_summary()
+        rack_summary, high_racks, power_stats = await self._rack_summary()
         device_count = await self._device_count()
         room_count = await self._room_count()
         online_sensor = sum(1 for s in sensors if s.status == "online")
@@ -140,6 +154,8 @@ class AssistantService:
             "latest_alerts": latest_alerts,
             "work_orders": open_work_orders,
             "high_usage_racks": high_racks[:8],
+            "power": power_stats,
+            "data_quality": _data_quality(rack_summary, power_stats),
             "alert_history": alert_history,
         }
 
@@ -290,18 +306,43 @@ class AssistantService:
                 abnormal.append(s)
         return abnormal
 
-    async def _rack_summary(self) -> tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    async def _rack_summary(self) -> tuple[Dict[str, Any], List[Dict[str, Any]], Dict[str, Any]]:
         rows = await self.db.execute(select(Rack))
         racks = list(rows.scalars().all())
         total = len(racks)
         used = sum((r.total_units or 0) - (r.available_units or 0) for r in racks)
         capacity = sum(r.total_units or 0 for r in racks)
+        # 实测电源数据：归一为 kW	
+        # 只计在机柜上、实际运行中的设备（非库存/报废）
+        active_statuses = ("mounted", "running", "online", "offline")
+        active_dev_rows = await self.db.execute(
+            select(Device.rack_id, Device.power_rating)
+            .where(Device.rack_id.is_not(None), Device.status.in_(active_statuses))
+        )
+        # rack_id -> 设备功率总和
+        load_by_rack: Dict[Any, float] = {}
+        for rack_id, pr in active_dev_rows.all():
+            v = float(pr) if pr not in (None, "") else 0.0
+            if v < 0:
+                v = 0.0
+            if rack_id is None:
+                continue
+            load_by_rack[rack_id] = load_by_rack.get(rack_id, 0.0) + v
+
+        total_load = sum(load_by_rack.values())
+        rated_total = sum((r.rated_power or 0.0) for r in racks)
+        rated_total = rated_total if rated_total > 0 else 0.0
+        power_util = round(total_load / rated_total * 100, 1) if rated_total else 0.0
+
         high = []
         for r in racks:
             if not r.total_units:
                 continue
             usage = round((r.total_units - (r.available_units or 0)) / r.total_units * 100, 1)
             if usage >= 80:
+                load = round(load_by_rack.get(r.id, 0.0), 1)
+                rate = r.rated_power or 0.0
+                util = round(load / rate * 100, 1) if rate and rate > 0 else 0.0
                 high.append(
                     {
                         "id": r.id,
@@ -309,15 +350,28 @@ class AssistantService:
                         "name": r.name,
                         "usage": usage,
                         "room_id": r.room_id,
+                        "power_load_kw": load,
+                        "power_util_pct": util,
                     }
                 )
         high.sort(key=lambda x: -x["usage"])
+
+        power_stats = {
+            "power_load_kw": round(total_load, 1),
+            "rated_power_kw": round(rated_total, 1),
+            "power_util_pct": power_util,
+            "loads_kw": {
+                r.code: round(load_by_rack.get(r.id, 0.0), 1)
+                for r in racks
+            },
+        }
         return {
             "total": total,
             "used_units": used,
             "capacity_units": capacity,
             "avg_usage": round(used / capacity * 100, 1) if capacity else 0.0,
-        }, high
+        }, high, power_stats
+
 
     async def _device_count(self) -> int:
         rows = await self.db.execute(select(func.count()).select_from(Device))
@@ -542,6 +596,14 @@ class AssistantService:
         if snapshot.get("high_usage_racks"):
             hs = "、".join(f"{h['code']}({h['usage']}%)" for h in snapshot["high_usage_racks"][:8])
             lines.append(f"高利用率(≥80%)机柜: {hs}")
+        power = snapshot.get("power", {})
+        lines.append(
+            f"功率: 已上架设备总负载 {power.get('power_load_kw', 0)}kW / "
+            f"额定功率合计 {power.get('rated_power_kw', 0)}kW, 负载率 {power.get('power_util_pct', 0)}%"
+        )
+        dq = snapshot.get("data_quality", {})
+        if dq.get("power_data_missing") or dq.get("rated_power_missing"):
+            lines.append("数据质量提示: 功率/额定功率数据不完整, 功率相关结论仅供参考或标注为数据缺失.")
         return "\n".join(lines)
 
 
