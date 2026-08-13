@@ -42,6 +42,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js'
+import { computeExportLayout, wrapText as wrapExportText, rackLabel } from './exportRender'
 
 const props = defineProps<{ data: any; history?: any[]; config?: any }>()
 const emit = defineEmits<{
@@ -434,7 +435,8 @@ async function exportImage() {
 
 // 俯视 3D 快照：不改动实时相机，用克隆相机从正上方取景全部机柜
 async function topDownSnapshot() {
-  const bigW = 1600, bigH = 900
+  const S3 = 1.75
+  const bigW = Math.round(1600 * S3), bigH = Math.round(900 * S3)
   const racks: any[] = props.data?.racks || []
   const pos = buildPositions(racks)
   let spanX = 8, spanZ = 8
@@ -474,13 +476,10 @@ async function topDownSnapshot() {
   tmp.render(scene, cam)
   const url = tmp.domElement.toDataURL('image/png')
   tmp.dispose()
-  // 等待图片解码完成，否则 drawImage 会画出空白
   const img = new Image()
   img.src = url
   await img.decode().catch(() => new Promise((res) => { img.onload = res; img.onerror = res }))
 
-  // 在 3D 俯视图上标注机柜代号：机柜上只放紧凑编号徽标，右侧附“编号→完整代号”图例，
-  // 避免长代号标签互相重叠、也保证完整代号一定可读
   const out = document.createElement('canvas')
   out.width = bigW; out.height = bigH
   const g = out.getContext('2d')!
@@ -497,56 +496,59 @@ async function topDownSnapshot() {
     return { sx, sy, code: rack ? (rack.code || ('Rack' + rack.id)) : '', show }
   })
   const visible = items.filter(i => i.show)
-  // 右侧图例面板：编号 -> 完整代号
-  const legend = { x: 12, y: 12, w: 230, pad: 10, rowH: 20 }
+  g.font = Math.round(13*S3) + 'px "Microsoft YaHei", sans-serif'
+  let maxCodeW = 0
+  visible.forEach((it: any) => {
+    const wdt = g.measureText(it.code).width
+    if (wdt > maxCodeW) maxCodeW = wdt
+  })
+  const legend = { x: Math.round(12*S3), y: Math.round(12*S3), w: Math.round(70*S3) + Math.ceil(maxCodeW), pad: Math.round(10*S3), rowH: Math.round(24*S3) }
   g.globalAlpha = 0.94
   g.fillStyle = '#ffffff'
   g.strokeStyle = '#c9d3dd'
   g.lineWidth = 1
-  roundRect(g, legend.x, legend.y, legend.w, 36 + visible.length * legend.rowH + 6, 6)
+  roundRect(g, legend.x, legend.y, legend.w, Math.round(44*S3) + visible.length * legend.rowH + Math.round(8*S3), Math.round(6*S3))
   g.fill(); g.stroke()
   g.globalAlpha = 1
   g.fillStyle = '#1f2937'
-  g.font = 'bold 13px "Microsoft YaHei", sans-serif'
+  g.font = 'bold ' + Math.round(16*S3) + 'px "Microsoft YaHei", sans-serif'
   g.textAlign = 'left'
   g.textBaseline = 'middle'
-  g.fillText('机柜代号', legend.x + legend.pad, legend.y + 18)
-  g.font = '12px "Microsoft YaHei", sans-serif'
+  g.fillText('机柜代号', legend.x + legend.pad, legend.y + Math.round(22*S3))
+  g.font = Math.round(14*S3) + 'px "Microsoft YaHei", sans-serif'
   items.forEach((it, i) => {
     if (!it.show) return
-    const ly = legend.y + 36 + (i) * legend.rowH + 8
-    // 对应编号徽标（颜色与机柜标记一致）
+    const ly = legend.y + Math.round(44*S3) + (i) * legend.rowH + Math.round(8*S3)
     g.fillStyle = badgeColor(i)
-    roundRect(g, legend.x + legend.pad, ly - 8, 18, 16, 3)
+    roundRect(g, legend.x + legend.pad, ly - Math.round(10*S3), Math.round(22*S3), Math.round(20*S3), Math.round(3*S3))
     g.fill()
     g.fillStyle = '#ffffff'
-    g.font = 'bold 11px sans-serif'
+    g.font = 'bold ' + Math.round(13*S3) + 'px sans-serif'
     g.textAlign = 'center'
-    g.fillText(String(i + 1), legend.x + legend.pad + 9, ly)
+    g.fillText(String(i + 1), legend.x + legend.pad + Math.round(11*S3), ly)
     g.fillStyle = '#374151'
-    g.font = '12px "Microsoft YaHei", sans-serif'
+    g.font = Math.round(14*S3) + 'px "Microsoft YaHei", sans-serif'
     g.textAlign = 'left'
-    g.fillText(shortText(it.code, 18), legend.x + legend.pad + 26, ly)
+    g.fillText(it.code, legend.x + legend.pad + Math.round(30*S3), ly)
   })
-  // 每个机柜顶部的编号徽标 + 指向机身
   items.forEach((it, i) => {
     if (!it.show) return
-    const bx = Math.max(30, Math.min(it.sx - 10, bigW - 44))
-    const by = Math.max(30, Math.min(it.sy - 34, bigH - 30))
+    const bx = Math.max(Math.round(30*S3), Math.min(it.sx - Math.round(10*S3), bigW - Math.round(44*S3)))
+    const by = Math.max(Math.round(30*S3), Math.min(it.sy - Math.round(34*S3), bigH - Math.round(30*S3)))
     g.strokeStyle = 'rgba(31,41,55,0.5)'
-    g.lineWidth = 1
-    g.beginPath(); g.moveTo(bx + 10, by + 20); g.lineTo(it.sx, Math.min(it.sy, by + 34)); g.stroke()
+    g.lineWidth = Math.max(1, Math.round(1*S3))
+    g.beginPath(); g.moveTo(bx + Math.round(10*S3), by + Math.round(20*S3)); g.lineTo(it.sx, Math.min(it.sy, by + Math.round(34*S3))); g.stroke()
     g.fillStyle = badgeColor(i)
-    roundRect(g, bx, by, 20, 20, 4)
+    roundRect(g, bx, by, Math.round(22*S3), Math.round(22*S3), Math.round(4*S3))
     g.fill()
     g.strokeStyle = '#ffffff'
-    g.lineWidth = 1.5
+    g.lineWidth = Math.round(1.5*S3)
     g.stroke()
     g.fillStyle = '#ffffff'
-    g.font = 'bold 12px sans-serif'
+    g.font = 'bold ' + Math.round(14*S3) + 'px sans-serif'
     g.textAlign = 'center'
     g.textBaseline = 'middle'
-    g.fillText(String(i + 1), bx + 10, by + 11)
+    g.fillText(String(i + 1), bx + Math.round(11*S3), by + Math.round(12*S3))
   })
   const outUrl = out.toDataURL('image/png')
   const outImg = new Image()
@@ -554,35 +556,45 @@ async function topDownSnapshot() {
   await outImg.decode().catch(() => new Promise((res) => { outImg.onload = res; outImg.onerror = res }))
   return { img: outImg, bigW, bigH }
 }
-
 // 2D U 位明细：每台机柜一张“卡片”，从上到下绘制 U=total..1 的占用状态
 function build2DUCanvas(racks: any[]) {
   if (!racks.length) {
     const c = document.createElement('canvas')
-    c.width = 800; c.height = 200
+    c.width = 1600; c.height = 400
     const g = c.getContext('2d')!
-    g.fillStyle = '#fafafa'; g.fillRect(0, 0, 800, 200)
-    g.fillStyle = '#666'; g.font = 'bold 20px sans-serif'
+    g.fillStyle = '#fafafa'; g.fillRect(0, 0, 1600, 400)
+    g.fillStyle = '#666'; g.font = 'bold 40px sans-serif'
     g.textAlign = 'center'
-    g.fillText('该机房暂无机柜数据', 400, 100)
+    g.fillText('该机房暂无机柜数据', 800, 200)
     return c
   }
-  const cellH = 12, cellW = 34, uLabelW = 16, cardHeadH = 42, cardFootH = 54, padX = 10
-  const cardW = uLabelW + cellW + padX * 2 + 50
-  const maxW = 1200
+
+  // 高清倍率：整体放大到 2x，保证放大后仍清晰
+  const S = 2
+  const cellH = 16 * S, cellW = 46 * S, uLabelW = 18 * S
+  const nameW = 260 * S, nameGap = 14 * S
+  const cardHeadH = 50 * S, cardFootH = 74 * S, padX = 14 * S
+  const lineH = Math.round(15 * S)
+  const bodyFont = '12px sans-serif'
+  const headFont = 'bold 15px sans-serif'
+  // 卡片宽 = U 网格 + 设备名明细列
+  const gridW = uLabelW + cellW
+  const cardW = padX + gridW + nameGap + nameW + padX
+  const maxW = 1900 * S
   const perRow = Math.max(1, Math.floor(maxW / cardW))
   const rows = Math.ceil(racks.length / perRow)
   const maxU = Math.max(...racks.map((r: any) => r.total_units || 42))
-  const cardH = cardHeadH + maxU * cellH + cardFootH
+  const gridH = maxU * cellH
+  const cardH = cardHeadH + gridH + cardFootH
 
   const W = Math.min(maxW, perRow * cardW)
-  const H = rows * cardH + 60
+  const H = rows * cardH + 40 * S
   const c = document.createElement('canvas')
   c.width = W; c.height = H
   const g = c.getContext('2d')!
 
   const statusColor = (s: string) => {
-    if (s === 'running') return '#2f9e44'
+    if (s === 'running' || s === 'online') return '#2f9e44'
     if (s === 'offline' || s === 'error' || s === 'fault') return '#e03131'
     return '#5c7cfa' // mounted / in_stock / other
   }
@@ -590,6 +602,11 @@ function build2DUCanvas(racks: any[]) {
     const map: Record<string, string> = { server: '#2196F3', network: '#4CAF50', storage: '#9C27B0', security: '#FF9800', power: '#F44336' }
     return map[cat] || '#607D8B'
   }
+  const catName = (cat: string) => {
+    const map: Record<string, string> = { server: '服务器', network: '网络', storage: '存储', security: '安全', power: '电源' }
+    return map[cat] || cat || '设备'
+  }
+  // 在给定宽度内按字数断行（中文按字符，英文按词），返回行数组
 
   g.fillStyle = '#fbfdff'; g.fillRect(0, 0, W, H)
 
@@ -602,71 +619,124 @@ function build2DUCanvas(racks: any[]) {
     // 卡片背景
     g.fillStyle = '#ffffff'
     g.strokeStyle = '#d7dee6'
-    g.lineWidth = 1
-    roundRect(g, ox, oy, cardW - 4, cardH, 6)
+    g.lineWidth = 1.5
+    roundRect(g, ox, oy, cardW - 4, cardH, 8)
     g.fill(); g.stroke()
 
-    // 头部：机柜代号
+    // 头部：完整机柜代号
     g.fillStyle = '#1f2937'
-    g.font = 'bold 13px sans-serif'
+    g.font = headFont
     g.textAlign = 'left'
-    g.fillText(rack.code || ('Rack' + rack.id), ox + 8, oy + 18)
-    g.font = '11px sans-serif'
+    g.textBaseline = 'middle'
+    const code = rack.code || ('Rack' + rack.id)
+    g.fillText(code, ox + padX, oy + 20 * S)
+    if (rack.name && rack.name !== code) {
+      g.font = 'bold ' + (12 * S) + 'px sans-serif'
+      g.fillText(rack.name, ox + padX + g.measureText(code).width + 6 * S, oy + 20 * S)
+      g.font = headFont
+    }
+    g.font = bodyFont
     g.fillStyle = '#6b7280'
-    g.fillText((rack.utilization ?? 0) + '% 利用', ox + 8, oy + 32)
+    g.fillText((rack.utilization ?? 0) + '% 利用' + ' · ' + (rack.device_count ?? 0) + ' 台' + ' · ' + (rack.power_load ?? 0) + ' kW', ox + padX, oy + 38 * S)
 
     const totalU = rack.total_units || 42
     const devices = rack.devices || []
     const occupied: Record<number, any> = {}
     devices.forEach((d: any) => {
-      const s = Math.min(d.start_u, totalU)
-      const e = Math.min(d.end_u || d.start_u, totalU)
+      const s = Math.min(Math.max(d.start_u || 1, 1), totalU)
+      const e = Math.min(Math.max(d.end_u || d.start_u || 1, 1), totalU)
       for (let u = s; u <= e; u++) occupied[u] = d
     })
 
-    const diagX = ox + uLabelW + 4
-    const footY = oy + cardHeadH + totalU * cellH
+    const diagX = ox + padX + uLabelW
+    const footY = oy + cardHeadH + gridH
+    const gridX = ox + padX + uLabelW
 
     // U 编号 + 单元格
     for (let u = totalU; u >= 1; u--) {
       const rowY = oy + cardHeadH + (totalU - u) * cellH
       g.fillStyle = '#9aa4b0'
-      g.font = '9px sans-serif'
+      g.font = bodyFont
       g.textAlign = 'right'
-      g.fillText(String(u), ox + uLabelW - 3, rowY + cellH - 3)
+      g.textBaseline = 'middle'
+      g.fillText(String(u), ox + padX + uLabelW - 4, rowY + cellH / 2)
       const d = occupied[u]
       g.fillStyle = d ? categoryColor(d.device_type_category) : '#eef1f4'
       g.strokeStyle = d ? '#c9d3dd' : '#e2e7ec'
-      g.beginPath(); g.rect(diagX, rowY, cellW, cellH - 1); g.fill(); g.stroke()
+      g.beginPath(); g.rect(gridX, rowY, cellW, cellH - 1); g.fill(); g.stroke()
     }
 
-    // 设备名称标注（占位大于等于2U才显示，避免拥挤）
-    devices.forEach((d: any) => {
-      const s = Math.min(d.start_u, totalU)
-      const e = Math.min(d.end_u || d.start_u, totalU)
-      const topU = s; const span = (e - s) + 1
-      if (span < 2) return
-      const rowY = oy + cardHeadH + (totalU - topU) * cellH
-      if (span * cellH < 16) return
+    // 右侧设备名明细列：每台设备完整名称 + U 段 + 类型/功率/状态，绝不截断
+    const colX = ox + padX + gridW + nameGap
+    const colTopY = oy + cardHeadH
+    const colBottomY = colTopY + gridH
+    const sorted = devices.slice().sort((a: any, b: any) => (b.start_u || 0) - (a.start_u || 0))
+    sorted.forEach((d: any, di: number) => {
+      const s = Math.min(Math.max(d.start_u || 1, 1), totalU)
+      const e = Math.min(Math.max(d.end_u || d.start_u || 1, 1), totalU)
+      const span = (e - s) + 1
+      const topU = s
+      const rowY = colTopY + (totalU - topU) * cellH
+      // 该设备竖向信息条
+      const bandY = rowY
+      const bandH = span * cellH
+      // 名称（完整，自动换行）
+      g.font = 'bold ' + (13 * S) + 'px sans-serif'
+      const nameLines = wrapExportText(d.name || d.device_type_name || '', nameW - 10, g, g.font)
+      const typeLine = (d.device_type_name ? d.device_type_name + ' · ' : '') + catName(d.device_type_category)
+      const extraLine = 'U' + s + '-' + e + ' · ' + (d.power_rating ?? '') + 'kW' + (d.status ? ' · ' + d.status : '')
+      // 计算这组文本需要的高度
+      g.font = bodyFont
+      const typeW = g.measureText(typeLine).width
+      const extraW = g.measureText(extraLine).width
+      const subLines = Math.max(typeW, extraW) > (nameW - 10) ? 2 : 1
+      const needH = nameLines.length * lineH + (2 + subLines) * lineH
+      const useH = Math.max(bandH, needH, lineH)
+      // 分隔线背景（轻微淡色块标识占用）
       g.fillStyle = '#ffffff'
-      g.font = 'bold 9px sans-serif'
-      g.textAlign = 'left'
-      g.fillText(shortText(d.name, 5), diagX + 3, rowY + Math.min(span * cellH, 14) - 3)
+      g.fillRect(colX, bandY, nameW, Math.min(useH, colBottomY - bandY))
+      if (di < sorted.length - 1) {
+        g.strokeStyle = '#e2e7ec'; g.lineWidth = 1
+        g.beginPath(); g.moveTo(colX, bandY + Math.min(useH - 1, colBottomY - bandY - 2)); g.lineTo(colX + nameW, bandY + Math.min(useH - 1, colBottomY - bandY - 2)); g.stroke()
+      }
+      // 设备名（完整）
+      g.fillStyle = '#1f2937'
+      g.font = 'bold ' + (13 * S) + 'px sans-serif'
+      g.textAlign = 'left'; g.textBaseline = 'middle'
+      nameLines.forEach((ln: string, li: number) => {
+        g.fillText(ln, colX + 4, bandY + 10 * S + li * lineH)
+      })
+      const textBaseY = bandY + 10 * S + nameLines.length * lineH + 2
+      // 类型
+      g.fillStyle = '#5c7cfa'
+      g.font = bodyFont
+      g.fillText(typeLine, colX + 4, textBaseY)
+      // 状态 / U 段 / 功率
+      g.fillStyle = '#6b7280'
+      g.font = bodyFont
+      g.fillText(extraLine, colX + 4, textBaseY + lineH)
     })
 
-    // 底部：统计
+    // 列分隔线（网格与明细列之间）
+    g.strokeStyle = '#dfe5ec'; g.lineWidth = 1
+    g.beginPath(); g.moveTo(colX - nameGap / 2, oy + cardHeadH); g.lineTo(colX - nameGap / 2, oy + cardHeadH + gridH); g.stroke()
+
+    // 底部：统计 + 额定功率
     g.fillStyle = '#374151'
-    g.font = '11px sans-serif'
+    g.font = bodyFont
     g.textAlign = 'left'
     const usedU = Object.keys(occupied).length
-    g.fillText('占用 ' + usedU + '/' + totalU + 'U', ox + 8, footY + 16)
-    g.fillText('设备 ' + (rack.device_count ?? devices.length) + ' 台', ox + 8, footY + 30)
-    g.fillText('功率 ' + (rack.power_load ?? 0) + ' kW', ox + 8, footY + 44)
+    g.fillText('占用 ' + usedU + '/' + totalU + 'U', ox + padX, footY + 18 * S)
+    g.fillText('设备 ' + (rack.device_count ?? devices.length) + ' 台', ox + padX, footY + 34 * S)
+    g.fillText('功率 ' + (rack.power_load ?? 0) + ' kW', ox + padX, footY + 50 * S)
+    if (rack.rated_power) {
+      g.fillStyle = '#b45309'
+      g.fillText('额定 ' + rack.rated_power + ' kW' + ' · 负载 ' + (rack.power_load_pct ?? 0) + '%', ox + padX, footY + 66 * S)
+    }
   })
 
   return c
 }
-
 function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   g.beginPath()
   g.moveTo(x + r, y)
@@ -680,18 +750,12 @@ function badgeColor(i: number) {
   const palette = ['#e74c3c', '#e67e22', '#f1c40f', '#27ae60', '#16a085', '#2980b9', '#8e44ad', '#d35400', '#16a085', '#2c3e50', '#c0392b', '#d4ac0d']
   return palette[i % palette.length]
 }
-function shortText(s: string, n: number) {
-  if (!s) return ''
-  return s.length > n ? s.slice(0, n) + '…' : s
-}
 
 // 合成最终导出图
 function composeExportImage(three: { img: HTMLImageElement; bigW: number; bigH: number }, two: HTMLCanvasElement) {
   const rm = props.data?.room
-  const titleH = 56
-  const gap = 16
-  const W = Math.max(three.bigW, two.width)
-  const H = titleH + three.bigH + gap + two.height + 30
+  const layout = computeExportLayout(three.bigW, three.bigH, two.width, two.height)
+  const { titleH, W, threeH, H, twoTop } = layout
   const c = document.createElement('canvas')
   c.width = W; c.height = H
   const g = c.getContext('2d')!
@@ -713,14 +777,12 @@ function composeExportImage(three: { img: HTMLImageElement; bigW: number; bigH: 
   // 小节标题 + 3D 俯视图
   g.textAlign = 'left'; g.fillStyle = '#374151'; g.font = 'bold 14px "Microsoft YaHei", sans-serif'
   g.fillText('① 俯视 3D 布局（全部机柜）', 20, titleH + 22)
-  const threeScale = W / three.bigW
-  g.drawImage(three.img, 0, titleH + 30, W, three.bigH * threeScale)
+  g.drawImage(three.img, 0, titleH + 30, W, threeH)
 
   // 小节标题 + 2D U 位明细
   g.textAlign = 'left'
   g.font = 'bold 14px "Microsoft YaHei", sans-serif'
   g.fillStyle = '#374151'
-  const twoTop = titleH + 30 + three.bigH * threeScale + gap
   g.fillText('② 2D U 位明细（每台机柜自下而上 U=1..' + (props.data?.racks?.length ? Math.max(...(props.data.racks as any).map((r: any) => r.total_units || 42)) : '') + '）', 20, twoTop + 22)
   g.drawImage(two, 0, twoTop + 30, two.width, two.height)
 
@@ -778,7 +840,7 @@ function buildRackMesh(pl: any, applyLabel = true) {
   if (applyLabel) {
     const labelDiv = document.createElement('div')
     labelDiv.className = 'rack3d-label'
-    labelDiv.textContent = rack.code || ''
+    labelDiv.textContent = rackLabel(rack.code, rack.name)
     const tempNote = rack.temperature != null ? ('\n机柜温度 ' + rack.temperature + '℃') : ''
     labelDiv.title = rack.code + ' ' + rack.name +
       '\n利用率 ' + (rack.utilization || 0) + '%' +
@@ -1200,7 +1262,7 @@ defineExpose({
 .lb-btn { border: 1px solid var(--app-border,#e5e7eb); background: #fff; color: #374151; font-size: 12px; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
 .lb-btn:hover { border-color: var(--app-primary); color: var(--app-primary); }
 .lb-btn.active { background: var(--app-primary); border-color: var(--app-primary); color: #fff; }
-:deep(.rack3d-label) { color: #374151; background: rgba(255,255,255,0.85); font-size: 11px; padding: 1px 5px; border-radius: 4px; border: 1px solid #d1d5db; white-space: nowrap; pointer-events: none; }
+:deep(.rack3d-label) { color: #374151; background: rgba(255,255,255,0.85); font-size: 11px; padding: 1px 5px; border-radius: 4px; border: 1px solid #d1d5db; white-space: pre-line; max-width: 220px; pointer-events: none; }
 .rack3d-export { position: absolute; bottom: 12px; right: 12px; border: 1px solid var(--app-primary,#409eff); background: #fff; color: var(--app-primary,#409eff); font-size: 12px; padding: 6px 12px; border-radius: 8px; cursor: pointer; z-index: 7; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
 .rack3d-export:hover { background: var(--app-primary,#409eff); color: #fff; }
 .rack3d-exit { position: absolute; top: 12px; right: 12px; border: 1px solid rgba(255,255,255,0.6); background: rgba(0,0,0,0.55); color: #fff; font-size: 12px; padding: 6px 12px; border-radius: 8px; cursor: pointer; z-index: 7; }
