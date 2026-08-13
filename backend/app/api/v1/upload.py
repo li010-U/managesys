@@ -1,5 +1,5 @@
-﻿"""文件上传与访问API路由"""
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status
+"""文件上传与访问API路由"""
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status, Request
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
