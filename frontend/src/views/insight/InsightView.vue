@@ -84,13 +84,23 @@
               </template>
             </el-table-column>
             <el-table-column prop="power_used_kw" label="功率kW" width="80" />
+            <el-table-column label="功率趋势" min-width="150">
+              <template #default="{ row }">
+                <div class="trend-value">{{ row.power_trend_kw ?? row.power_used_kw }} kW</div>
+                <div v-if="row.power_growth_monthly_kw" class="trend-sub">月增 {{ fmtKw(row.power_growth_monthly_kw) }}</div>
+              </template>
+            </el-table-column>
             <el-table-column label="供电负载" min-width="140">
               <template #default="{ row }">
                 <el-progress :percentage="row.power_util_pct" :stroke-width="8" :color="utilColor(row.power_util_pct)" />
               </template>
             </el-table-column>
-            <el-table-column label="满载预估" width="120">
-              <template #default="{ row }">{{ row.estimate_full_date || '--' }}</template>
+            <el-table-column label="满载预估" width="150">
+              <template #default="{ row }">
+                <div>{{ row.estimate_full_date || '--' }}</div>
+                <div v-if="row.estimate_is_estimate" class="est-note">无历史，经验估算</div>
+                <div v-else-if="row.monthly_growth_units" class="est-note">月增{{ row.monthly_growth_units }}U</div>
+              </template>
             </el-table-column>
           </el-table>
           <el-empty v-if="!capacity.racks?.length" description="暂无机柜数据" :image-size="80" />
@@ -176,7 +186,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from "vue"
-import * as echarts from "echarts"
+import echarts from "../../lib/echarts"
 import { getAllRoomsApi, type RoomInfo } from "../../api/facility"
 import { getAllSensorsApi, type SensorInfo } from "../../api/sensor"
 import {
@@ -231,6 +241,7 @@ function utilColor(p: number) { return p >= 80 ? "#f56c6c" : p >= 60 ? "#e6a23c"
 function tagType(p: string) { return p === "高" ? "danger" : p === "中" ? "warning" : "info" }
 function timelineType(p: string) { return p === "高" ? "danger" : p === "中" ? "warning" : "primary" }
 function fmtPct(v: any) { return v === null || v === undefined ? "--" : Number(v).toFixed(2) + "%" }
+function fmtKw(v: any) { const n = Number(v); return isNaN(n) ? "--" : n.toFixed(2) + " kW" }
 
 async function loadRooms() {
   try { const rr = await getAllRoomsApi(); rooms.value = rr.data || [] } catch { rooms.value = [] }
@@ -393,6 +404,9 @@ onBeforeUnmount(() => {
 .correlate-list { margin-top: 8px; }
 .correlate-level { font-size: 13px; color: #909399; margin: 8px 0 4px; }
 .correlate-tag { margin: 0 6px 6px 0; }
+.trend-value { font-weight: 600; color: #303133; }
+.trend-sub { font-size: 12px; color: #909399; }
+.est-note { font-size: 11px; color: #b88230; margin-top: 2px; }
 .trace-meta { color: #909399; font-size: 12px; margin: 8px 0; }
 .trace-section { margin-bottom: 8px; }
 .trace-section-title { font-size: 13px; color: #909399; margin-bottom: 4px; }

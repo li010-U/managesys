@@ -1,7 +1,7 @@
 ﻿# -*- coding: utf-8 -*-
 """智能分析 API：自学习基线、趋势预测、容量规划、可靠性、AI 巡检、告警智能、LLM 追溯。"""
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Request, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db, get_current_user, require_permission
@@ -76,6 +76,7 @@ async def alert_trace(
 # ---------------- 告警智能 ----------------
 @router.post("/alerts/escalate")
 async def alerts_auto_escalate(
+    request: Request,
     minutes: int = Query(30, ge=1, le=1440),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -84,14 +85,17 @@ async def alerts_auto_escalate(
     """手动触发一次未确认 emergency 告警的自动升级扫描。"""
     svc = AlertIntelligenceService(db, escalate_after_minutes=minutes)
     ids = await svc.auto_escalate()
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="execute", target_type="alert", detail=f"自动升级{minutes}分钟以上告警 ({len(ids)}条)")
     return {"escalated_count": len(ids), "escalated_ids": ids}
 
 
 @router.post("/alerts/{alert_id}/converge")
 async def converge_alert(
     alert_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(require_permission("monitor:handle_alert")),
+    current_user: User = Depends(require_permission("monitor:handle_alert")),
 ):
     """对某条告警执行收敛归并（同类开放告警叠加 occurrences）。"""
     from app.models.alert import Alert
@@ -100,6 +104,8 @@ async def converge_alert(
         raise HTTPException(404, "告警不存在")
     svc = AlertIntelligenceService(db)
     result = await svc.converge_new_alert(alert)
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="execute", target_type="alert", target_id=str(alert_id), detail="收敛告警")
     return {"represents_alert_id": result.id, "occurrences": result.occurrences}
 
 

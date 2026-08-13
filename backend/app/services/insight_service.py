@@ -78,6 +78,52 @@ def _linear_forecast(points: List[float], steps: int) -> Optional[List[float]]:
     return future
 
 
+def _growth_and_power_trend(devices: List[Any]) -> Dict[str, Any]:
+    """由设备上架时间推导 U 位与功率累计曲线，给出真实月均增速。
+
+    为避免“假数值”：当观测历史窗口过短（<30 天）或无占用时，不高估增速，
+    而是标记为经验估算（has_history=False），由调用方回退到保守默认值。
+    """
+    points: List[tuple] = []
+    for d in devices:
+        if getattr(d, "start_u", None) is None or getattr(d, "created_at", None) is None:
+            continue
+        units = max((d.end_u or d.start_u or 1) - (d.start_u or 1) + 1, 0)
+        dt = d.created_at
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        points.append((dt, units, d.power_rating or 0.0))
+    if not points:
+        return {"occupied_now": 0, "history": [], "monthly_growth": None,
+                "power_trend_kw": 0.0, "power_growth_monthly": 0.0, "has_history": False,
+                "span_days": 0.0}
+    points.sort(key=lambda x: x[0])
+    cum_u = 0.0
+    cum_p = 0.0
+    history = []
+    for dt, u, p in points:
+        cum_u += u
+        cum_p += p
+        history.append({"date": dt.isoformat(), "occupied_units": int(cum_u), "power_kw": round(cum_p, 2)})
+    occupied_now = int(cum_u)
+    power_now = cum_p
+    span_days = (points[-1][0] - points[0][0]).total_seconds() / 86400.0
+    MIN_HISTORY_DAYS = 30.0
+    if occupied_now < 1 or span_days < MIN_HISTORY_DAYS:
+        # 历史不足：不做高估增速，指明为经验估算
+        return {"occupied_now": occupied_now, "history": history, "monthly_growth": None,
+                "power_trend_kw": round(power_now, 2), "power_growth_monthly": 0.0,
+                "has_history": False, "span_days": round(span_days, 1)}
+    span_months = span_days / 30.0
+    monthly_growth = round(occupied_now / span_months, 3)
+    monthly_growth = min(monthly_growth, 48.0)  # 合理上限，避免极端值
+    power_growth_monthly = round(power_now / span_months, 3)
+    return {"occupied_now": occupied_now, "history": history,
+            "monthly_growth": monthly_growth, "power_trend_kw": round(power_now, 2),
+            "power_growth_monthly": power_growth_monthly, "has_history": True,
+            "span_days": round(span_days, 1)}
+
+
 class InsightService:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -197,16 +243,20 @@ class InsightService:
             used_units = rack.total_units - rack.available_units
             power_load = sum((d.power_rating or 0.0) for d in devices if d.status in ("running", "online", "mounted"))
             rated = rack.rated_power or 0.0
+            rated_ref = rated if rated > 0 else 10.0  # 参考额定功率，避免数据缺失时供电负载恒为0
             utilization = round((used_units / rack.total_units * 100) if rack.total_units else 0, 1)
-            # 日均新增 U 位占用（按设备注册时间，取宽口径：无历史则用当前占用）
-            # 以"可用 U 位"作为剩余量，按经验月均增量估算满载时间
-            monthly_growth = 2.0  # 默认乐观估计
-            remaining_units = max(rack.available_units, 0)
+            # 真实增长：由设备上架时间推导 U 位与功率累计曲线，满载预估基于真实历史月增幅
+            gm = _growth_and_power_trend([d for d in devices if d.start_u is not None])
+            occupied_now = gm["occupied_now"]
+            remaining_units = max(rack.total_units - occupied_now, 0)
+            monthly_growth = gm["monthly_growth"] or 2.0
             full_months = (remaining_units / monthly_growth) if monthly_growth > 0 else None
             full_date = None
             if full_months is not None:
                 target = now + timedelta(days=30 * full_months)
                 full_date = target.date().isoformat()
+            power_trend_kw = gm["power_trend_kw"]
+            power_growth_monthly = gm["power_growth_monthly"]
             rows.append({
                 "rack_id": rack.id,
                 "rack_code": rack.code,
@@ -219,9 +269,13 @@ class InsightService:
                 "device_count": len(devices),
                 "power_used_kw": round(power_load, 2),
                 "rated_power_kw": rated,
-                "power_util_pct": round((power_load / rated * 100) if rated else 0, 1),
+                "power_util_pct": round((power_load / rated_ref * 100) if rated_ref else 0, 1),
                 "estimate_full_months": None if full_months is None else round(full_months, 1),
                 "estimate_full_date": full_date,
+                "estimate_is_estimate": not gm["has_history"],
+                "monthly_growth_units": monthly_growth,
+                "power_trend_kw": power_trend_kw,
+                "power_growth_monthly_kw": power_growth_monthly,
             })
         return {"room_id": room_id, "count": len(rows), "racks": rows}
 
