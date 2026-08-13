@@ -1,4 +1,5 @@
 ﻿"""审计日志服务"""
+import logging
 from datetime import datetime, date
 from typing import Optional, Any
 
@@ -6,6 +7,8 @@ from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.audit_log import AuditLog
+
+logger = logging.getLogger("managesys.audit")
 
 
 class AuditService:
@@ -26,21 +29,26 @@ class AuditService:
         ip_address: Optional[str] = None,
         request_path: Optional[str] = None,
         user_agent: Optional[str] = None,
-    ) -> AuditLog:
-        """记录审计日志（同步创建，随外层事务一起提交）"""
-        audit_log = AuditLog(
-            user_id=user_id,
-            username=username or "system",
-            action=action,
-            target_type=target_type,
-            target_id=target_id,
-            detail=detail,
-            ip_address=ip_address,
-            request_path=request_path,
-            user_agent=user_agent,
-        )
-        db.add(audit_log)
-        return audit_log
+    ) -> Optional[AuditLog]:
+        """记录审计日志（同步创建，随外层事务一起提交）。
+        零信任设计：任何审计写入异常都不得串到业务请求，失败时记录日志并返回 None。"""
+        try:
+            audit_log = AuditLog(
+                user_id=user_id,
+                username=username or "system",
+                action=action,
+                target_type=target_type,
+                target_id=target_id,
+                detail=detail,
+                ip_address=ip_address,
+                request_path=request_path,
+                user_agent=user_agent,
+            )
+            db.add(audit_log)
+            return audit_log
+        except Exception:
+            logger.warning("审计写入失败(已忽略): action=%s target=%s/%s", action, target_type, target_id, exc_info=True)
+            return None
 
     @staticmethod
     def log_request(
