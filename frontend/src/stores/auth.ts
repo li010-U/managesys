@@ -1,6 +1,6 @@
 ﻿import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { loginApi, getCurrentUserApi } from '../api/auth'
+import { loginApi, getCurrentUserApi, logoutApi } from '../api/auth'
 import { prefetchDict } from '../api/dictCache'
 import type { UserInfo } from '../api/user'
 import router from '../router'
@@ -50,6 +50,12 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function logout() {
+    // 先通知后端记录退出审计（忽略失败，本地仍强制登出）
+    if (token.value) {
+      try {
+        logoutApi().catch(() => {})
+      } catch { /* ignore */ }
+    }
     token.value = ''
     user.value = null
     isAuthenticated.value = false

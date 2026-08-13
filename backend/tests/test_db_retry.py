@@ -193,6 +193,12 @@ class TestGetDbAutoCommitOnFlush:
         from app.models.role import Role
         from sqlalchemy import text
 
+        # 确保全局测试库已建表（先导入所有模型，再建表，幂等）
+        from app.db.base import Base
+        from app.db.session import engine as _global_engine
+        async with _global_engine.begin() as _conn:
+            await _conn.run_sync(Base.metadata.create_all)
+
         code = "flush_test_%s" % id(object())
         gen = get_db(self._FakeRequest())
         db = await gen.__anext__()

@@ -81,6 +81,8 @@ def _ensure_columns(conn):
         ("alerts", "resolved_at", "ALTER TABLE alerts ADD COLUMN resolved_at DATETIME"),
         ("alerts", "escalated_at", "ALTER TABLE alerts ADD COLUMN escalated_at DATETIME"),
         ("alerts", "escalated_from", "ALTER TABLE alerts ADD COLUMN escalated_from VARCHAR(16)"),
+        ("audit_logs", "request_path", "ALTER TABLE audit_logs ADD COLUMN request_path VARCHAR(256)"),
+        ("audit_logs", "user_agent", "ALTER TABLE audit_logs ADD COLUMN user_agent VARCHAR(512)"),
     ]:
         if not _has(table, col):
             conn.exec_driver_sql(ddl)

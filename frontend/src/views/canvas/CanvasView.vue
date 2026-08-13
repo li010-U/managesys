@@ -18,7 +18,7 @@ defineOptions({ name: 'CanvasView' })
 import { ref, onMounted, onUnmounted, onActivated } from "vue"
 import { ElMessage } from "element-plus"
 import { Monitor } from "@element-plus/icons-vue"
-import * as echarts from "echarts"
+import echarts from "../../lib/echarts"
 
 const pieChartRef = ref<HTMLElement>()
 const lineChartRef = ref<HTMLElement>()

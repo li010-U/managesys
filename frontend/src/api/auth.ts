@@ -1,4 +1,4 @@
-﻿import http from './index'
+import http from './index'
 
 export interface LoginRequest {
   username: string
@@ -50,6 +50,11 @@ export function registerApi(data: RegisterRequest) {
 /** 修改密码 */
 export function changePasswordApi(data: { old_password: string; new_password: string }) {
   return http.post('/auth/change-password', data)
+}
+
+/** 退出登录 */
+export function logoutApi() {
+  return http.post('/auth/logout')
 }
 
 /** 获取当前用户信息 */

@@ -1,5 +1,6 @@
 """应用配置"""
 from pydantic_settings import BaseSettings
+from pydantic import field_validator
 from typing import Optional, List
 
 
@@ -42,6 +43,8 @@ class Settings(BaseSettings):
     # ===== 密码策略 =====
     PASSWORD_MIN_LENGTH: int = 8
     ENABLE_CAPTCHA: bool = False
+    # ===== ????????????????????????? .env ? REGISTER_ENABLED=true =====
+    REGISTER_ENABLED: bool = False
     # --- 端口限流（防止暴力碰库 / 注册垃圾账号） ---
     # 每个 IP 每窗口内允许的请求数与窗口长度（秒）
     RATE_LIMIT_LOGIN_MAX: int = 10
@@ -102,5 +105,14 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
 
+
+
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def _reject_insecure_secret(cls, v: str) -> str:
+        insecure = {"dev-secret-key-change-in-production-2024", "changeme", "secret", "insecure"}
+        if not v or v in insecure or v.startswith("dev-"):
+            raise ValueError("SECRET_KEY ???????/.env ???????????????????????")
+        return v
 
 settings = Settings()

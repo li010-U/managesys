@@ -542,7 +542,8 @@ async def _intent_context(intents: set) -> str:
             for r in racks:
                 pwr = sum((d.power_rating or 0.0) for d in r.devices if d.status in ("running", "online", "mounted"))
                 rated = r.rated_power or 0.0
-                util = round((pwr / rated * 100), 1) if rated else 0.0
+                rated_ref = rated if rated > 0 else 10.0
+                util = round((pwr / rated_ref * 100), 1)
                 rows.append((r.code, round(pwr, 1), rated, util))
             rows.sort(key=lambda x: -x[3])
             if rows:
@@ -1440,6 +1441,7 @@ async def get_messages(
 
 
 async def create_conversation(
+    request: Request,
 
 
     current_user: User = Depends(require_permission("monitor:view_dashboard")),
@@ -1463,6 +1465,8 @@ async def create_conversation(
     await db.refresh(conv)
 
 
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="create", target_type="conversation", target_id=str(conv.id), detail="??AI??")
     return {"id": conv.id, "title": conv.title}
 
 
@@ -1476,6 +1480,7 @@ async def create_conversation(
 
 
 async def delete_conversation(
+    request: Request,
 
 
     conv_id: int,
@@ -1520,6 +1525,8 @@ async def delete_conversation(
         await with_commit_retry(db.commit)
 
 
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="conversation", target_id=str(conv_id), detail="??AI??")
     return {"message": "已删除"}
 
 
@@ -1551,6 +1558,7 @@ class ToolExecuteRequest(BaseModel):
 
 
 async def execute_tool(
+    request: Request,
 
 
     req: ToolExecuteRequest,
@@ -1622,6 +1630,8 @@ async def execute_tool(
         return JSONResponse(status_code=500, content={"detail": "tool execution failed"})
 
 
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="execute", target_type="tool", target_id=None, detail="??AI??: " + str(getattr(req,"tool","")))
     return {"ok": True, "result": result}
 
 

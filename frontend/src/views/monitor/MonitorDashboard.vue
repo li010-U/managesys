@@ -142,7 +142,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'MonitorDashboard' })
 import { ref, computed, onMounted, onUnmounted, onActivated, nextTick, watch } from "vue"
-import * as echarts from "echarts"
+import echarts from "../../lib/echarts"
 import { ElMessage } from "element-plus"
 import { Refresh, Search, Warning, ColdDrink, Check, Connection } from "@element-plus/icons-vue"
 import { getSensorsApi, getSensorDataApi, getAllSensorsApi } from "../../api/sensor"
