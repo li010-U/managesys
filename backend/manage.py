@@ -29,6 +29,7 @@ def cmd_help():
   restore       - 从备份还原数据库: python manage.py restore <backup.db> [--force]
   export-json   - 全量表数据导出为 JSON: python manage.py export-json [输出路径]
   import-json   - 导入 JSON（清空+重放，幂等）: python manage.py import-json <input.json> [--force]
+  check-data    - 数据一致性体检: python manage.py check-data [--fix] [--db <path>]
 环境变量:
   DATABASE_URL  - 数据库连接字符串（可选，默认使用 .env 配置）
 
@@ -42,6 +43,7 @@ def cmd_help():
   python manage.py restore <backup.db> --force 还原数据库
   python manage.py export-json                  导出全量表为 JSON
   python manage.py import-json <input.json>     导入 JSON
+  python manage.py check-data                    数据一致性体检
 """)
 
 
@@ -264,6 +266,29 @@ def cmd_import():
         print(f"[ERROR] {e}")
 
 
+def cmd_check_data():
+    """\u6570\u636e\u4e00\u81f4\u6027\u4f53\u68c0\uff1apython manage.py check-data [--fix] [--db <path>]"""
+    import sys as _s
+    args = _s.argv[2:]
+    fix = "--fix" in args
+    db = None
+    if "--db" in args:
+        i = args.index("--db")
+        if i + 1 < len(args):
+            db = args[i + 1]
+    try:
+        import data_audit
+        report = data_audit.run_audit(db)
+        print(data_audit.format_report(report))
+        if fix:
+            fixed = data_audit.apply_fixes(db)
+            print(f"[FIX] \u5df2\u4fee\u590d: {fixed}\u9879")
+        return 1 if report["summary"]["error"] else 0
+    except Exception as e:
+        print(f"[ERROR] \u4f53\u68c0\u5931\u8d25: {e}")
+        return 1
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         cmd_help()
@@ -280,6 +305,7 @@ if __name__ == "__main__":
         "restore": cmd_restore,
         "export-json": cmd_export,
         "import-json": cmd_import,
+        "check-data": cmd_check_data,
     }
 
     if cmd in commands:
