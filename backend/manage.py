@@ -188,15 +188,39 @@ def _backup_utils():
 
 
 def cmd_backup():
-    """\u5907\u4efd\u6570\u636e\u5e93\uff08\u5728\u7ebf\u4e00\u81f4\u6027\uff0c\u542b WAL\uff09\uff1apython manage.py backup [target_dir] [keep]"""
+    """\u5907\u4efd\u6570\u636e\u5e93\uff08\u5728\u7ebf\u4e00\u81f4\u6027\uff0c\u542b WAL\uff09\n\u7528\u6cd5: python manage.py backup [target_dir] [--keep N] [--log <file>]\n\u53ef\u88ab\u8ba1\u5212\u4efb\u52a1\u8c03\u7528\uff1a\u6210\u529f\u8fd4\u56de 0\uff0c\u5931\u8d25\u8fd4\u56de\u975e 0"""
     import sys as _s
-    target = _s.argv[2] if len(_s.argv) > 2 else None
-    keep = int(_s.argv[3]) if len(_s.argv) > 3 else 30
+    args = _s.argv[2:]
+    target = None
+    keep = 30
+    logfile = None
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--keep" and i + 1 < len(args):
+            keep = int(args[i + 1]); i += 2
+        elif a == "--log" and i + 1 < len(args):
+            logfile = args[i + 1]; i += 2
+        elif a.startswith("--"):
+            i += 1
+        else:
+            target = a
+            i += 1
     try:
         path = _backup_utils().backup(target, keep=keep)
-        print(f"[OK] \u5907\u4efd\u5b8c\u6210 -> {path}")
+        msg = f"[OK] \u5907\u4efd\u5b8c\u6210 -> {path}"
+        print(msg)
+        if logfile:
+            with open(logfile, "a", encoding="utf-8") as f:
+                f.write(msg + "\n")
+        return 0
     except Exception as e:
-        print(f"[ERROR] {e}")
+        msg = f"[ERROR] \u5907\u4efd\u5931\u8d25: {e}"
+        print(msg)
+        if logfile:
+            with open(logfile, "a", encoding="utf-8") as f:
+                f.write(msg + "\n")
+        return 1
 
 
 def cmd_restore():
@@ -259,7 +283,9 @@ if __name__ == "__main__":
     }
 
     if cmd in commands:
-        commands[cmd]()
+        rc = commands[cmd]()
+        if isinstance(rc, int) and rc != 0:
+            sys.exit(rc)
     elif cmd in ("migrate", "upgrade", "downgrade"):
         # 委托给 Alembic
         from alembic.config import main as alembic_main
