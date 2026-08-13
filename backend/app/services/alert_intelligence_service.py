@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from app.core.timeutil import ensure_utc
 from typing import Dict, List, Optional
 
 from sqlalchemy import select
@@ -22,11 +23,8 @@ from app.models.sensor import Sensor
 
 
 def _utc(dt: Optional[datetime]) -> Optional[datetime]:
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+    """统一时区规范（委托 timeutil.ensure_utc）"""
+    return ensure_utc(dt)
 
 
 def _alert_dedupe_key(alert: Alert) -> str:

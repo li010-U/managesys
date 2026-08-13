@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """传感器"两采集点之间越阈但采集点正常"的异常留痕 与 数据保留清理服务。
 
 - reconcile_from_alerts: 以传感器告警为外部越阈信号，判定其是否落在两个正常采集点之间，
@@ -6,6 +6,7 @@
 - run_retention: 按 DATA_RETENTION_DAYS 滚动清理 sensor_data 与 sensor_anomaly_gap。
 """
 from datetime import datetime, timedelta, timezone
+from app.core.timeutil import ensure_utc
 from typing import Optional
 
 from sqlalchemy import select, delete
@@ -18,12 +19,8 @@ from app.models.sensor import Sensor, SensorData, SensorAnomalyGap
 
 
 def _utc(dt: Optional[datetime]) -> Optional[datetime]:
-    """SQLite 返回的 naive 时间按 UTC 处理；规范化便于差运算。"""
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+    """统一时区规范（委托 timeutil.ensure_utc）"""
+    return ensure_utc(dt)
 
 
 class SensorAnomalyService:

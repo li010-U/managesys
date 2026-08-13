@@ -14,6 +14,7 @@ from __future__ import annotations
 import math
 import statistics
 from datetime import datetime, timedelta, timezone
+from app.core.timeutil import ensure_utc
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func, select
@@ -26,11 +27,8 @@ from app.models.sensor import Sensor, SensorData
 
 
 def _utc(dt: Optional[datetime]) -> Optional[datetime]:
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+    """统一时区规范（委托 timeutil.ensure_utc）"""
+    return ensure_utc(dt)
 
 
 def _fmt(dt: Optional[datetime]) -> Optional[str]:
