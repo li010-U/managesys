@@ -126,11 +126,16 @@ class AuthService:
             await self._record_login_log(username, ip_address, "fail", "用户不存在", request_path=request_path, user_agent=user_agent)
             raise ValueError("用户名或密码错误")
 
-        # 检查账户是否锁定
-        if user.locked_until and user.locked_until > datetime.now(timezone.utc):
-            remaining = (user.locked_until - datetime.now(timezone.utc)).seconds // 60
-            await self._record_login_log(username, ip_address, "fail", "账户已锁定", request_path=request_path, user_agent=user_agent)
-            raise ValueError(f"账户已被锁定，请{remaining}分钟后重试")
+        # 检查账户是否锁定（SQLite 返回 naive datetime，需与 aware now 时区安全比较）
+        if user.locked_until:
+            locked_until = user.locked_until
+            if getattr(locked_until, "tzinfo", None) is None:
+                locked_until = locked_until.replace(tzinfo=timezone.utc)
+            now = datetime.now(timezone.utc)
+            if locked_until > now:
+                remaining = max(1, int((locked_until - now).total_seconds() // 60))
+                await self._record_login_log(username, ip_address, "fail", "账户已锁定", request_path=request_path, user_agent=user_agent)
+                raise ValueError(f"账户已被锁定，请{remaining}分钟后重试")
 
         # 检查账户是否停用
         if not user.is_active:
