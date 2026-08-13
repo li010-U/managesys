@@ -25,7 +25,10 @@ def cmd_help():
   reset         - 重置数据库（删除所有表重建 + 初始化数据）
   show          - 显示当前数据库信息
   create-admin  - 重新创建管理员账号
-
+  backup        - 在线一致性备份数据库 -> backups/managesys_<时间戳>.db
+  restore       - 从备份还原数据库: python manage.py restore <backup.db> [--force]
+  export-json   - 全量表数据导出为 JSON: python manage.py export-json [输出路径]
+  import-json   - 导入 JSON（清空+重放，幂等）: python manage.py import-json <input.json> [--force]
 环境变量:
   DATABASE_URL  - 数据库连接字符串（可选，默认使用 .env 配置）
 
@@ -35,6 +38,10 @@ def cmd_help():
   python manage.py upgrade    升级数据库
   python manage.py reset      重置数据库
   python manage.py show       查看数据库信息
+  python manage.py backup                      备份数据库
+  python manage.py restore <backup.db> --force 还原数据库
+  python manage.py export-json                  导出全量表为 JSON
+  python manage.py import-json <input.json>     导入 JSON
 """)
 
 
@@ -174,6 +181,65 @@ def cmd_create_admin():
     asyncio.run(_create())
 
 
+
+def _backup_utils():
+    import backup_utils
+    return backup_utils
+
+
+def cmd_backup():
+    """\u5907\u4efd\u6570\u636e\u5e93\uff08\u5728\u7ebf\u4e00\u81f4\u6027\uff0c\u542b WAL\uff09\uff1apython manage.py backup [target_dir] [keep]"""
+    import sys as _s
+    target = _s.argv[2] if len(_s.argv) > 2 else None
+    keep = int(_s.argv[3]) if len(_s.argv) > 3 else 30
+    try:
+        path = _backup_utils().backup(target, keep=keep)
+        print(f"[OK] \u5907\u4efd\u5b8c\u6210 -> {path}")
+    except Exception as e:
+        print(f"[ERROR] {e}")
+
+
+def cmd_restore():
+    """\u8fd8\u539f\u6570\u636e\u5e93\uff1apython manage.py restore <backup.db> [--force]"""
+    import sys as _s
+    if len(_s.argv) < 3:
+        print("[ERROR] \u7528\u6cd5: python manage.py restore <backup.db> [--force]")
+        return
+    src = _s.argv[2]
+    force = "--force" in _s.argv
+    try:
+        path = _backup_utils().restore(src, force=force)
+        print(f"[OK] \u8fd8\u539f\u5b8c\u6210 -> {path}\n\u8bf7\u91cd\u542f\u540e\u7aef\u670d\u52a1\u4f7f\u751f\u6548\u3002")
+    except Exception as e:
+        print(f"[ERROR] {e}")
+
+
+def cmd_export():
+    """\u5bfc\u51fa\u5168\u91cf\u6570\u636e\u4e3a JSON\uff1apython manage.py export-json [out.json]"""
+    import sys as _s
+    out = _s.argv[2] if len(_s.argv) > 2 else None
+    try:
+        path = _backup_utils().export_json(out)
+        print(f"[OK] \u5bfc\u51fa\u5b8c\u6210 -> {path}")
+    except Exception as e:
+        print(f"[ERROR] {e}")
+
+
+def cmd_import():
+    """\u5bfc\u5165 JSON\uff08\u6e05\u7a7a+\u91cd\u653e\uff0c\u5e42\u7b49\uff09\uff1apython manage.py import-json <file.json> [--force]"""
+    import sys as _s
+    if len(_s.argv) < 3:
+        print("[ERROR] \u7528\u6cd5: python manage.py import-json <file.json> [--force]")
+        return
+    src = _s.argv[2]
+    force = "--force" in _s.argv
+    try:
+        total = _backup_utils().import_json(src, force=force)
+        print(f"[OK] \u5bfc\u5165\u5b8c\u6210\uff0c\u91cd\u653e {total} \u6761\u8bb0\u5f55\uff08\u5e42\u7b49\uff0c\u53ef\u91cd\u590d\u6267\u884c\uff09\n\u8bf7\u91cd\u542f\u540e\u7aef\u670d\u52a1\u4f7f\u751f\u6548\u3002")
+    except Exception as e:
+        print(f"[ERROR] {e}")
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         cmd_help()
@@ -186,6 +252,10 @@ if __name__ == "__main__":
         "reset": cmd_reset,
         "show": cmd_show,
         "create-admin": cmd_create_admin,
+        "backup": cmd_backup,
+        "restore": cmd_restore,
+        "export-json": cmd_export,
+        "import-json": cmd_import,
     }
 
     if cmd in commands:
