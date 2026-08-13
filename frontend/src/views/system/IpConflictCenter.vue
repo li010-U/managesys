@@ -32,6 +32,8 @@
               <span class="asset">{{ d.asset_number }}</span>
             </div>
             <div class="dev-sub"><el-tag size="small" type="warning">{{ conflictIpText(c, d) }}</el-tag></div>
+            <div class="dev-loc" v-if="d.racked"><el-icon><Position /></el-icon><span>{{ d.rack_name || '未知机柜' }}<template v-if="d.room_id"> · 机房{{ d.room_id }}</template></span></div>
+            <div class="dev-loc unracked" v-else><el-tag size="small" type="warning" effect="dark">未挂载</el-tag><span>该设备未挂载到机柜</span></div>
             <div class="dev-actions">
               <el-button size="small" text type="primary" :icon="Position" @click="locateRack(d)">定位机柜</el-button>
               <el-button size="small" text type="primary" :icon="Edit" @click="startEdit(c, d)">改IP</el-button>
@@ -59,6 +61,8 @@
           <div v-for="(d,i) in (c.devices||[])" :key="i" class="device-cell">
             <div class="dev-head"><strong>{{ d.name }}</strong><span class="asset">{{ d.asset_number }}</span></div>
             <div class="dev-sub"><el-tag size="small" type="warning">{{ roleName(d.role) }}</el-tag></div>
+            <div class="dev-loc" v-if="d.racked"><el-icon><Position /></el-icon><span>{{ d.rack_name || '未知机柜' }}<template v-if="d.room_id"> · 机房{{ d.room_id }}</template></span></div>
+            <div class="dev-loc unracked" v-else><el-tag size="small" type="warning" effect="dark">未挂载</el-tag><span>该设备未挂载到机柜</span></div>
             <div class="dev-actions">
               <el-button size="small" text type="primary" :icon="Position" @click="locateRack(d)">定位机柜</el-button>
             </div>
@@ -189,6 +193,8 @@ onMounted(fetchData)
 .dev-head strong { font-size: 14px; color: #1e293b; }
 .asset { color: #94a3b8; font-size: 12px; }
 .dev-sub { margin-bottom: 8px; }
+.dev-loc { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #64748b; margin-bottom: 8px; }
+.dev-loc.unracked { color: #b45309; }
 .dev-actions { display: flex; gap: 4px; }
 .inline-edit { margin-top: 10px; padding-top: 10px; border-top: 1px dashed #e2e8f0; }
 .edit-btns { display: flex; gap: 8px; }

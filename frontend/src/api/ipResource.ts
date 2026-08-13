@@ -26,6 +26,7 @@ export interface ConflictDevice {
   rack_name?: string
   room_id?: number
   role: string
+  racked?: boolean
 }
 
 export interface IpConflict {

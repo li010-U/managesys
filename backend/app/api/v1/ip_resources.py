@@ -49,10 +49,13 @@ async def ip_resource_resolve(
     _ = Depends(require_any_permission("device:edit", "device:create")),
 ):
     try:
-        return await IpResourceService(db).resolve_conflict(
+        result = await IpResourceService(db).resolve_conflict(
             req.device_id, req.role, req.new_ip,
             operator_username=current_user.username,
             operator_ip=get_client_ip(request),
         )
+        from app.services.audit_service import AuditService
+        AuditService.log_request(db, request, current_user=current_user, action="execute", target_type="ip_resource", target_id=str(req.device_id), detail=f"处理IP地址冲突: 设备{req.device_id} 新IP {req.new_ip}")
+        return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

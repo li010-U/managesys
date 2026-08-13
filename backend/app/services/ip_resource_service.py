@@ -1,4 +1,4 @@
-"""IP 资源概览服务：基于设备台账的 IP 字段实时聚合。
+﻿"""IP 资源概览服务：基于设备台账的 IP 字段实时聚合。
 
 不引入新表；以设备管理/业务/带外 IP 为数据源，
 输出：IP 类型计数、网段分组、以及 IP 冲突检测（同字段重复为明确冲突，
@@ -178,6 +178,11 @@ class IpResourceService:
                 if rid in room_map:
                     d["rack_name"] = room_map[rid][0]
                     d["room_id"] = room_map[rid][1]
+                    d["racked"] = True
+                else:
+                    d["rack_name"] = "未挂载"
+                    d["room_id"] = None
+                    d["racked"] = False
             return devices
 
         explicit = []
@@ -218,6 +223,7 @@ class IpResourceService:
                     out.append({
                         "id": r.id, "name": r.name, "asset_number": r.asset_number,
                         "status": r.status, "rack_id": r.rack_id, "role": role,
+                        "racked": False, "rack_name": "未挂载",
                     })
         return out
 

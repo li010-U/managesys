@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.device_type import DeviceType
 from app.models.device import Device, DeviceLifecycle
 from app.schemas.device import DeviceTypeCreate, DeviceTypeUpdate, DeviceCreate, DeviceUpdate, ThresholdConfigUpdate
+from app.services.ip_registry_service import sync_device_ip_ledger, release_device_ip_ledger
 
 
 class DeviceTypeService:
@@ -182,6 +183,9 @@ class DeviceService:
         )
 
         await self.db.flush()
+        # 同步 IP 台账（与设备同事务，保证唯一事实源）
+        from app.services.ip_registry_service import sync_device_ip_ledger as _sync
+        await _sync(self.db, device)
         return device
 
     async def update(self, device_id: int, req: DeviceUpdate, operator_username: str = None, operator_ip: str = None) -> Device | None:
@@ -245,6 +249,9 @@ class DeviceService:
                 ip_address=operator_ip,
             )
 
+        # 同步 IP 台账（与设备同事务）
+        from app.services.ip_registry_service import sync_device_ip_ledger as _sync
+        await _sync(self.db, device)
         return device
 
     async def delete(self, device_id: int, operator_username: str = None, operator_ip: str = None) -> bool:
@@ -253,6 +260,9 @@ class DeviceService:
             return False
         
         device_name = device.name
+        # 释放该设备在 IP 台账中的条目（同事务）
+        from app.services.ip_registry_service import release_device_ip_ledger as _release
+        await _release(self.db, device_id)
         await self.db.delete(device)
         await self.db.flush()
 
