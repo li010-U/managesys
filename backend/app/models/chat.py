@@ -1,7 +1,7 @@
 ﻿"""AI对话模型"""
 from datetime import datetime
 from typing import Optional, List
-from sqlalchemy import String, Integer, DateTime, Text, ForeignKey, JSON
+from sqlalchemy import String, Integer, DateTime, Text, ForeignKey, JSON, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from app.db.base import Base
@@ -13,6 +13,7 @@ class ChatConversation(Base):
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, comment="用户ID")
     title: Mapped[str] = mapped_column(String(256), default="新对话", comment="对话标题")
     summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="滚动会话记忆摘要")
+    pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, comment="是否置顶")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
 
@@ -30,6 +31,8 @@ class ChatMessage(Base):
     role: Mapped[str] = mapped_column(String(16), nullable=False, comment="角色：user/assistant/system")
     content: Mapped[str] = mapped_column(Text, nullable=False, comment="消息内容")
     extra_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, comment="扩展元数据（模型、token数等）")
+    feedback: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, comment="用户反馈：like/dislike")
+    pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, comment="是否置顶")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
 
     conversation: Mapped["ChatConversation"] = relationship("ChatConversation", back_populates="messages", lazy="selectin")

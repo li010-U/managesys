@@ -99,3 +99,6 @@ temp_srs.txt
 /backend/data.db
 /*.docx
 /frontend/_run_frontend.pid
+
+# 一次性调试/巡检脚本归档区（不入库）
+/tools/dev/

@@ -129,3 +129,28 @@ AI 助手需要**能正确识别中文**的模型。两个可用方向\uff1a
 
 > 注：`DEPLOY.md` 全文历史说明（如"回帖重复/模型渠道"等）对应此前迭代，
 > 与本次安全加固无关，可保留。
+
+## 11. 数据库迁移（Alembic）
+
+从本版开始，数据库表结构改动建议统一走 Alembic 迁移，不再依赖启动时的 create_all 硬加列（_ensure_columns）。
+
+当前已生成根基线迁移：`backend/alembic/versions/5c9d0be78b8c_baseline_full_schema.py`，并将现有数据库标记为已应用该迁移（stamp）。
+
+当你修改了 `backend/app/models/` 中的模型（新增/删除表或列、修改约束）后：
+
+```bash
+cd backend
+# 生成迁移脚本（自动对比模型与数据库）
+python -m alembic revision --autogenerate -m "describe your change"
+# 审查生成的文件，然后应用
+python -m alembic upgrade head
+```
+
+常用命令：
+- `python -m alembic current`：查看当前迁移版本
+- `python -m alembic history`：查看迁移历史
+- `python -m alembic check`：检查模型与数据库是否有差异（只报告不修改）
+
+注意：
+- 迁移文件属于源码，应随版本控制提交。
+- 不依赖 Alembic 时建议保持启动时的 create_all 作为新存数据库的底座，在新存库上 可用 `alembic upgrade head` 建立全量结构；已有数据库不会重复创建。

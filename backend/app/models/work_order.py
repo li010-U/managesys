@@ -58,6 +58,7 @@ class WorkOrder(Base):
     result: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="处理结果")
     satisfaction: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="满意度评分 1-5")
     feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="用户反馈")
+    alert_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("alerts.id", ondelete="SET NULL"), nullable=True, comment="关联告警ID")
     approved_by: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, comment="审批人")
     approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment="审批时间")
     reject_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="拒绝原因")

@@ -138,6 +138,7 @@ class InspectionIssue(Base):
     
     reporter_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, comment="上报人")
     handler_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, comment="处理人")
+    alert_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("alerts.id", ondelete="SET NULL"), nullable=True, comment="关联告警ID")
     
     resolve_content: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="处理内容")
     resolve_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment="处理时间")
