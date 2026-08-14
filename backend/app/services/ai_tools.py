@@ -461,8 +461,10 @@ async def _exec_create_work_order(db, args, operator):
         "INSERT INTO work_orders (order_no, title, description, priority, device_id, facility_id, status, creator_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (order_no, title, description, priority, args.get("device_id"), args.get("facility_id"), "pending", user.id))
     await with_commit_retry(db.commit)
-    row = await exec_sql(db, "SELECT id FROM work_orders WHERE order_no = ?", (order_no,))
-    order_id = row.fetchone().id
+    res = await exec_sql(db, "SELECT id FROM work_orders WHERE order_no = ?", (order_no,))
+    row = res.fetchone()
+    _require(row is not None, "work order creation failed")
+    order_id = row.id
     # 生成工单后，将当前待处理(new)告警受理为已处理(acknowledged)，
     # 使“待处理告警”警告消失，改由“未处理工单”提醒来承接处理进度。
     from app.models.alert import Alert, AlertAction

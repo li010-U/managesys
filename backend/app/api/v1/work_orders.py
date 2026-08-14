@@ -60,7 +60,10 @@ async def create_category(
     result = await exec_sql(db, "SELECT * FROM work_order_categories WHERE code = ?", (code,))
     AuditService.log_request(db, request, current_user=current_user, action="create", target_type="work_order_category", target_id=None, detail='??????: ' + str(data.name))
 
-    return {"data": dict(result.fetchone()._mapping)}
+    row = result.fetchone()
+    if row is None:
+        raise HTTPException(status_code=fastapi_status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Category creation failed")
+    return {"data": dict(row._mapping)}
 
 
 @router.put("/categories/{category_id}", summary="Update category")
@@ -313,7 +316,10 @@ async def create_work_order(
     """, (order_no, title, description, category_id, priority, device_id, facility_id, assignee_id, plan_date, estimated_hours, status, current_user.id))
 
     result = await exec_sql(db, "SELECT id FROM work_orders WHERE order_no = ?", (order_no,))
-    order_id = result.fetchone().id
+    row = result.fetchone()
+    if row is None:
+        raise HTTPException(status_code=fastapi_status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Work order creation failed")
+    order_id = row.id
 
     if applied_rule:
         await exec_sql(db, "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
@@ -532,7 +538,10 @@ async def add_comment(
     result = await exec_sql(db, "SELECT * FROM work_order_comments ORDER BY id DESC LIMIT 1")
     AuditService.log_request(db, request, current_user=current_user, action="comment", target_type="work_order", target_id=str(work_order_id), detail='??????')
 
-    return {"data": dict(result.fetchone()._mapping)}
+    row = result.fetchone()
+    if row is None:
+        raise HTTPException(status_code=fastapi_status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Comment save failed")
+    return {"data": dict(row._mapping)}
 
 
 @router.post("/{work_order_id}/attachments", summary="Upload attachment")

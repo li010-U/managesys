@@ -20,6 +20,7 @@ from typing import List, Optional
 
 
 import asyncio
+import logging
 
 
 
@@ -62,6 +63,9 @@ from app.services import ai_tools
 
 
 
+
+
+logger = logging.getLogger("managesys.chat")
 
 
 router = APIRouter(prefix="/chat", tags=["消息管理"])
@@ -897,10 +901,10 @@ async def _refresh_conversation_summary(conv_id: int) -> None:
 
 
 
-    except Exception:
+    except Exception as e:
 
 
-        pass
+        logger.warning("conversation summary refresh failed: %s", e)
 
 
 
