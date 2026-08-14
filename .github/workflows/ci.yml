@@ -4,10 +4,16 @@ on:
   push:
     branches: [ main, master ]
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: backend
@@ -28,8 +34,35 @@ jobs:
       - name: Run backend test suite
         run: python -m pytest -q
 
+      - name: Boot smoke (isolated DB -> /health + /openapi.json)
+        env:
+          DATABASE_URL: sqlite+aiosqlite:///./data/ci_boot.db
+          INIT_ADMIN_PASSWORD: Ci-Boot-Admin-12345
+          SECRET_KEY: ci-boot-secret-key-0123456789-abcdefghijklmnop
+          ENABLE_CAPTCHA: "false"
+          REGISTER_ENABLED: "true"
+          DATA_RETENTION_TASK_ENABLED: "false"
+          ALERT_INTEL_TASK_ENABLED: "false"
+          SMTP_ENABLED: "false"
+        run: |
+          mkdir -p data
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 8101 --log-level warning &
+          UV_PID=$!
+          trap "kill $UV_PID 2>/dev/null || true" EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8101/health >/dev/null 2>&1; then
+              echo "BOOT_HEALTH_OK"
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8101/health
+          echo
+          curl -fsS http://127.0.0.1:8101/openapi.json | python -c "import sys,json; d=json.load(sys.stdin); assert 'paths' in d and len(d['paths'])>0; print('OPENAPI_OK', len(d['paths']))"
+
   frontend-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: frontend
@@ -51,6 +84,7 @@ jobs:
 
   data-consistency:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: backend
