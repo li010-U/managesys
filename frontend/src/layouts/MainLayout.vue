@@ -40,7 +40,6 @@
             <el-menu-item index="/environment">环境监测</el-menu-item>
             <el-menu-item index="/monitor/dashboard">可视化监控</el-menu-item>
             <el-menu-item index="/monitor/alerts">告警管理</el-menu-item>
-            <el-menu-item index="/canvas">Canvas投屏</el-menu-item>
             <el-menu-item index="/insight">AI智能分析</el-menu-item>
           </el-sub-menu>
           <el-sub-menu index="/system">
