@@ -12,8 +12,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 $BackendDir = Split-Path -Parent $PSScriptRoot
+$RepoRoot   = Split-Path -Parent $BackendDir
+$VenvPy     = Join-Path $RepoRoot ".venv\Scripts\python.exe"
 $FixedPython = "C:\Users\34003\AppData\Local\Programs\Python\Python314\python.exe"
-$Python = if (Test-Path $FixedPython) { $FixedPython } else { "python" }
+$Python = if (Test-Path $VenvPy) { $VenvPy } elseif (Test-Path $FixedPython) { $FixedPython } else { "python" }
 $OutLog = Join-Path $PSScriptRoot "backend.out.log"
 $ErrLog = Join-Path $PSScriptRoot "backend.err.log"
 $PidFile = Join-Path $PSScriptRoot "backend.pid"

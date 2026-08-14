@@ -48,3 +48,33 @@ jobs:
 
       - name: Type-check + build
         run: npm run build
+
+  data-consistency:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build schema via Alembic into isolated DB
+        env:
+          DATABASE_URL: sqlite+aiosqlite:///./data/ci.db
+        run: |
+          python -c "from alembic.config import Config; from alembic import command; command.upgrade(Config('alembic.ini'), 'head')"
+
+      - name: Data-consistency gate (check-data)
+        env:
+          DATABASE_URL: sqlite:///./data/ci.db
+        run: python manage.py check-data
