@@ -693,10 +693,9 @@
         <el-table-column label="需要审批" width="100">
           <template #default="{ row }">
             <el-switch
-                :model-value="row.need_approval"
+                v-model="row.need_approval"
                 :loading="!!savingCategories[row.id]"
                 :before-change="() => toggleCategoryApproval(row)"
-                @update:model-value="row.need_approval = $event"
               />
           </template>
         </el-table-column>
@@ -1583,7 +1582,6 @@ const toggleCategoryApproval = async (row: any): Promise<boolean> => {
   savingCategories[row.id] = true
   try {
     await updateWorkOrderCategory(row.id, { need_approval: target })
-    row.need_approval = target
     ElMessage.success(target ? '该分类已开启审批' : '该分类已关闭审批')
     return true
   } catch {
