@@ -9,6 +9,8 @@ from app.db.retry import with_commit_retry
 from app.db.compat_sql import exec_sql
 from app.models import User
 from app.services.file_service import file_service
+from app.services.audit_service import AuditService
+
 from app.api.v1.auto_rules import apply_auto_rules, resolve_auto_complete
 from app.schemas.work_order import (
     WorkOrderCategoryCreate,
@@ -58,7 +60,7 @@ async def create_category(
     
     result = await exec_sql(db, "SELECT * FROM work_order_categories WHERE code = ?", (code,))
     AuditService.log_request(db, request, current_user=current_user, action="create", target_type="work_order_category", target_id=None, detail='??????: ' + str(data.name))
-    from app.services.audit_service import AuditService
+
     return {"data": dict(result.fetchone()._mapping)}
 
 
@@ -83,7 +85,7 @@ async def update_category(
     await with_commit_retry(db.commit)
     result = (await exec_sql(db, "SELECT * FROM work_order_categories WHERE id = ?", (category_id,))).fetchone()
     AuditService.log_request(db, request, current_user=current_user, action="update", target_type="work_order_category", target_id=str(category_id), detail='??????')
-    from app.services.audit_service import AuditService
+
     return {"data": dict(result._mapping)}
 
 
@@ -98,7 +100,7 @@ async def delete_category(
     await exec_sql(db, "DELETE FROM work_order_categories WHERE id = ?", (category_id,))
     await with_commit_retry(db.commit)
     AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="work_order_category", target_id=str(category_id), detail='??????')
-    from app.services.audit_service import AuditService
+
     return {"message": "Category deleted"}
 
 
@@ -318,7 +320,7 @@ async def create_work_order(
     await resolve_auto_complete(db, order_id)
 
     AuditService.log_request(db, request, current_user=current_user, action="create", target_type="work_order", target_id=str(order_id), detail='????: ' + str(title))
-    from app.services.audit_service import AuditService
+
     return await get_work_order(order_id, db, current_user)
 
 
@@ -351,7 +353,7 @@ async def update_work_order(
         await with_commit_retry(db.commit)
 
     AuditService.log_request(db, request, current_user=current_user, action="update", target_type="work_order", target_id=str(work_order_id), detail='????')
-    from app.services.audit_service import AuditService
+
     return await get_work_order(work_order_id, db, current_user)
 
 
@@ -379,7 +381,7 @@ async def assign_work_order(
     await with_commit_retry(db.commit)
 
     AuditService.log_request(db, request, current_user=current_user, action="assign", target_type="work_order", target_id=str(work_order_id), detail='????: ' + str(assignee_id))
-    from app.services.audit_service import AuditService
+
     return await get_work_order(work_order_id, db, current_user)
 
 
@@ -410,7 +412,7 @@ async def start_work_order(
     await with_commit_retry(db.commit)
 
     AuditService.log_request(db, request, current_user=current_user, action="start", target_type="work_order", target_id=str(work_order_id), detail='??????')
-    from app.services.audit_service import AuditService
+
     return await get_work_order(work_order_id, db, current_user)
 
 
@@ -443,7 +445,7 @@ async def complete_work_order(
     await with_commit_retry(db.commit)
 
     AuditService.log_request(db, request, current_user=current_user, action="complete", target_type="work_order", target_id=str(work_order_id), detail='????')
-    from app.services.audit_service import AuditService
+
     return await get_work_order(work_order_id, db, current_user)
 
 
@@ -480,7 +482,7 @@ async def verify_work_order(
     await with_commit_retry(db.commit)
 
     AuditService.log_request(db, request, current_user=current_user, action="verify", target_type="work_order", target_id=str(work_order_id), detail='????')
-    from app.services.audit_service import AuditService
+
     return await get_work_order(work_order_id, db, current_user)
 
 
@@ -510,7 +512,7 @@ async def close_work_order(
     await with_commit_retry(db.commit)
 
     AuditService.log_request(db, request, current_user=current_user, action="close", target_type="work_order", target_id=str(work_order_id), detail='????')
-    from app.services.audit_service import AuditService
+
     return await get_work_order(work_order_id, db, current_user)
 
 
@@ -534,7 +536,7 @@ async def add_comment(
 
     result = await exec_sql(db, "SELECT * FROM work_order_comments ORDER BY id DESC LIMIT 1")
     AuditService.log_request(db, request, current_user=current_user, action="comment", target_type="work_order", target_id=str(work_order_id), detail='??????')
-    from app.services.audit_service import AuditService
+
     return {"data": dict(result.fetchone()._mapping)}
 
 
@@ -565,7 +567,7 @@ async def upload_attachment(
         WHERE wa.work_order_id = ? ORDER BY wa.id DESC LIMIT 1
     """, (work_order_id,))).fetchone()
     AuditService.log_request(db, request, current_user=current_user, action="upload", target_type="work_order", target_id=str(work_order_id), detail='??????')
-    from app.services.audit_service import AuditService
+
     return {"data": dict(result._mapping)}
 
 
@@ -602,7 +604,7 @@ async def delete_attachment(
     await with_commit_retry(db.commit)
     file_service.delete_file(row.file_path)
     AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="work_order", target_id=str(attachment_id), detail='??????')
-    from app.services.audit_service import AuditService
+
     return {"message": "Attachment deleted"}
 
 
@@ -627,7 +629,7 @@ async def approve_work_order(
         (work_order_id, current_user.id, "Approved by " + current_user.username, "process"))
     await with_commit_retry(db.commit)
     AuditService.log_request(db, request, current_user=current_user, action="approve", target_type="work_order", target_id=str(work_order_id), detail='??????')
-    from app.services.audit_service import AuditService
+
     return await get_work_order(work_order_id, db, current_user)
 
 
@@ -652,7 +654,7 @@ async def reject_work_order(
         (work_order_id, current_user.id, "Rejected: " + reason, "close"))
     await with_commit_retry(db.commit)
     AuditService.log_request(db, request, current_user=current_user, action="reject", target_type="work_order", target_id=str(work_order_id), detail='????')
-    from app.services.audit_service import AuditService
+
     return await get_work_order(work_order_id, db, current_user)
 
 
@@ -711,5 +713,5 @@ async def delete_work_order(
     await exec_sql(db, "DELETE FROM work_orders WHERE id = ?", (work_order_id,))
     await with_commit_retry(db.commit)
     AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="work_order", target_id=str(work_order_id), detail='????')
-    from app.services.audit_service import AuditService
+
     return {"message": "Deleted successfully"}
