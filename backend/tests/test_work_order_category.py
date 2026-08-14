@@ -1,6 +1,7 @@
 ﻿# -*- coding: utf-8 -*-
 """Work order category (approval switch) update robustness tests."""
 
+import itertools
 from starlette.testclient import TestClient  # noqa: E402
 from app.main import app  # noqa: E402
 
@@ -11,9 +12,11 @@ def _auth(client) -> dict:
     return {"Authorization": "Bearer " + r.json()["access_token"]}
 
 
+_seq = itertools.count(1)
+
 def _make_category(client, h):
     r = client.post("/api/v1/work-orders/categories",
-                    json={"name": "Cat", "code": "CAT", "icon": "x", "sort": 1, "need_approval": False}, headers=h)
+                    json={"name": "Cat%d" % next(_seq), "code": "CAT%d" % next(_seq), "icon": "x", "sort": 1, "need_approval": False}, headers=h)
     assert r.status_code == 200, r.text
     return r.json()["data"]["id"]
 

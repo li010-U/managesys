@@ -93,6 +93,8 @@ class Settings(BaseSettings):
     SENSOR_GAP_TOLERANCE: float = 1.5
     # 进程内每日保留清理任务：是否启用
     DATA_RETENTION_TASK_ENABLED: bool = True
+    # 进程内告警自动升级任务：是否启用（测试环境可关闭以避免 TestClient 挂起）
+    ALERT_INTEL_TASK_ENABLED: bool = True
 
     # ===== 邮件服务 =====
     SMTP_HOST: str = ""

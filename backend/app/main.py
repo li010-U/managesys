@@ -312,6 +312,9 @@ async def _alert_escalation_loop():
 
 def _start_alert_intel_task():
     global _alert_intel_task
+    if not settings.ALERT_INTEL_TASK_ENABLED:
+        logger.info("告警自动升级任务未启用（ALERT_INTEL_TASK_ENABLED=false）")
+        return
     _alert_intel_task = asyncio.create_task(_alert_escalation_loop())
 
 

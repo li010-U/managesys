@@ -35,7 +35,10 @@ def generate_order_no():
 @router.get("/categories", summary="Get work order categories")
 async def get_categories(db: AsyncSession = Depends(get_db), _current_user: User = Depends(require_permission("work:view"))):
     result = await exec_sql(db, "SELECT * FROM work_order_categories ORDER BY sort, id")
-    return {"data": [dict(r._mapping) for r in result.fetchall()]}
+    rows = [dict(r._mapping) for r in result.fetchall()]
+    for r in rows:
+        r["need_approval"] = bool(r.get("need_approval"))
+    return {"data": rows}
 
 
 @router.post("/categories", summary="Create category")
@@ -63,7 +66,9 @@ async def create_category(
     row = result.fetchone()
     if row is None:
         raise HTTPException(status_code=fastapi_status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Category creation failed")
-    return {"data": dict(row._mapping)}
+    data_dict = dict(row._mapping)
+    data_dict["need_approval"] = bool(data_dict.get("need_approval"))
+    return {"data": data_dict}
 
 
 @router.put("/categories/{category_id}", summary="Update category")
@@ -94,7 +99,9 @@ async def update_category(
     result = (await exec_sql(db, "SELECT * FROM work_order_categories WHERE id = ?", (category_id,))).fetchone()
     AuditService.log_request(db, request, current_user=current_user, action="update", target_type="work_order_category", target_id=str(category_id), detail='??????')
 
-    return {"data": dict(result._mapping)}
+    data_dict = dict(result._mapping)
+    data_dict["need_approval"] = bool(data_dict.get("need_approval"))
+    return {"data": data_dict}
 
 
 @router.delete("/categories/{category_id}", summary="Delete category")
