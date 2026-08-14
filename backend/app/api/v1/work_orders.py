@@ -675,14 +675,14 @@ async def get_assignable_users(
     users = [dict(r._mapping) for r in result.fetchall()]
     if not users:
         return {'data': []}
-    ids = [str(u["id"]) for u in users]
-    placeholders = ",".join(ids)
+    ids = [u["id"] for u in users]
+    placeholders = ",".join(["?"] * len(ids))
     workload_rows = (await exec_sql(db, """
         SELECT assignee_id, COUNT(*) AS active_cnt
         FROM work_orders
         WHERE assignee_id IN ({}) AND status IN ('assigned', 'processing')
         GROUP BY assignee_id
-    """.format(placeholders), ())).fetchall()
+    """.format(placeholders), tuple(ids))).fetchall()
     workload = {row.assignee_id: row.active_cnt for row in workload_rows}
     for u in users:
         u["workload"] = workload.get(u["id"], 0)
