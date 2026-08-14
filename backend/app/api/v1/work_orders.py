@@ -76,12 +76,19 @@ async def update_category(
     row = (await exec_sql(db, "SELECT id FROM work_order_categories WHERE id = ?", (category_id,))).fetchone()
     if not row:
         raise HTTPException(404, "Category not found")
-    updates, params = [], []
-    for key, value in data.model_dump(exclude_unset=True).items():
-        updates.append(f"{key} = ?")
-        params.append(value)
-    params.append(category_id)
-    await exec_sql(db, "UPDATE work_order_categories SET {} WHERE id = ?".format(", ".join(updates)), tuple(params))
+    update_fields = data.model_dump(exclude_unset=True)
+    if update_fields:
+        cols = ", ".join(f"{k} = ?" for k in update_fields)
+
+        async def _write_update():
+            await exec_sql(
+                db,
+                "UPDATE work_order_categories SET {} WHERE id = ?".format(cols),
+                tuple([*update_fields.values(), category_id]),
+            )
+
+        # 写语句也纳入锁重试，避免并发切换审批开关时偶发 SQLite 锁错误 500
+        await with_commit_retry(_write_update)
     await with_commit_retry(db.commit)
     result = (await exec_sql(db, "SELECT * FROM work_order_categories WHERE id = ?", (category_id,))).fetchone()
     AuditService.log_request(db, request, current_user=current_user, action="update", target_type="work_order_category", target_id=str(category_id), detail='??????')

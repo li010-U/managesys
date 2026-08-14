@@ -692,7 +692,12 @@
         <el-table-column prop="sort" label="排序" width="70" />
         <el-table-column label="需要审批" width="100">
           <template #default="{ row }">
-            <el-switch v-model="row.need_approval" @change="toggleCategoryApproval(row)" />
+            <el-switch
+                :model-value="row.need_approval"
+                :loading="!!savingCategories[row.id]"
+                :before-change="() => toggleCategoryApproval(row)"
+                @update:model-value="row.need_approval = $event"
+              />
           </template>
         </el-table-column>
         <el-table-column label="操作" width="140">
@@ -1570,13 +1575,22 @@ const submitCategory = async () => {
   }
 }
 
-const toggleCategoryApproval = async (row: any) => {
+// 以 savingCategories 做每行上锁保护：避免快速点击/重入导致并发发送和错误重复
+const savingCategories = reactive<Record<number, boolean>>({})
+const toggleCategoryApproval = async (row: any): Promise<boolean> => {
+  if (savingCategories[row.id]) return false
+  const target = !row.need_approval
+  savingCategories[row.id] = true
   try {
-    await updateWorkOrderCategory(row.id, { need_approval: row.need_approval })
-    ElMessage.success(row.need_approval ? '该分类已开启审批' : '该分类已关闭审批')
-  } catch (e: any) {
-    row.need_approval = !row.need_approval
-    ElMessage.error(e?.message || '操作失败')
+    await updateWorkOrderCategory(row.id, { need_approval: target })
+    row.need_approval = target
+    ElMessage.success(target ? '该分类已开启审批' : '该分类已关闭审批')
+    return true
+  } catch {
+    // 全局拦截器已统一提示错误，这里不重复弹出；不回退 model，避免触发开关反弹循环
+    return false
+  } finally {
+    savingCategories[row.id] = false
   }
 }
 
