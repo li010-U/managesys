@@ -103,6 +103,25 @@ AI 助手需要**能正确识别中文**的模型。两个可用方向\uff1a
 
 ---
 
+## 6. Python 运行环境（统一）
+
+系统统一使用仓库根目录的 `.venv` 作为 Python 解释器（`.venv\Scripts\python.exe`），
+不存在时回退系统 Python。`.venv` 已配置为复用系统 site-packages（`include-system-site-packages=true`），
+因此无需重新下载依赖即可直接运行。
+
+- 所有入口已统一解析 `.venv`：`start_prod.bat`、`start_dev.bat`（含 `dev_server.py`）、
+  `backend\scripts\start_backend.ps1`（开机守护）、`backend\scripts\install_tasks.ps1`（计划任务）。
+- 手动操作建议：`cd backend && ..\.venv\Scripts\python.exe manage.py <命令>`。
+- `requirements.txt` 已更新为 Python 3.14 可安装的已验证版本。若在全新机器上从零建环境：
+  ```
+  cd D:managesys
+  python -m venv --system-site-packages .venv
+  .venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+  ```
+  其中 `--system-site-packages` 让 `.venv` 复用系统已装包；如需完全隔离可去掉该参数（需联网安装）。
+
+---
+
 ## 10. 安全加固清单（本版本新增）说明
 
 部署前请在 `backend/.env` 中确认以下配置（`backend/.env.example` 已含注释）：
@@ -116,6 +135,9 @@ AI 助手需要**能正确识别中文**的模型。两个可用方向\uff1a
 3. **DEBUG=false**：生产环境必须关闭，避免回显完整 SQL / 详细报错。
 4. **ENABLE_CAPTCHA=true**：公网暴露时建议开启验证码。
 5. **ENABLE_CAPTCHA / LOGIN_MAX_ATTEMPTS**：登录失败锁定已内置。
+6. **ENFORCE_SECURITY（生产建议 true）**：设为 true 后，启动时若检测到不可妥协项
+   （`DEBUG=true` 或默认 `SECRET_KEY`），应用会**直接拒绝启动**（raise），不再仅仅
+   发出警告，避免带病上线。开发环境保持 false。
 
 本版本新增/强化的行为：
 - JWT 采用 `PyJWT`（`requirements.txt` 已替换 `python-jose`，修复相关 CVE；

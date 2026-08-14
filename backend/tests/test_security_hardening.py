@@ -84,3 +84,43 @@ async def test_assistant_requires_dashboard_permission():
     with pytest.raises(HTTPException) as exc_info:
         await checker(user)
     assert exc_info.value.status_code == 403
+
+
+def _run_security_check(debug, enforce, secret):
+    """在给定配置下调用 _check_security_config()，返回是否抛出 RuntimeError。"""
+    import app.main as m
+    orig = (m.settings.DEBUG, m.settings.ENFORCE_SECURITY, m.settings.SECRET_KEY)
+    m.settings.DEBUG = debug
+    m.settings.ENFORCE_SECURITY = enforce
+    m.settings.SECRET_KEY = secret
+    try:
+        m._check_security_config()
+    except RuntimeError:
+        return True
+    finally:
+        m.settings.DEBUG, m.settings.ENFORCE_SECURITY, m.settings.SECRET_KEY = orig
+    return False
+
+
+def test_enforce_security_blocks_weak_debug():
+    # 生产准入开启 + DEBUG=true -> 拒绝启动
+    assert _run_security_check(debug=True, enforce=True,
+                               secret="a-real-strong-secret-key-value") is True
+
+
+def test_enforce_security_blocks_default_secret():
+    # 生产准入开启 + 默认 SECRET_KEY -> 拒绝启动
+    assert _run_security_check(debug=False, enforce=True,
+                               secret="dev-secret-key-change-in-production-2024") is True
+
+
+def test_enforce_security_ok_when_hardened():
+    # 生产准入开启 + 配置已加固（DEBUG=false、非默认密钥）-> 不拒绝
+    assert _run_security_check(debug=False, enforce=True,
+                               secret="a-real-strong-secret-key-value") is False
+
+
+def test_enforce_security_off_only_warns():
+    # 未开启生产准入 + 弱配置 -> 仅警告、不拒绝（兼容开发模式）
+    assert _run_security_check(debug=True, enforce=False,
+                               secret="dev-secret-key-change-in-production-2024") is False

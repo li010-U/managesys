@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     # ===== 密码策略 =====
     PASSWORD_MIN_LENGTH: int = 8
     ENABLE_CAPTCHA: bool = False
+    # 生产纯开启后，启动时对不可妥协项直接拒绝启动（DEBUG=true 等）
+    ENFORCE_SECURITY: bool = False
     # ===== ????????????????????????? .env ? REGISTER_ENABLED=true =====
     REGISTER_ENABLED: bool = False
     # --- 端口限流（防止暴力碰库 / 注册垃圾账号） ---

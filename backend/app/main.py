@@ -437,18 +437,25 @@ async def _sync_builtin_data():
             logger.warning("\u5185\u7f6e\u6570\u636e\u540c\u6b65\u5931\u8d25: %s", str(e))
 
 def _check_security_config():
-    """启动时检查常用安全配置，重要项目输出警告。"""
+    """启动时检查安全配置。ENFORCE_SECURITY=true 时对不可妥协项直接拒绝启动。"""
+    critical = []
     weak = []
     if settings.DEBUG:
-        weak.append("DEBUG=true 已开启（生产版请关闭）")
+        critical.append("DEBUG=true 已开启（生产版必须关闭）")
     if settings.SECRET_KEY == "dev-secret-key-change-in-production-2024":
-        weak.append("SECRET_KEY 是默认值（请更改为强随机密钥）")
+        critical.append("SECRET_KEY 是默认值（请更改为强随机密钥）")
     if not settings.ENABLE_CAPTCHA:
         weak.append("ENABLE_CAPTCHA=false （建议生产环境开启验证码）")
-    if weak:
+    if critical and settings.ENFORCE_SECURITY:
+        logger.error("=" * 60)
+        for item in critical:
+            logger.error("  - %s", item)
+        logger.error("生产安全准入未通过（ENFORCE_SECURITY=true 已拒绝启动）")
+        logger.error("=" * 60)
+        raise RuntimeError("生产安全准入未通过: " + "; ".join(critical))
+    if critical or weak:
         logger.warning("=" * 60)
-        logger.warning("安全配置弱化警告：")
-        for item in weak:
+        for item in critical + weak:
             logger.warning("  - %s", item)
         logger.warning("请在部署前在 backend/.env 中修改 SECRET_KEY / DEBUG / ENABLE_CAPTCHA）")
         logger.warning("=" * 60)
