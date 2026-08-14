@@ -5,7 +5,6 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db, get_current_user, require_permission
-from app.db.retry import with_commit_retry
 from app.db.compat_sql import exec_sql
 from app.models import User
 
@@ -66,7 +65,6 @@ async def create_rule(
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (data.name, data.enabled, data.match_keyword, data.match_category_id, data.match_priority,
           data.action_set_priority, data.action_assign_user_id, data.action_auto_complete, data.sort, current_user.id))
-    await with_commit_retry(db.commit)
     row = (await exec_sql(db, "SELECT * FROM work_order_auto_rules ORDER BY id DESC LIMIT 1")).fetchone()
     from app.services.audit_service import AuditService
     AuditService.log_request(db, request, current_user=current_user, action="create", target_type="auto_rule", target_id=str(row.id), detail=f"创建自动规则: {data.name}")
@@ -92,7 +90,6 @@ async def update_rule(
         params.append(value)
     params.append(rule_id)
     await exec_sql(db, "UPDATE work_order_auto_rules SET {} WHERE id = ?".format(", ".join(updates)), tuple(params))
-    await with_commit_retry(db.commit)
     from app.services.audit_service import AuditService
     AuditService.log_request(db, request, current_user=current_user, action="update", target_type="auto_rule", target_id=str(rule_id), detail=f"更新自动规则: {data.name or rule_id}")
     return {"message": "Rule updated"}
@@ -106,7 +103,6 @@ async def delete_rule(
     current_user: User = Depends(require_permission("work:delete")),
 ):
     await exec_sql(db, "DELETE FROM work_order_auto_rules WHERE id = ?", (rule_id,))
-    await with_commit_retry(db.commit)
     from app.services.audit_service import AuditService
     AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="auto_rule", target_id=str(rule_id), detail="删除自动规则")
     return {"message": "Rule deleted"}
@@ -165,5 +161,4 @@ async def resolve_auto_complete(db, order_id: int):
             INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type)
             VALUES (?, ?, ?, ?)
         """, (order_id, order.assignee_id or order.creator_id, "?????????????", "process"))
-        await with_commit_retry(db.commit)
         return

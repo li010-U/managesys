@@ -38,9 +38,9 @@ from app.core.ratelimit import user_rate_limit
 
 
 from app.core.deps import get_db, get_current_user, require_permission, require_any_permission
-
-
 from app.db.retry import with_commit_retry
+
+
 
 
 from app.db.session import async_session_factory
@@ -766,9 +766,9 @@ async def _save_assistant_reply(conv_id: int, content: str) -> None:
 
 
             conv.updated_at = ai_msg.created_at
+            await with_commit_retry(db.commit)
 
 
-        await with_commit_retry(db.commit)
 
 
 
@@ -892,9 +892,9 @@ async def _refresh_conversation_summary(conv_id: int) -> None:
 
 
                 conv.summary = summary[:800]
-
-
                 await with_commit_retry(db.commit)
+
+
 
 
     except Exception:
@@ -1522,7 +1522,6 @@ async def delete_conversation(
         await db.delete(conv)
 
 
-        await with_commit_retry(db.commit)
 
 
     from app.services.audit_service import AuditService
@@ -1812,7 +1811,6 @@ async def send_message(
     conv.updated_at = ai_msg.created_at
 
 
-    await with_commit_retry(db.commit)
 
 
 
@@ -2011,9 +2009,9 @@ async def send_message_stream(
 
 
                 current_user_msg_id = user_msg.id
-
-
                 await with_commit_retry(db.commit)
+
+
 
 
 

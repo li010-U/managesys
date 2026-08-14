@@ -6,7 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import json
 
 from app.core.deps import get_db, get_current_user, require_permission
-from app.db.retry import with_commit_retry
 from app.db.compat_sql import exec_sql
 from app.models import User
 from app.schemas.inspection import (
@@ -49,7 +48,6 @@ async def create_template(
     else:
         sql = "INSERT INTO inspection_templates (name, description) VALUES (?, ?)"
         await exec_sql(db, sql, (name, desc))
-    await with_commit_retry(db.commit)
     
     result = await exec_sql(db, "SELECT * FROM inspection_templates WHERE name = ? ORDER BY id DESC LIMIT 1", (name,))
     from app.services.audit_service import AuditService
@@ -114,7 +112,6 @@ async def create_plan(
         (name, description, plan_type, frequency, execute_time, facility_id, template_id, assignee_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)"""
     await exec_sql(db, sql, (name, desc, plan_type, frequency, execute_time, facility_id, template_id, assignee_id))
-    await with_commit_retry(db.commit)
     
     result = await exec_sql(db, "SELECT * FROM inspection_plans WHERE name = ? ORDER BY id DESC LIMIT 1", (name,))
     from app.services.audit_service import AuditService
@@ -143,7 +140,6 @@ async def update_plan(
         values.append(plan_id)
         sql = f"UPDATE inspection_plans SET {', '.join(updates)} WHERE id = ?"
         await exec_sql(db, sql, tuple(values))
-        await with_commit_retry(db.commit)
     
     result = await exec_sql(db, "SELECT * FROM inspection_plans WHERE id = ?", (plan_id,))
     from app.services.audit_service import AuditService
@@ -161,7 +157,6 @@ async def delete_plan(
     _ = Depends(require_permission("inspection:delete"))
 ):
     await exec_sql(db, "DELETE FROM inspection_plans WHERE id = ?", (plan_id,))
-    await with_commit_retry(db.commit)
     from app.services.audit_service import AuditService
     AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="inspection_plan", target_id=str(plan_id), detail="删除巡检计划")
     return {"message": "Deleted successfully"}
@@ -185,9 +180,9 @@ async def get_tasks(
     """
     if status:
         sql += " WHERE t.status = ?"
-        result = await exec_sql(db, sql + f" ORDER BY t.scheduled_date DESC LIMIT {page_size} OFFSET {offset}", (status,))
+        result = await exec_sql(db, sql + " ORDER BY t.scheduled_date DESC LIMIT ? OFFSET ?", (status, page_size, offset))
     else:
-        result = await exec_sql(db, sql + f" ORDER BY t.scheduled_date DESC LIMIT {page_size} OFFSET {offset}")
+        result = await exec_sql(db, sql + " ORDER BY t.scheduled_date DESC LIMIT ? OFFSET ?", (page_size, offset))
     
     rows = result.fetchall()
     return {
@@ -287,7 +282,6 @@ async def create_task(
                 """, (task.id, item.get("name", ""), item.get("key", ""), item.get("content", "")))
             await exec_sql(db, "UPDATE inspection_tasks SET total_items = ? WHERE id = ?", (len(items), task.id))
     
-    await with_commit_retry(db.commit)
     from app.services.audit_service import AuditService
     AuditService.log_request(db, request, current_user=current_user, action="create", target_type="inspection_task", target_id=str(task.id), detail=f"创建巡检任务: 计划{plan_id}")
     return await get_task(task.id, db, current_user)
@@ -309,7 +303,6 @@ async def start_task(
     if task_row.assignee_id is not None and task_row.assignee_id != current_user.id and not current_user.is_super_admin:
         raise HTTPException(403, "Only the assignee can manage this task")
     await exec_sql(db, "UPDATE inspection_tasks SET status = 'in_progress', start_time = CURRENT_TIMESTAMP WHERE id = ?", (task_id,))
-    await with_commit_retry(db.commit)
     from app.services.audit_service import AuditService
     AuditService.log_request(db, request, current_user=current_user, action="start", target_type="inspection_task", target_id=str(task_id), detail="开始巡检任务")
     return await get_task(task_id, db, current_user)
@@ -345,7 +338,6 @@ async def complete_task(
             completed_items = ?, abnormal_items = ?
         WHERE id = ?
     """, (stats.completed or 0, stats.abnormal or 0, task_id))
-    await with_commit_retry(db.commit)
     from app.services.audit_service import AuditService
     AuditService.log_request(db, request, current_user=current_user, action="complete", target_type="inspection_task", target_id=str(task_id), detail="完成巡检任务")
     return await get_task(task_id, db, current_user)
@@ -372,7 +364,6 @@ async def add_record(
         INSERT INTO inspection_records (task_id, item_name, item_key, check_content, check_result, check_value, check_remark, inspector_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, (task_id, item_name, item_key, check_content, check_result, check_value, check_remark, current_user.id))
-    await with_commit_retry(db.commit)
     
     result = await exec_sql(db, "SELECT * FROM inspection_records ORDER BY id DESC LIMIT 1")
     from app.services.audit_service import AuditService
@@ -437,7 +428,6 @@ async def create_issue(
         INSERT INTO inspection_issues (task_id, record_id, device_id, issue_title, issue_description, severity, reporter_id)
         VALUES (?, ?, ?, ?, ?, ?, ?)
     """, (task_id, record_id, device_id, issue_title, issue_desc, severity, current_user.id))
-    await with_commit_retry(db.commit)
     
     result = await exec_sql(db, "SELECT * FROM inspection_issues ORDER BY id DESC LIMIT 1")
     from app.services.audit_service import AuditService

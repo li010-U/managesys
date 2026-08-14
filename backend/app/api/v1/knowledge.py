@@ -5,7 +5,6 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db, get_current_user, require_permission
-from app.db.retry import with_commit_retry
 from app.db.compat_sql import exec_sql
 from app.models import User
 
@@ -46,9 +45,9 @@ async def list_articles(
         FROM kb_articles k LEFT JOIN users u ON k.created_by = u.id
         WHERE {}
         ORDER BY k.created_at DESC
-        LIMIT {}
-    """.format(where, limit)
-    rows = (await exec_sql(db, sql, tuple(params))).fetchall()
+        LIMIT ?
+    """.format(where)
+    rows = (await exec_sql(db, sql, tuple(params) + (limit,))).fetchall()
     return {"data": [_row_to_dict(r) for r in rows]}
 
 
@@ -64,7 +63,6 @@ async def create_article(
         INSERT INTO kb_articles (title, category, content, source_order_id, created_by)
         VALUES (?, ?, ?, ?, ?)
     """, (data.title, data.category, data.content, data.source_order_id, current_user.id))
-    await with_commit_retry(db.commit)
     row = (await exec_sql(db, """
         SELECT k.*, u.username as creator_name
         FROM kb_articles k LEFT JOIN users u ON k.created_by = u.id

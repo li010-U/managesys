@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, or_
 
 from app.core.deps import get_db, get_current_user, require_permission
-from app.db.retry import with_commit_retry
 from app.models.user import User
 from app.models.business_system import BusinessSystem, DeploymentRelation
 from app.schemas.business import (
@@ -73,7 +72,8 @@ async def create_system(req: BusinessSystemCreate, request: Request, db: AsyncSe
     try:
         obj = BusinessSystem(**req.model_dump())
         db.add(obj)
-        await with_commit_retry(db.commit)
+        await db.flush()
+
         await db.refresh(obj)
         from app.services.audit_service import AuditService
         AuditService.log_request(db, request, current_user=current_user, action="create", target_type="business_system", target_id=str(obj.id), detail=f"创建业务系统: {obj.name}")
@@ -93,7 +93,8 @@ async def update_system(sys_id: int, req: BusinessSystemUpdate, request: Request
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="系统不存在")
     for k, v in req.model_dump(exclude_unset=True).items():
         setattr(obj, k, v)
-    await with_commit_retry(db.commit)
+    await db.flush()
+
     await db.refresh(obj)
     from app.services.audit_service import AuditService
     AuditService.log_request(db, request, current_user=current_user, action="update", target_type="business_system", target_id=str(sys_id), detail=f"更新业务系统: {obj.name}")
@@ -111,7 +112,6 @@ async def delete_system(sys_id: int, request: Request, db: AsyncSession = Depend
     from app.services.audit_service import AuditService
     AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="business_system", target_id=str(sys_id), detail=f"删除业务系统: {obj.name}")
     await db.delete(obj)
-    await with_commit_retry(db.commit)
     return {"message": "系统已删除"}
 
 
@@ -134,7 +134,8 @@ async def create_deployment(sys_id: int, req: DeploymentCreate, request: Request
     data["system_id"] = sys_id
     obj = DeploymentRelation(**data)
     db.add(obj)
-    await with_commit_retry(db.commit)
+    await db.flush()
+
     await db.refresh(obj)
     from app.services.audit_service import AuditService
     AuditService.log_request(db, request, current_user=current_user, action="mount", target_type="business_system", target_id=str(sys_id), detail="关联部署设备")
@@ -154,5 +155,4 @@ async def delete_deployment(sys_id: int, dep_id: int, request: Request, db: Asyn
     from app.services.audit_service import AuditService
     AuditService.log_request(db, request, current_user=current_user, action="unmount", target_type="business_system", target_id=str(sys_id), detail="解除设备关联")
     await db.delete(obj)
-    await with_commit_retry(db.commit)
     return {"message": "关联已删除"}

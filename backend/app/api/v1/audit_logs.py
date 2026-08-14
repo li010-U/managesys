@@ -162,8 +162,6 @@ async def cleanup_retention(
     before = datetime.utcnow() - timedelta(days=days)
     service = AuditService(db)
     removed = await service.purge(before)
-    from app.db.retry import with_commit_retry
-    await with_commit_retry(db.commit)
     return {"removed": removed, "kept_days": days}
 
 

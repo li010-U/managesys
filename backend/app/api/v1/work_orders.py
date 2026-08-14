@@ -56,7 +56,6 @@ async def create_category(
         "INSERT INTO work_order_categories (name, code, icon, sort, need_approval) VALUES (?, ?, ?, ?, ?)",
         (name, code, icon, sort, need_approval)
     )
-    await with_commit_retry(db.commit)
     
     result = await exec_sql(db, "SELECT * FROM work_order_categories WHERE code = ?", (code,))
     AuditService.log_request(db, request, current_user=current_user, action="create", target_type="work_order_category", target_id=None, detail='??????: ' + str(data.name))
@@ -89,7 +88,6 @@ async def update_category(
 
         # 写语句也纳入锁重试，避免并发切换审批开关时偶发 SQLite 锁错误 500
         await with_commit_retry(_write_update)
-    await with_commit_retry(db.commit)
     result = (await exec_sql(db, "SELECT * FROM work_order_categories WHERE id = ?", (category_id,))).fetchone()
     AuditService.log_request(db, request, current_user=current_user, action="update", target_type="work_order_category", target_id=str(category_id), detail='??????')
 
@@ -105,7 +103,6 @@ async def delete_category(
     _ = Depends(require_permission("work:delete"))
 ):
     await exec_sql(db, "DELETE FROM work_order_categories WHERE id = ?", (category_id,))
-    await with_commit_retry(db.commit)
     AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="work_order_category", target_id=str(category_id), detail='??????')
 
     return {"message": "Category deleted"}
@@ -314,7 +311,6 @@ async def create_work_order(
         INSERT INTO work_orders (order_no, title, description, category_id, priority, device_id, facility_id, assignee_id, plan_date, estimated_hours, status, creator_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (order_no, title, description, category_id, priority, device_id, facility_id, assignee_id, plan_date, estimated_hours, status, current_user.id))
-    await with_commit_retry(db.commit)
 
     result = await exec_sql(db, "SELECT id FROM work_orders WHERE order_no = ?", (order_no,))
     order_id = result.fetchone().id
@@ -322,7 +318,6 @@ async def create_work_order(
     if applied_rule:
         await exec_sql(db, "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
             (order_id, current_user.id, "Auto rule applied: " + applied_rule, "process"))
-        await with_commit_retry(db.commit)
 
     await resolve_auto_complete(db, order_id)
 
@@ -357,7 +352,6 @@ async def update_work_order(
     if updates:
         params.append(work_order_id)
         await exec_sql(db, f"UPDATE work_orders SET {', '.join(updates)} WHERE id = ?", tuple(params))
-        await with_commit_retry(db.commit)
 
     AuditService.log_request(db, request, current_user=current_user, action="update", target_type="work_order", target_id=str(work_order_id), detail='????')
 
@@ -385,7 +379,6 @@ async def assign_work_order(
         "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
         (work_order_id, current_user.id, "Work order assigned", "process")
     )
-    await with_commit_retry(db.commit)
 
     AuditService.log_request(db, request, current_user=current_user, action="assign", target_type="work_order", target_id=str(work_order_id), detail='????: ' + str(assignee_id))
 
@@ -416,7 +409,6 @@ async def start_work_order(
         "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
         (work_order_id, current_user.id, "Started processing", "process")
     )
-    await with_commit_retry(db.commit)
 
     AuditService.log_request(db, request, current_user=current_user, action="start", target_type="work_order", target_id=str(work_order_id), detail='??????')
 
@@ -449,7 +441,6 @@ async def complete_work_order(
         "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
         (work_order_id, current_user.id, "Completed: {0}".format(result), "verify")
     )
-    await with_commit_retry(db.commit)
 
     AuditService.log_request(db, request, current_user=current_user, action="complete", target_type="work_order", target_id=str(work_order_id), detail='????')
 
@@ -486,7 +477,6 @@ async def verify_work_order(
         "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
         (work_order_id, current_user.id, content, "verify")
     )
-    await with_commit_retry(db.commit)
 
     AuditService.log_request(db, request, current_user=current_user, action="verify", target_type="work_order", target_id=str(work_order_id), detail='????')
 
@@ -516,7 +506,6 @@ async def close_work_order(
         "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
         (work_order_id, current_user.id, "Closed: {0}".format(remark), "close")
     )
-    await with_commit_retry(db.commit)
 
     AuditService.log_request(db, request, current_user=current_user, action="close", target_type="work_order", target_id=str(work_order_id), detail='????')
 
@@ -539,7 +528,6 @@ async def add_comment(
         "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
         (work_order_id, current_user.id, content, comment_type)
     )
-    await with_commit_retry(db.commit)
 
     result = await exec_sql(db, "SELECT * FROM work_order_comments ORDER BY id DESC LIMIT 1")
     AuditService.log_request(db, request, current_user=current_user, action="comment", target_type="work_order", target_id=str(work_order_id), detail='??????')
@@ -567,7 +555,6 @@ async def upload_attachment(
         INSERT INTO work_order_attachments (work_order_id, file_name, file_path, file_size, file_type, uploader_id)
         VALUES (?, ?, ?, ?, ?, ?)
     """, (work_order_id, info["original_name"], info["relative_path"], info["size"], info["mime_type"], current_user.id))
-    await with_commit_retry(db.commit)
     result = (await exec_sql(db, """
         SELECT wa.*, u.username as uploader_name
         FROM work_order_attachments wa LEFT JOIN users u ON wa.uploader_id = u.id
@@ -608,7 +595,6 @@ async def delete_attachment(
     if row.uploader_id != current_user.id and not current_user.is_super_admin:
         raise HTTPException(403, "Only the uploader can delete this attachment")
     await exec_sql(db, "DELETE FROM work_order_attachments WHERE id = ?", (attachment_id,))
-    await with_commit_retry(db.commit)
     file_service.delete_file(row.file_path)
     AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="work_order", target_id=str(attachment_id), detail='??????')
 
@@ -634,7 +620,6 @@ async def approve_work_order(
         (new_status, current_user.id, work_order_id))
     await exec_sql(db, "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
         (work_order_id, current_user.id, "Approved by " + current_user.username, "process"))
-    await with_commit_retry(db.commit)
     AuditService.log_request(db, request, current_user=current_user, action="approve", target_type="work_order", target_id=str(work_order_id), detail='??????')
 
     return await get_work_order(work_order_id, db, current_user)
@@ -659,7 +644,6 @@ async def reject_work_order(
         (current_user.id, reason, work_order_id))
     await exec_sql(db, "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
         (work_order_id, current_user.id, "Rejected: " + reason, "close"))
-    await with_commit_retry(db.commit)
     AuditService.log_request(db, request, current_user=current_user, action="reject", target_type="work_order", target_id=str(work_order_id), detail='????')
 
     return await get_work_order(work_order_id, db, current_user)
@@ -718,7 +702,6 @@ async def delete_work_order(
 
     await exec_sql(db, "DELETE FROM work_order_comments WHERE work_order_id = ?", (work_order_id,))
     await exec_sql(db, "DELETE FROM work_orders WHERE id = ?", (work_order_id,))
-    await with_commit_retry(db.commit)
     AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="work_order", target_id=str(work_order_id), detail='????')
 
     return {"message": "Deleted successfully"}
