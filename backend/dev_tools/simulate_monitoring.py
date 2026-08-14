@@ -1,3 +1,5 @@
+import _guard
+_guard.ensure_dev_mode()
 import os
 """模拟实时监控数据更新"""
 import requests

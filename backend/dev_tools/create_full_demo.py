@@ -1,3 +1,5 @@
+import _guard
+_guard.ensure_dev_mode()
 import os
 """生成完整的模拟数据"""
 import requests

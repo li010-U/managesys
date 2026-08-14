@@ -1,4 +1,6 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
+import _guard
+_guard.ensure_dev_mode()
 """回填存量设备功率 (power_rating) 的一次性脚本。
 
 背景：power_rating 字段是后续 ALTER TABLE 加的，存量 705 台设备全部为 NULL，

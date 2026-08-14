@@ -226,6 +226,48 @@ class TestFacilityServiceCRUD:
         
         assert updated.total_units == 48
         assert updated.available_units == 36
+
+    @pytest.mark.asyncio
+    async def test_create_rack_auto_assigns_free_slot_and_fills_coords(self, db_session):
+        """未提供行列时自动补一个不冲突的网格坐标，并推导世界坐标"""
+        dc = DataCenter(name="测试DC", code="DC002")
+        db_session.add(dc)
+        await db_session.flush()
+        room = Room(data_center_id=dc.id, name="测试机房", code="RM002")
+        db_session.add(room)
+        await db_session.flush()
+
+        service = RackService(db_session)
+        r1 = await service.create(RackCreate(room_id=room.id, name="机柜1", code="RK1"), operator_username="admin", operator_ip="127.0.0.1")
+        r2 = await service.create(RackCreate(room_id=room.id, name="机柜2", code="RK2"), operator_username="admin", operator_ip="127.0.0.1")
+        await db_session.commit()
+
+        # ????????????
+        assert r1.row_pos is not None and r1.col_pos is not None
+        assert r2.row_pos is not None and r2.col_pos is not None
+        assert (r1.row_pos, r1.col_pos) != (r2.row_pos, r2.col_pos)
+        # ???????????
+        assert r1.pos_x_m is not None and r1.pos_z_m is not None
+        assert r1.pos_x_m == round((r1.col_pos - 1) * 1.3, 2)
+        assert r1.pos_z_m == round((r1.row_pos - 1) * 1.7, 2)
+
+    @pytest.mark.asyncio
+    async def test_create_rack_moves_off_colliding_slot(self, db_session):
+        """提供已占用的行列时自动移到空闲格，避免与已有机柜重叠"""
+        dc = DataCenter(name="测试DC", code="DC003")
+        db_session.add(dc)
+        await db_session.flush()
+        room = Room(data_center_id=dc.id, name="测试机房", code="RM003")
+        db_session.add(room)
+        await db_session.flush()
+
+        service = RackService(db_session)
+        await service.create(RackCreate(room_id=room.id, name="机柜1", code="RK1", row_pos=1, col_pos=1), operator_username="admin", operator_ip="127.0.0.1")
+        # ???????? (1,1) ???????????????
+        r2 = await service.create(RackCreate(room_id=room.id, name="机柜2", code="RK2", row_pos=1, col_pos=1), operator_username="admin", operator_ip="127.0.0.1")
+        await db_session.commit()
+
+        assert (r2.row_pos, r2.col_pos) != (1, 1)
     
     @pytest.mark.asyncio
     async def test_delete_returns_false_for_nonexistent(self, db_session):

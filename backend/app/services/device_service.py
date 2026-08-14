@@ -186,6 +186,10 @@ class DeviceService:
         # 同步 IP 台账（与设备同事务，保证唯一事实源）
         from app.services.ip_registry_service import sync_device_ip_ledger as _sync
         await _sync(self.db, device)
+        if device.rack_id is not None:
+            from app.services.facility_service import recompute_rack_available
+            await recompute_rack_available(self.db, device.rack_id)
+            await self.db.flush()
         return device
 
     async def update(self, device_id: int, req: DeviceUpdate, operator_username: str = None, operator_ip: str = None) -> Device | None:
@@ -252,6 +256,13 @@ class DeviceService:
         # 同步 IP 台账（与设备同事务）
         from app.services.ip_registry_service import sync_device_ip_ledger as _sync
         await _sync(self.db, device)
+        if old_rack is not None or device.rack_id is not None:
+            from app.services.facility_service import recompute_rack_available
+            if old_rack is not None:
+                await recompute_rack_available(self.db, old_rack)
+            if device.rack_id is not None:
+                await recompute_rack_available(self.db, device.rack_id)
+            await self.db.flush()
         return device
 
     async def delete(self, device_id: int, operator_username: str = None, operator_ip: str = None) -> bool:
@@ -263,8 +274,13 @@ class DeviceService:
         # 释放该设备在 IP 台账中的条目（同事务）
         from app.services.ip_registry_service import release_device_ip_ledger as _release
         await _release(self.db, device_id)
+        _del_rack_id = device.rack_id
         await self.db.delete(device)
         await self.db.flush()
+        if _del_rack_id is not None:
+            from app.services.facility_service import recompute_rack_available
+            await recompute_rack_available(self.db, _del_rack_id)
+            await self.db.flush()
 
         # 审计日志
         from app.services.audit_service import AuditService

@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import _guard
+_guard.ensure_dev_mode()
 """Backfill racks.rated_power missing/zero with a sensible default.
 
 Runs once against the live SQLite DB (idempotent). Sets rated_power to a

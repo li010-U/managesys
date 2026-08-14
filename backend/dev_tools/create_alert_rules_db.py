@@ -1,4 +1,6 @@
-﻿import sqlite3
+import _guard
+_guard.ensure_dev_mode()
+import sqlite3
 import os
 import json
 from datetime import datetime

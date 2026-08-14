@@ -1,3 +1,5 @@
+import _guard
+_guard.ensure_dev_mode()
 import os
 import requests
 import random
