@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import sys
+from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -20,13 +21,17 @@ from app.db.base import Base
 from app.db.session import engine, async_session_factory
 
 # ===== 日志配置 =====
+# 日志目录固定在后端根目录下的 logs/，避免随启动目录变化在异地写入日志
+BASE_LOG_DIR = (Path(__file__).resolve().parent.parent / "logs")
+BASE_LOG_DIR.mkdir(parents=True, exist_ok=True)
+APP_LOG_PATH = BASE_LOG_DIR / "app.log"
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler("uvicorn_app.log", encoding="utf-8"),
+        logging.FileHandler(str(APP_LOG_PATH), encoding="utf-8"),
     ],
 )
 logger = logging.getLogger("managesys")
@@ -588,8 +593,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # 全局并发请求限流：防止“点快了加载不出来”与多人同时在线时的资源恜死。
-    app.add_middleware(ConcurrencyLimitMiddleware)
+
     # 安全响应头 + Host 头校验（防 Host 头投毒 / 浏览器端加固）
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)

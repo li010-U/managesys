@@ -1,0 +1,5 @@
+# ---- 测试依赖（本地与 CI 统一使用，确保可复现） ----
+-r requirements.txt
+pytest==9.1.1
+pytest-asyncio==1.4.0
+httpx==0.28.1

@@ -16,10 +16,8 @@ openpyxl==3.1.5
 xlrd==2.0.2
 python-docx==1.2.0
 
-# 测试（CI 中单独安装）
-# pytest
-# pytest-asyncio
-# httpx
+# 测试依赖、CI与开发环境：请安装 requirements-dev.txt（含本文件 + 锁定的 pytest/pytest-asyncio/httpx）
+# pip install -r requirements-dev.txt
 
 # 生产环境建议安装
 # psutil==6.1.0
