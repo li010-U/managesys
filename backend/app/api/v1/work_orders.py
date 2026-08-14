@@ -137,7 +137,7 @@ async def get_work_orders(
     where_clause = " AND ".join(conditions) if conditions else "1=1"
     offset = (page - 1) * page_size
     
-    sql = f"""
+    sql = """
         SELECT w.*, c.name as category_name,
                creator.username as creator_name,
                assignee.username as assignee_name,
@@ -149,15 +149,15 @@ async def get_work_orders(
         LEFT JOIN users assignee ON w.assignee_id = assignee.id
         LEFT JOIN devices d ON w.device_id = d.id
         LEFT JOIN rooms f ON w.facility_id = f.id
-        WHERE {where_clause}
+        WHERE {}
         ORDER BY w.created_at DESC
-        LIMIT {page_size} OFFSET {offset}
-    """
+        LIMIT ? OFFSET ?
+    """.format(where_clause)
     
     total_sql = f"SELECT COUNT(*) AS cnt FROM work_orders w WHERE {where_clause}"
     total = (await exec_sql(db, total_sql, tuple(params))).scalar() or 0
 
-    result = await exec_sql(db, sql, tuple(params))
+    result = await exec_sql(db, sql, tuple(params) + (page_size, offset))
     rows = result.fetchall()
     
     return {
