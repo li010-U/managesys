@@ -1,5 +1,6 @@
 ﻿"""认证API路由"""
 import base64
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -140,6 +141,30 @@ async def get_current_user_info(
     return user_resp
 
 
+def _detect_brute_force_ips(records, threshold: int = 5, window_seconds: int = 300) -> set[str]:
+    """疑似爆破：同一 IP 在短时间窗口内连续多次登录失败。
+    仅针对失败记录计算，返回命中爆破的 IP 集合。
+    """
+    from datetime import timedelta
+    from collections import defaultdict
+    window = timedelta(seconds=window_seconds)
+    fails_by_ip: dict[str, list] = defaultdict(list)
+    for rec in records:
+        if getattr(rec, "login_status", None) == "fail" and getattr(rec, "ip_address", None):
+            fails_by_ip[rec.ip_address].append(rec.created_at)
+    burst_ips: set[str] = set()
+    for ip, times in fails_by_ip.items():
+        times = sorted(times)
+        left = 0
+        for right in range(len(times)):
+            while times[right] - times[left] > window:
+                left += 1
+            if right - left + 1 >= threshold:
+                burst_ips.add(ip)
+                break
+    return burst_ips
+
+
 @router.get("/login-logs")
 async def get_login_logs(
     db: AsyncSession = Depends(get_db),
@@ -157,17 +182,14 @@ async def get_login_logs(
     )
     logs = result.scalars().all()
 
-    # 同 IP 短时间多次失败 => 疑似爆破
-    fail_by_ip: dict[str, int] = defaultdict(int)
-    for log in logs:
-        if log.login_status == "fail" and log.ip_address:
-            fail_by_ip[log.ip_address] += 1
+    # 疑似爆破：同一 IP 短时间窗口内连续失败才打标，成功登录不误判
+    burst_ips = _detect_brute_force_ips(logs, threshold=5, window_seconds=300)
 
     responses = []
     for log in logs:
         resp = LoginLogResponse.model_validate(log)
         flags: list[str] = []
-        if log.ip_address and fail_by_ip.get(log.ip_address, 0) >= 3:
+        if log.login_status == "fail" and log.ip_address in burst_ips:
             flags.append("疑似爆破")
         if log.login_status == "success":
             cls = classify_ip(log.ip_address)
