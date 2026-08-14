@@ -33,9 +33,72 @@ def default_db_path() -> str:
             return str(Path(rel).resolve())
     return str(ROOT_DIR / "data" / "managesys.db")
 
+# \u4ee5\u4e0b\u7528\u4e8e PostgreSQL \u652f\u6301\uff08\u65e0 SQLite \u65f6\u81ea\u52a8\u4f7f\u7528 pg_dump/pg_restore\uff09
+import subprocess as _subprocess
+
+
+def _using_pg() -> bool:
+    """\u5224\u65ad\u5f53\u524d\u914d\u7f6e\u662f\u5426\u4e3a PostgreSQL\u3002"""
+    try:
+        from app.core.config import settings
+        url = (settings.DATABASE_URL or "")
+    except Exception:
+        url = os.environ.get("DATABASE_URL", "")
+    return url.strip().lower().startswith("postgres")
+
+
+def _pg_dsn() -> str:
+    """\u5c06 asyncpg URL \u8f6c\u6362\u4e3a psql/pg_dump \u540c\u6b65 DSN\u3002"""
+    try:
+        from app.core.config import settings
+        url = settings.DATABASE_URL
+    except Exception:
+        url = os.environ.get("DATABASE_URL", "")
+    url = url.strip()
+    for prefix in ("postgresql+asyncpg://", "postgres+asyncpg://"):
+        if url.startswith(prefix):
+            return "postgresql://" + url[len(prefix):]
+    return url.replace("+asyncpg://", "://", 1)
+
+
+def _pg_backup(target_dir: str, keep: int) -> str:
+    """\u4f7f\u7528 pg_dump -Fc \u4e0d\u6253\u6270\u5728\u7ebf\u670d\u52a1\u7684\u4e00\u81f4\u6027\u5907\u4efd\u3002"""
+    os.makedirs(target_dir, exist_ok=True)
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    dest = os.path.join(target_dir, "managesys_%s.dump" % ts)
+    dsn = _pg_dsn()
+    cmd = ["pg_dump", "-Fc", "-f", dest, dsn]
+    _run_or_raise(cmd)
+    _prune(target_dir, keep)
+    return dest
+
+
+def _pg_restore(src_file: str, force: bool, live_backup: str | None) -> str:
+    """\u4ece pg_dump \u4e00\u81f4\u6027\u5907\u4efd\u8fd8\u539f\uff08\u5148\u81ea\u52a8\u5907\u4efd\u5f53\u524d\u5e93\uff09\u3002"""
+    if not force:
+        print("[WARN] PostgreSQL \u8fd8\u539f\u4f1a\u5220\u9664\u76ee\u6807\u5e93\u73b0\u6709\u5bf9\u8c61\uff0c\u5efa\u8bae\u4f7f\u7528 --force \u786e\u8ba4\u3002")
+    _pg_backup(live_backup or str(ROOT_DIR / "backups"), 30)
+    dsn = _pg_dsn()
+    cmd = ["pg_restore", "--clean", "--if-exists", "--no-owner", "--no-privileges", "-d", dsn, str(Path(src_file).resolve())]
+    _run_or_raise(cmd)
+    return str(Path(src_file).resolve())
+
+
+def _run_or_raise(cmd):
+    """\u8fd0\u884c\u5916\u90e8\u5de5\u5177\uff0c\u5931\u8d25\u65f6\u629b\u51fa RuntimeError\u3002"""
+    try:
+        _subprocess.run(cmd, check=True)
+    except FileNotFoundError:
+        raise RuntimeError("\u672a\u627e\u5230\u5de5\u5177 %s\uff0c\u8bf7\u786e\u8ba4\u5df2\u5b89\u88c5 PostgreSQL \u5ba2\u6237\u7aef (pg_dump/pg_restore)" % cmd[0])
+    except _subprocess.CalledProcessError as e:
+        raise RuntimeError("\u5de5\u5177\u6267\u884c\u5931\u8d25: %s (code=%s)" % (cmd[0], e.returncode))
+
+
 
 def backup(target_dir: str | None = None, keep: int = 30, db_path: str | None = None) -> str:
     """\u4e0d\u6253\u6270\u670d\u52a1\u7684\u5728\u7ebf\u4e00\u81f4\u6027\u5907\u4efd\uff08\u542b WAL \u6570\u636e\uff09\u3002"""
+    if db_path is None and _using_pg():
+        return _pg_backup(target_dir or str(ROOT_DIR / "backups"), keep)
     target_dir = target_dir or str(ROOT_DIR / "backups")
     os.makedirs(target_dir, exist_ok=True)
     src = db_path or default_db_path()
@@ -57,7 +120,8 @@ def backup(target_dir: str | None = None, keep: int = 30, db_path: str | None = 
 
 def _prune(target_dir: str, keep: int):
     files = sorted(
-        [f for f in os.listdir(target_dir) if f.startswith("managesys_") and f.endswith(".db")]
+        [f for f in os.listdir(target_dir)
+         if f.startswith("managesys_") and (f.endswith(".db") or f.endswith(".dump"))]
     )
     for stale in files[:-keep] if keep > 0 else []:
         try:
@@ -68,6 +132,8 @@ def _prune(target_dir: str, keep: int):
 
 def restore(src_file: str, db_path: str | None = None, force: bool = False, live_backup: str | None = None) -> str:
     """\u4ece\u5907\u4efd\u6587\u4ef6\u8fd8\u539f\u5230\u6d3b\u5e93\uff1a\u5148\u81ea\u52a8\u5907\u4efd\u5f53\u524d\u5e93\u518d\u8986\u76d6\u3002"""
+    if db_path is None and _using_pg():
+        return _pg_restore(src_file, force, live_backup)
     src_file = str(Path(src_file).resolve())
     if not os.path.exists(src_file):
         raise FileNotFoundError(f"\u5907\u4efd\u6587\u4ef6\u4e0d\u5b58\u5728: {src_file}")
