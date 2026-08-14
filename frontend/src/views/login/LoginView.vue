@@ -71,6 +71,25 @@
               />
             </el-form-item>
 
+            <el-form-item v-if="captchaImage" class="captcha-form-item">
+              <div class="captcha-row">
+                <el-input
+                  v-model="captchaCode"
+                  maxlength="4"
+                  placeholder="请输入验证码"
+                  class="custom-input captcha-input"
+                  @keyup.enter="handleLogin"
+                />
+                <img
+                  :src="captchaImage"
+                  alt="验证码"
+                  class="captcha-img"
+                  title="点击刷新"
+                  @click="loadCaptcha"
+                />
+              </div>
+            </el-form-item>
+
             <div class="form-options">
               <el-checkbox v-model="form.remember">记住用户名</el-checkbox>
             </div>
@@ -110,12 +129,16 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
 import { useAuthStore } from '../../stores/auth'
+import { getCaptchaApi } from '../../api/auth'
 import type { FormInstance, FormRules } from 'element-plus'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const formRef = ref<FormInstance>()
 const loading = ref(false)
+const captchaId = ref('')
+const captchaImage = ref('')
+const captchaCode = ref('')
 
 const form = reactive({
   username: 'admin',
@@ -128,7 +151,25 @@ const rules: FormRules = {
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
 }
 
+async function loadCaptcha() {
+  captchaCode.value = ''
+  try {
+    const res = await getCaptchaApi()
+    if (res.data && res.data.captcha_id !== 'disabled' && res.data.captcha_image) {
+      captchaId.value = res.data.captcha_id
+      captchaImage.value = res.data.captcha_image
+    } else {
+      captchaId.value = ''
+      captchaImage.value = ''
+    }
+  } catch {
+    captchaId.value = ''
+    captchaImage.value = ''
+  }
+}
+
 onMounted(() => {
+  loadCaptcha()
   const saved = localStorage.getItem('remembered_username')
   if (saved) {
     form.username = saved
@@ -148,10 +189,16 @@ async function handleLogin() {
 
   loading.value = true
   try {
-    await authStore.login(form.username, form.password)
+    if (captchaImage.value && captchaCode.value.length !== 4) {
+      ElMessage.warning('请输入验证码')
+      return
+    }
+
+    await authStore.login(form.username, form.password, captchaImage.value ? { captcha_id: captchaId.value, captcha_code: captchaCode.value } : undefined)
     ElMessage.success('登录成功')
     router.push('/dashboard')
   } catch (err: any) {
+    loadCaptcha()
     ElMessage.error(err.response?.data?.detail || '登录失败，请检查用户名和密码')
   } finally {
     loading.value = false
@@ -273,6 +320,12 @@ async function handleLogin() {
 }
 .custom-input :deep(.el-input__wrapper:hover) { box-shadow: 0 0 0 1px #1a5276 inset; }
 .custom-input :deep(.el-input__wrapper.is-focus) { box-shadow: 0 0 0 2px #1a5276 inset; }
+
+.captcha-form-item { margin-bottom: 16px; }
+.captcha-row { display: flex; align-items: center; gap: 10px; width: 100%; }
+.captcha-input { flex: 1; }
+.captcha-img { width: 110px; height: 40px; border-radius: 8px; cursor: pointer; border: 1px solid #e4e7ed; object-fit: cover; background: #f5f7fa; flex-shrink: 0; }
+.captcha-img:hover { border-color: #1a5276; }
 
 .form-options {
   display: flex;

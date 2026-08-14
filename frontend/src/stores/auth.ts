@@ -28,8 +28,13 @@ export const useAuthStore = defineStore('auth', () => {
     return userPermissions.value.includes(code)
   }
 
-  async function login(username: string, password: string) {
-    const res = await loginApi({ username, password })
+  async function login(username: string, password: string, captcha?: { captcha_id: string; captcha_code: string }) {
+    const payload: { username: string; password: string; captcha_id?: string; captcha_code?: string } = { username, password }
+    if (captcha && captcha.captcha_id && captcha.captcha_code) {
+      payload.captcha_id = captcha.captcha_id
+      payload.captcha_code = captcha.captcha_code
+    }
+    const res = await loginApi(payload)
     token.value = res.data.access_token
     localStorage.setItem('access_token', token.value)
     isAuthenticated.value = true
