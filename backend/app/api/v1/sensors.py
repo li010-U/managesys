@@ -1,5 +1,5 @@
 ﻿"""传感器管理 API 路由"""
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -205,7 +205,7 @@ async def retention_status(
     """查询数据保留配置与当前数据量（保留期内数据详情）。"""
     days = settings.DATA_RETENTION_DAYS
     buffer_days = settings.DATA_RETENTION_BUFFER_DAYS
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days + buffer_days)
+    cutoff = datetime.now() - timedelta(days=days + buffer_days)
 
     sd_count = (await db.execute(select(func.count()).select_from(SensorData))).scalar() or 0
     sd_oldest = (await db.execute(select(func.min(SensorData.recorded_at)))).scalar()

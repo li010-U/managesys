@@ -3,8 +3,8 @@ from datetime import datetime
 from typing import Optional
 from sqlalchemy import String, Integer, DateTime, Text, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
 from app.db.base import Base
+from app.core.timeutil import now_local
 
 
 class IpSubnet(Base):
@@ -19,7 +19,7 @@ class IpSubnet(Base):
     vlan: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, comment="VLAN")
     description: Mapped[Optional[str]] = mapped_column(String(256), nullable=True, comment="用途说明")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active", comment="active/disabled")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, comment="创建时间")
 
     addresses: Mapped[list["IpAddress"]] = relationship("IpAddress", back_populates="subnet", cascade="all, delete-orphan")
 
@@ -39,8 +39,8 @@ class IpAddress(Base):
     device_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("devices.id", ondelete="SET NULL"), nullable=True, comment="占用设备")
     used_as: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, comment="management/business/oob")
     remark: Mapped[Optional[str]] = mapped_column(String(256), nullable=True, comment="备注")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, comment="创建时间")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, onupdate=now_local, comment="更新时间")
 
     subnet: Mapped[Optional["IpSubnet"]] = relationship("IpSubnet", back_populates="addresses")
     device: Mapped[Optional["Device"]] = relationship("Device")

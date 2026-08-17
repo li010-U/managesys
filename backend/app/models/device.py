@@ -3,8 +3,8 @@ from datetime import datetime, date
 from typing import Optional, List
 from sqlalchemy import String, Integer, DateTime, Float, Text, ForeignKey, Date
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
 from app.db.base import Base
+from app.core.timeutil import now_local
 
 class Device(Base):
     __tablename__ = "devices"
@@ -41,8 +41,8 @@ class Device(Base):
     power_rating: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="额定功率(kW)，用于机柜功率负载计算")
 
     status: Mapped[str] = mapped_column(String(16), default="in_stock", comment="状态：in_stock/mounted/running/offline/scrapped")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, comment="创建时间")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, onupdate=now_local, comment="更新时间")
 
     device_type: Mapped["DeviceType"] = relationship("DeviceType", back_populates="devices", lazy="selectin")
     rack: Mapped[Optional["Rack"]] = relationship("Rack", back_populates="devices", lazy="selectin")
@@ -62,7 +62,7 @@ class DeviceLifecycle(Base):
     to_status: Mapped[str] = mapped_column(String(16), nullable=False, comment="变更后状态")
     operator: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, comment="操作人")
     remark: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="备注")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, comment="创建时间")
 
     device: Mapped["Device"] = relationship("Device", back_populates="lifecycles", lazy="selectin")
 

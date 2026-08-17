@@ -6,7 +6,7 @@
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select
@@ -27,7 +27,7 @@ class InspectionAIService:
         room = (await self.db.get(Room, room_id))
         if room is None:
             return {"found": False}
-        since = datetime.now(timezone.utc) - timedelta(days=days)
+        since = datetime.now() - timedelta(days=days)
 
         alerts = (await self.db.execute(
             select(Alert).where(Alert.created_at >= since).order_by(Alert.created_at.desc()).limit(100)
@@ -102,7 +102,7 @@ class InspectionAIService:
             "days": days,
             "clue_count": len(clues),
             "checklist": checklist,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now().isoformat(),
         }
         if self.with_llm:
             summary["llm_note"] = await self._llm_refine(summary)

@@ -1,12 +1,9 @@
-# -*- coding: utf-8 -*-
-"""统一时间时区处理工具。
+"""Local-time helper.
 
-SQLite/SQLAlchemy 存日期时（DateTime(timezone=True)）其实会丢失 tzinfo，
-读回来的都是 naive datetime；而业务代码用 datetime.now(timezone.utc)
-得到 aware datetime。两者直接比较/-会抛 TypeError
-(can't compare offset-naive and offset-aware datetimes)。
-
-所有时刻：创建/写入用 utcnow()，读出后比较前用 ensure_utc()。
+All business timestamps are written, compared and displayed as local (Asia/Shanghai) naive
+time. SQLite DateTime(timezone=True) drops tzinfo on read, so naive datetime is the single
+internal convention. Previously values were stored as UTC but displayed as local, causing an
+8-hour display drift; now storage and display are unified on local time.
 """
 from __future__ import annotations
 
@@ -14,30 +11,37 @@ from datetime import datetime, timezone
 from typing import Optional
 
 
+def now_local(*args) -> datetime:
+    """SQLAlchemy default/onupdate callable: returns local naive now, tolerant of context args."""
+    return datetime.now()
+
+
+def now() -> datetime:
+    """Local naive current time (Asia/Shanghai), used for writes and comparisons."""
+    return datetime.now()
+
+
 def utcnow() -> datetime:
-    """时区-aware 的当前 UTC 时刻，用于写入与比较。"""
+    """Aware UTC current time, only for protocol-level use (e.g. JWT)."""
     return datetime.now(timezone.utc)
 
 
 def ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
-    """将任意 datetime 规范化为 aware UTC。
-    - naive 输入：默认视为 UTC 并打标；
-    - aware 输入：转换到 UTC。
-    返回保证是 aware，无不同时区比较问题。
-    """
+    """Normalize to local naive; aware input is converted to local then tz stripped."""
     if dt is None:
         return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+    if dt.tzinfo is not None:
+        dt = dt.astimezone().replace(tzinfo=None)
+    return dt
 
 
 def to_utc(dt: Optional[datetime]) -> Optional[datetime]:
-    """ensure_utc 的别名（便于调用。"""
+    """Alias of ensure_utc."""
     return ensure_utc(dt)
 
 
 def fmt_iso(dt: Optional[datetime]) -> str:
-    """输出带时区的 ISO 字符串；None -> ""。"""
-    u = ensure_utc(dt)
-    return u.isoformat() if u is not None else ""
+    """Local ISO string; None -> empty string."""
+    ndt = ensure_utc(dt)
+    return ndt.isoformat() if ndt is not None else ""
+

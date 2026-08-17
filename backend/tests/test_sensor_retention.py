@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """数据保留与传感器异常留痕的回归测试。"""
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -86,7 +86,7 @@ async def test_record_data_marks_abnormal_when_breaching(db_session, sensor_with
 
 @pytest.mark.asyncio
 async def test_run_retention_deletes_expired_only(db_session):
-    now = datetime.now(timezone.utc)
+    now = datetime.now()
     svc = SensorAnomalyService(db_session)
 
     room = await _make_room(db_session)
@@ -116,7 +116,7 @@ async def test_run_retention_deletes_expired_only(db_session):
 
 @pytest.mark.asyncio
 async def test_reconcile_detects_between_points_breach(db_session, sensor_with_data):
-    now = datetime.now(timezone.utc)
+    now = datetime.now()
     # 传感器默认阈值 10~30；两个正常采集点（前点 20）
     db_session.add(SensorData(sensor_id=sensor_with_data.id, value=20.0,
                               recorded_at=now - timedelta(hours=3), source_mark="normal"))

@@ -1,6 +1,6 @@
 ﻿"""认证服务：注册、登录、密码管理"""
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import select
@@ -129,9 +129,9 @@ class AuthService:
         # 检查账户是否锁定（SQLite 返回 naive datetime，需与 aware now 时区安全比较）
         if user.locked_until:
             locked_until = user.locked_until
-            if getattr(locked_until, "tzinfo", None) is None:
-                locked_until = locked_until.replace(tzinfo=timezone.utc)
-            now = datetime.now(timezone.utc)
+            if getattr(locked_until, "tzinfo", None) is not None:
+                locked_until = locked_until.replace(tzinfo=None)
+            now = datetime.now()
             if locked_until > now:
                 remaining = max(1, int((locked_until - now).total_seconds() // 60))
                 await self._record_login_log(username, ip_address, "fail", "账户已锁定", request_path=request_path, user_agent=user_agent)
@@ -146,7 +146,7 @@ class AuthService:
         if not verify_password(password, user.hashed_password):
             user.login_attempts += 1
             if user.login_attempts >= settings.LOGIN_MAX_ATTEMPTS:
-                user.locked_until = datetime.now(timezone.utc) + timedelta(
+                user.locked_until = datetime.now() + timedelta(
                     minutes=settings.LOGIN_LOCK_MINUTES
                 )
             await self.db.flush()
@@ -156,7 +156,7 @@ class AuthService:
         # 登录成功，重置失败次数
         user.login_attempts = 0
         user.locked_until = None
-        user.last_login = datetime.now(timezone.utc)
+        user.last_login = datetime.now()
         await self.db.flush()
 
         # 生成JWT

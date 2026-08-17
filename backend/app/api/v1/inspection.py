@@ -43,10 +43,10 @@ async def create_template(
     items_json = json.dumps(items) if items else None
     
     if items_json:
-        sql = f"INSERT INTO inspection_templates (name, description, items) VALUES (?, ?, ?)"
+        sql = f"INSERT INTO inspection_templates (name, description, items, created_at, updated_at) VALUES (?, ?, ?, datetime('now','localtime'), datetime('now','localtime'))"
         await exec_sql(db, sql, (name, desc, items_json))
     else:
-        sql = "INSERT INTO inspection_templates (name, description) VALUES (?, ?)"
+        sql = "INSERT INTO inspection_templates (name, description, created_at, updated_at) VALUES (?, ?, datetime('now','localtime'), datetime('now','localtime'))"
         await exec_sql(db, sql, (name, desc))
     
     result = await exec_sql(db, "SELECT * FROM inspection_templates WHERE name = ? ORDER BY id DESC LIMIT 1", (name,))
@@ -109,8 +109,8 @@ async def create_plan(
     assignee_id = plan_in.assignee_id
     
     sql = """INSERT INTO inspection_plans 
-        (name, description, plan_type, frequency, execute_time, facility_id, template_id, assignee_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)"""
+        (name, description, plan_type, frequency, execute_time, facility_id, template_id, assignee_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'), datetime('now','localtime'))"""
     await exec_sql(db, sql, (name, desc, plan_type, frequency, execute_time, facility_id, template_id, assignee_id))
     
     result = await exec_sql(db, "SELECT * FROM inspection_plans WHERE name = ? ORDER BY id DESC LIMIT 1", (name,))
@@ -262,8 +262,8 @@ async def create_task(
     
     # Create task
     await exec_sql(db, """
-        INSERT INTO inspection_tasks (plan_id, plan_name, facility_id, scheduled_date, assignee_id)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO inspection_tasks (plan_id, plan_name, facility_id, scheduled_date, assignee_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, datetime('now','localtime'), datetime('now','localtime'))
     """, (plan_id, plan.name, plan.facility_id, scheduled_date, plan.assignee_id))
     
     result = await exec_sql(db, "SELECT * FROM inspection_tasks ORDER BY id DESC LIMIT 1")
@@ -277,8 +277,8 @@ async def create_task(
             items = json.loads(tpl.items)
             for item in items:
                 await exec_sql(db, """
-                    INSERT INTO inspection_records (task_id, item_name, item_key, check_content)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO inspection_records (task_id, item_name, item_key, check_content, created_at)
+                    VALUES (?, ?, ?, ?, datetime('now','localtime'))
                 """, (task.id, item.get("name", ""), item.get("key", ""), item.get("content", "")))
             await exec_sql(db, "UPDATE inspection_tasks SET total_items = ? WHERE id = ?", (len(items), task.id))
     
@@ -361,8 +361,8 @@ async def add_record(
     check_remark = record_in.check_remark or ""
     
     await exec_sql(db, """
-        INSERT INTO inspection_records (task_id, item_name, item_key, check_content, check_result, check_value, check_remark, inspector_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO inspection_records (task_id, item_name, item_key, check_content, check_result, check_value, check_remark, inspector_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
     """, (task_id, item_name, item_key, check_content, check_result, check_value, check_remark, current_user.id))
     
     result = await exec_sql(db, "SELECT * FROM inspection_records ORDER BY id DESC LIMIT 1")
@@ -425,8 +425,8 @@ async def create_issue(
     device_id = issue_in.device_id
     
     await exec_sql(db, """
-        INSERT INTO inspection_issues (task_id, record_id, device_id, issue_title, issue_description, severity, reporter_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO inspection_issues (task_id, record_id, device_id, issue_title, issue_description, severity, reporter_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'), datetime('now','localtime'))
     """, (task_id, record_id, device_id, issue_title, issue_desc, severity, current_user.id))
     
     result = await exec_sql(db, "SELECT * FROM inspection_issues ORDER BY id DESC LIMIT 1")

@@ -3,7 +3,7 @@ import io
 import random
 import string
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -64,7 +64,7 @@ def generate_captcha() -> tuple[str, str, bytes]:
     img_bytes = _create_captcha_image(code)
     _captcha_cache[captcha_id] = {
         "code": code,
-        "expires_at": datetime.now(timezone.utc) + timedelta(seconds=_CAPTCHA_EXPIRE_SECONDS),
+        "expires_at": datetime.now() + timedelta(seconds=_CAPTCHA_EXPIRE_SECONDS),
     }
     return captcha_id, code, img_bytes
 
@@ -76,6 +76,6 @@ def verify_captcha(captcha_id: str, captcha_code: str) -> bool:
     record = _captcha_cache.pop(captcha_id, None)
     if not record:
         return False
-    if datetime.now(timezone.utc) > record["expires_at"]:
+    if datetime.now() > record["expires_at"]:
         return False
     return record["code"] == captcha_code

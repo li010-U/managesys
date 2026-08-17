@@ -10,7 +10,7 @@
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from app.core.timeutil import ensure_utc
 from typing import Dict, List, Optional
 
@@ -46,7 +46,7 @@ class AlertIntelligenceService:
         key = _alert_dedupe_key(alert)
         alert.dedupe_key = key
         alert.occurrences = 1
-        alert.first_seen_at = _utc(alert.created_at) or datetime.now(timezone.utc)
+        alert.first_seen_at = _utc(alert.created_at) or datetime.now()
         # 查找同 key 且仍开放(未解决/未忽略)的既有告警进行归并
         if alert.id is not None:
             existing = (await self.db.execute(
@@ -73,7 +73,7 @@ class AlertIntelligenceService:
 
     async def auto_escalate(self) -> List[int]:
         """扫描超时未确认的 emergency/new 告警，标记为自动升级。返回升级的告警 id。"""
-        now = datetime.now(timezone.utc)
+        now = datetime.now()
         cutoff = now - timedelta(minutes=self.escalate_after_minutes)
         q = select(Alert).where(
             Alert.status == "new",

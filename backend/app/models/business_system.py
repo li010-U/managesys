@@ -3,8 +3,8 @@ from datetime import datetime
 from typing import Optional, List
 from sqlalchemy import String, Integer, DateTime, Text, ForeignKey, JSON, BigInteger
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
 from app.db.base import Base
+from app.core.timeutil import now_local
 
 class BusinessSystem(Base):
     __tablename__ = "business_systems"
@@ -19,8 +19,8 @@ class BusinessSystem(Base):
     admin_email: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, comment="管理员邮箱")
     remark: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="备注")
     status: Mapped[str] = mapped_column(String(16), default="active", comment="状态：active/maintenance/offline")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, comment="创建时间")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, onupdate=now_local, comment="更新时间")
 
     deployments: Mapped[List["DeploymentRelation"]] = relationship("DeploymentRelation", back_populates="system", lazy="selectin", cascade="all, delete-orphan")
     documents: Mapped[List["SystemDocument"]] = relationship("SystemDocument", back_populates="system", lazy="selectin", cascade="all, delete-orphan")
@@ -39,7 +39,7 @@ class DeploymentRelation(Base):
     process_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, comment="进程名")
     system_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, comment="系统版本")
     middleware_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, comment="中间件版本")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, comment="创建时间")
 
     system: Mapped["BusinessSystem"] = relationship("BusinessSystem", back_populates="deployments", lazy="selectin")
     device: Mapped["Device"] = relationship("Device", lazy="selectin")
@@ -59,7 +59,7 @@ class SystemDocument(Base):
     file_name: Mapped[str] = mapped_column(String(256), nullable=False, comment="文件名")
     file_size: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, comment="文件大小(bytes)")
     uploader: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, comment="上传人")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, comment="创建时间")
 
     system: Mapped["BusinessSystem"] = relationship("BusinessSystem", back_populates="documents", lazy="selectin")
 

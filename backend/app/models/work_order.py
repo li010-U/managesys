@@ -3,8 +3,8 @@ from datetime import datetime, date
 from typing import Optional, List
 from sqlalchemy import String, Integer, DateTime, Date, Float, Text, ForeignKey, Boolean, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
 from app.db.base import Base
+from app.core.timeutil import now_local
 
 
 class WorkOrderCategory(Base):
@@ -16,7 +16,7 @@ class WorkOrderCategory(Base):
     code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True, comment="分类编码")
     icon: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, comment="图标")
     sort: Mapped[int] = mapped_column(Integer, default=0, comment="排序")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local)
     need_approval: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否需要审批")
 
 
@@ -63,8 +63,8 @@ class WorkOrder(Base):
     approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment="审批时间")
     reject_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="拒绝原因")
     
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, comment="创建时间")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, onupdate=now_local, comment="更新时间")
     
     category: Mapped[Optional["WorkOrderCategory"]] = relationship("WorkOrderCategory", lazy="selectin")
     device: Mapped[Optional["Device"]] = relationship("Device", lazy="selectin")
@@ -87,7 +87,7 @@ class WorkOrderComment(Base):
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, comment="评论人")
     content: Mapped[str] = mapped_column(Text, nullable=False, comment="评论内容")
     comment_type: Mapped[str] = mapped_column(String(16), default="normal", comment="类型: normal/process/verify/close")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local)
 
     work_order: Mapped["WorkOrder"] = relationship("WorkOrder", back_populates="comments", lazy="selectin")
     user: Mapped["User"] = relationship("User", lazy="selectin")
@@ -107,7 +107,7 @@ class WorkOrderAttachment(Base):
     file_size: Mapped[int] = mapped_column(Integer, nullable=True, comment="文件大小(字节)")
     file_type: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, comment="文件类型")
     uploader_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local)
 
     work_order: Mapped["WorkOrder"] = relationship("WorkOrder", back_populates="attachments", lazy="selectin")
     uploader: Mapped["User"] = relationship("User", lazy="selectin")
@@ -131,7 +131,7 @@ class WorkOrderAutoRule(Base):
     action_auto_complete: Mapped[bool] = mapped_column(Boolean, default=False, comment="??:????(??????)")
     sort: Mapped[int] = mapped_column(Integer, default=0, comment="??(??????)")
     created_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local)
 
     def __repr__(self) -> str:
         return f"<WorkOrderAutoRule {self.name}>"

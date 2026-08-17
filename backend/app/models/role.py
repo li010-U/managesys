@@ -4,9 +4,9 @@ from typing import Optional
 
 from sqlalchemy import String, Boolean, DateTime, Integer, ForeignKey, Table, Column, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
 
 from app.db.base import Base
+from app.core.timeutil import now_local
 
 
 # 角色-权限 多对多关联表
@@ -27,10 +27,10 @@ class Role(Base):
     description: Mapped[Optional[str]] = mapped_column(String(256), nullable=True, comment="角色描述")
     is_builtin: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否内置角色")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), comment="创建时间"
+        DateTime(timezone=True), default=now_local, comment="创建时间"
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间"
+        DateTime(timezone=True), default=now_local, onupdate=now_local, comment="更新时间"
     )
 
     users: Mapped[list["User"]] = relationship(

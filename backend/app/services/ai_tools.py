@@ -310,7 +310,7 @@ async def _exec_assign_work_order(db, args, current_user):
     _require(assignee is not None, "assignee user not found: " + who)
     remark = args.get("remark")
     await exec_sql(db, "UPDATE work_orders SET assignee_id = ?, status = \x27assigned\x27 WHERE id = ?", (assignee.id, oid))
-    await exec_sql(db, "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
+    await exec_sql(db, "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type, created_at) VALUES (?, ?, ?, ?, datetime('now','localtime'))",
                   (oid, current_user.id, "assigned by AI to " + who, "process"))
     await with_commit_retry(db.commit)
     return {"tool": "assign_work_order", "result": "assigned", "order_id": oid, "assignee": who}
@@ -325,7 +325,7 @@ async def _exec_close_work_order(db, args, current_user):
     _ensure_owner(current_user, row.creator_id)
     remark = args.get("remark")
     await exec_sql(db, "UPDATE work_orders SET status = \x27closed\x27 WHERE id = ?", (oid,))
-    await exec_sql(db, "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
+    await exec_sql(db, "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type, created_at) VALUES (?, ?, ?, ?, datetime('now','localtime'))",
                   (oid, current_user.id, remark or "closed by AI", "close"))
     await with_commit_retry(db.commit)
     return {"tool": "close_work_order", "result": "closed", "order_id": oid}
@@ -348,7 +348,7 @@ async def _exec_verify_work_order(db, args, current_user):
     new_status = "completed" if accept else "processing"
     await exec_sql(db, "UPDATE work_orders SET status = ?, satisfaction = ?, feedback = ? WHERE id = ?",
                   (new_status, score, feedback, oid))
-    await exec_sql(db, "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
+    await exec_sql(db, "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type, created_at) VALUES (?, ?, ?, ?, datetime('now','localtime'))",
                   (oid, current_user.id, ("accept" if accept else "reject") + " by AI, score " + str(score), "verify"))
     await with_commit_retry(db.commit)
     return {"tool": "verify_work_order", "result": "accepted" if accept else "rejected", "order_id": oid, "satisfaction": score}
@@ -458,7 +458,7 @@ async def _exec_create_work_order(db, args, operator):
     _require(user is not None, "operator user not found")
     order_no = generate_order_no()
     await exec_sql(db,
-        "INSERT INTO work_orders (order_no, title, description, priority, device_id, facility_id, status, creator_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO work_orders (order_no, title, description, priority, device_id, facility_id, status, creator_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'), datetime('now','localtime'))",
         (order_no, title, description, priority, args.get("device_id"), args.get("facility_id"), "pending", user.id))
     await with_commit_retry(db.commit)
     res = await exec_sql(db, "SELECT id FROM work_orders WHERE order_no = ?", (order_no,))

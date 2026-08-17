@@ -61,8 +61,8 @@ async def create_rule(
     await exec_sql(db, """
         INSERT INTO work_order_auto_rules
             (name, enabled, match_keyword, match_category_id, match_priority,
-             action_set_priority, action_assign_user_id, action_auto_complete, sort, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             action_set_priority, action_assign_user_id, action_auto_complete, sort, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
     """, (data.name, data.enabled, data.match_keyword, data.match_category_id, data.match_priority,
           data.action_set_priority, data.action_assign_user_id, data.action_auto_complete, data.sort, current_user.id))
     row = (await exec_sql(db, "SELECT * FROM work_order_auto_rules ORDER BY id DESC LIMIT 1")).fetchone()
@@ -158,7 +158,7 @@ async def resolve_auto_complete(db, order_id: int):
             UPDATE work_orders SET status = 'completed', end_time = CURRENT_TIMESTAMP WHERE id = ?
         """, (order_id,))
         await exec_sql(db, """
-            INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type, created_at)
+            VALUES (?, ?, ?, ?, datetime('now','localtime'))
         """, (order_id, order.assignee_id or order.creator_id, "?????????????", "process"))
         return

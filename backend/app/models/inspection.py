@@ -3,8 +3,8 @@ from datetime import datetime, date
 from typing import Optional, List
 from sqlalchemy import String, Integer, DateTime, Float, Text, ForeignKey, Boolean, JSON, Date
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
 from app.db.base import Base
+from app.core.timeutil import now_local
 
 
 class InspectionTemplate(Base):
@@ -16,8 +16,8 @@ class InspectionTemplate(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="模板描述")
     device_type_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("device_types.id", ondelete="SET NULL"), nullable=True, comment="适用的设备类型")
     items: Mapped[Optional[list]] = mapped_column(JSON, nullable=True, comment="巡检项配置")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, onupdate=now_local)
 
     def __repr__(self) -> str:
         return f"<InspectionTemplate {self.name}>"
@@ -46,8 +46,8 @@ class InspectionPlan(Base):
     next_execute_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, comment="下次执行日期")
     last_execute_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, comment="上次执行日期")
     
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, onupdate=now_local)
 
     template: Mapped[Optional["InspectionTemplate"]] = relationship("InspectionTemplate", lazy="selectin")
     facility: Mapped[Optional["Room"]] = relationship("Room", lazy="selectin")
@@ -82,8 +82,8 @@ class InspectionTask(Base):
     
     remark: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="备注")
     
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, onupdate=now_local)
 
     plan: Mapped["InspectionPlan"] = relationship("InspectionPlan", lazy="selectin")
     facility: Mapped[Optional["Room"]] = relationship("Room", lazy="selectin")
@@ -111,7 +111,7 @@ class InspectionRecord(Base):
     check_remark: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="检查备注")
     
     inspector_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, comment="检查人")
-    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="检查时间")
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, comment="检查时间")
 
     task: Mapped["InspectionTask"] = relationship("InspectionTask", back_populates="records", lazy="selectin")
     device: Mapped[Optional["Device"]] = relationship("Device", lazy="selectin")
@@ -143,8 +143,8 @@ class InspectionIssue(Base):
     resolve_content: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="处理内容")
     resolve_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment="处理时间")
     
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, onupdate=now_local)
 
     task: Mapped["InspectionTask"] = relationship("InspectionTask", lazy="selectin")
     record: Mapped[Optional["InspectionRecord"]] = relationship("InspectionRecord", lazy="selectin")

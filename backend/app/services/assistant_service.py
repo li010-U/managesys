@@ -115,7 +115,7 @@ class AssistantService:
         }
 
         return {
-            "timestamp": _fmt_dt(datetime.now(timezone.utc)),
+            "timestamp": _fmt_dt(datetime.now()),
             "alert_stats": alert_stats,
             "sensor": {
                 "total": len(sensors),
@@ -221,7 +221,7 @@ class AssistantService:
         out = []
         if not sensors:
             return out
-        now = datetime.now(timezone.utc)
+        now = datetime.now()
         since = now - timedelta(minutes=window_min)
         for s in sensors:
             if s.sensor_type not in ("temperature", "humidity"):
@@ -256,7 +256,7 @@ class AssistantService:
 
     async def _alert_count_in_range(self, hours: int) -> int:
         """统计最近 hours 小时内的新告警数量。"""
-        since = datetime.now(timezone.utc) - timedelta(hours=hours)
+        since = datetime.now() - timedelta(hours=hours)
         rows = await self.db.execute(
             select(func.count()).select_from(Alert).where(Alert.created_at >= since)
         )
@@ -269,7 +269,7 @@ class AssistantService:
         lu = s.last_update_time
         if lu.tzinfo is None:
             lu = lu.replace(tzinfo=timezone.utc)
-        delta = datetime.now(timezone.utc) - lu
+        delta = datetime.now() - lu
         minutes = int(delta.total_seconds() // 60)
         return minutes if minutes > 0 else 0
 

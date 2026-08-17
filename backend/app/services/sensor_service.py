@@ -1,5 +1,5 @@
 """传感器管理服务"""
-from datetime import datetime, timezone
+from datetime import datetime
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -82,7 +82,7 @@ class SensorService:
             if self._is_breach(sensor, value):
                 sd.source_mark = "abnormal"
             sensor.current_value = {"value": value, "unit": self._get_unit(sensor.sensor_type)}
-            sensor.last_update_time = datetime.now(timezone.utc)
+            sensor.last_update_time = datetime.now()
             sensor.status = "online"
         self.db.add(sd)
         await self.db.flush()

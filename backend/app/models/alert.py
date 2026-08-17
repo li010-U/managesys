@@ -3,8 +3,8 @@ from datetime import datetime
 from typing import Optional, List
 from sqlalchemy import String, Integer, DateTime, Float, Text, ForeignKey, Boolean, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
 from app.db.base import Base
+from app.core.timeutil import now_local
 
 class AlertRule(Base):
     __tablename__ = "alert_rules"
@@ -18,8 +18,8 @@ class AlertRule(Base):
     alert_level: Mapped[str] = mapped_column(String(16), default="general", comment="告警级别：general/serious/emergency")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, comment="是否启用")
     notify_methods: Mapped[Optional[list]] = mapped_column(JSON, nullable=True, comment="通知方式：email/sms")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, comment="创建时间")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, onupdate=now_local, comment="更新时间")
 
     alerts: Mapped[List["Alert"]] = relationship("Alert", back_populates="rule", lazy="selectin")
 
@@ -40,7 +40,7 @@ class Alert(Base):
     level: Mapped[str] = mapped_column(String(16), default="general", comment="告警级别：general/serious/emergency")
     status: Mapped[str] = mapped_column(String(16), default="new", comment="状态：new/acknowledged/resolved/ignored")
     source: Mapped[str] = mapped_column(String(16), default="system", comment="来源：sensor/monitor/system")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, comment="创建时间")
     # ==== 智能告警增强（告警收敛/升级） ====
     dedupe_key: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True, comment="收敛去重键(设备+标题)，同类连续告警归并")
     occurrences: Mapped[int] = mapped_column(Integer, default=1, comment="收敛后的累计发生次数")
@@ -66,7 +66,7 @@ class AlertAction(Base):
     operator: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, comment="处理人")
     remark: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="处理备注")
     root_cause: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="根因分析")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="处理时间")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, comment="处理时间")
 
     alert: Mapped["Alert"] = relationship("Alert", back_populates="actions", lazy="selectin")
 

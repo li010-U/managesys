@@ -159,7 +159,7 @@ async def cleanup_retention(
     """按保留策略清理历史审计日志（仅超级管理员）"""
     if not current_user.is_super_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅超级管理员可清理审计日志")
-    before = datetime.utcnow() - timedelta(days=days)
+    before = datetime.now() - timedelta(days=days)
     service = AuditService(db)
     removed = await service.purge(before)
     return {"removed": removed, "kept_days": days}

@@ -3,8 +3,8 @@ from datetime import datetime
 from typing import Optional
 from sqlalchemy import String, Integer, Text, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
 from app.db.base import Base
+from app.core.timeutil import now_local
 
 
 class KnowledgeArticle(Base):
@@ -17,7 +17,7 @@ class KnowledgeArticle(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False, comment="??")
     source_order_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="????ID")
     created_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local)
 
     creator: Mapped["User"] = relationship("User", lazy="selectin")
 

@@ -4,9 +4,9 @@ from typing import Optional
 
 from sqlalchemy import String, Boolean, DateTime, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
 
 from app.db.base import Base
+from app.core.timeutil import now_local
 
 
 class Permission(Base):
@@ -18,7 +18,7 @@ class Permission(Base):
     description: Mapped[Optional[str]] = mapped_column(String(256), nullable=True, comment="权限描述")
     module: Mapped[str] = mapped_column(String(64), nullable=False, comment="所属模块")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), comment="创建时间"
+        DateTime(timezone=True), default=now_local, comment="创建时间"
     )
 
     roles: Mapped[list["Role"]] = relationship(

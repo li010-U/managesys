@@ -3,8 +3,8 @@ from datetime import datetime
 from typing import Optional
 from sqlalchemy import String, Integer, DateTime, Text, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql import func
 from app.db.base import Base
+from app.core.timeutil import now_local
 
 
 class AuditLog(Base):
@@ -20,7 +20,7 @@ class AuditLog(Base):
     ip_address: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, comment="操作IP")
     request_path: Mapped[Optional[str]] = mapped_column(String(256), nullable=True, comment="请求路径")
     user_agent: Mapped[Optional[str]] = mapped_column(String(512), nullable=True, comment="用户代理")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, comment="创建时间")
 
     def __repr__(self) -> str:
         return f"<AuditLog {self.action} {self.target_type}>"

@@ -56,7 +56,7 @@ async def create_category(
     need_approval = data.need_approval
     
     await exec_sql(db, 
-        "INSERT INTO work_order_categories (name, code, icon, sort, need_approval) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO work_order_categories (name, code, icon, sort, need_approval, created_at) VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))",
         (name, code, icon, sort, need_approval)
     )
     
@@ -318,8 +318,8 @@ async def create_work_order(
             assignee_id = None
 
     await exec_sql(db, """
-        INSERT INTO work_orders (order_no, title, description, category_id, priority, device_id, facility_id, assignee_id, plan_date, estimated_hours, status, creator_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO work_orders (order_no, title, description, category_id, priority, device_id, facility_id, assignee_id, plan_date, estimated_hours, status, creator_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'), datetime('now','localtime'))
     """, (order_no, title, description, category_id, priority, device_id, facility_id, assignee_id, plan_date, estimated_hours, status, current_user.id))
 
     result = await exec_sql(db, "SELECT id FROM work_orders WHERE order_no = ?", (order_no,))
@@ -329,7 +329,7 @@ async def create_work_order(
     order_id = row.id
 
     if applied_rule:
-        await exec_sql(db, "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
+        await exec_sql(db, "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type, created_at) VALUES (?, ?, ?, ?, datetime('now','localtime'))",
             (order_id, current_user.id, "Auto rule applied: " + applied_rule, "process"))
 
     await resolve_auto_complete(db, order_id)
@@ -389,7 +389,7 @@ async def assign_work_order(
         (assignee_id, work_order_id)
     )
     await exec_sql(db,
-        "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
+        "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type, created_at) VALUES (?, ?, ?, ?, datetime('now','localtime'))",
         (work_order_id, current_user.id, "Work order assigned", "process")
     )
 
@@ -419,7 +419,7 @@ async def start_work_order(
         (work_order_id,)
     )
     await exec_sql(db,
-        "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
+        "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type, created_at) VALUES (?, ?, ?, ?, datetime('now','localtime'))",
         (work_order_id, current_user.id, "Started processing", "process")
     )
 
@@ -451,7 +451,7 @@ async def complete_work_order(
     await exec_sql(db, "UPDATE work_orders SET status = 'pending_verify', result = ?, end_time = CURRENT_TIMESTAMP, actual_hours = ? WHERE id = ?",
         (result, actual_hours or 0, work_order_id))
     await exec_sql(db,
-        "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
+        "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type, created_at) VALUES (?, ?, ?, ?, datetime('now','localtime'))",
         (work_order_id, current_user.id, "Completed: {0}".format(result), "verify")
     )
 
@@ -487,7 +487,7 @@ async def verify_work_order(
 
     content = "Verified and accepted" if accept else "Verification failed, needs rework"
     await exec_sql(db,
-        "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
+        "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type, created_at) VALUES (?, ?, ?, ?, datetime('now','localtime'))",
         (work_order_id, current_user.id, content, "verify")
     )
 
@@ -516,7 +516,7 @@ async def close_work_order(
     remark = data.remark or ""
     await exec_sql(db, "UPDATE work_orders SET status = 'closed' WHERE id = ?", (work_order_id,))
     await exec_sql(db,
-        "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
+        "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type, created_at) VALUES (?, ?, ?, ?, datetime('now','localtime'))",
         (work_order_id, current_user.id, "Closed: {0}".format(remark), "close")
     )
 
@@ -538,7 +538,7 @@ async def add_comment(
     comment_type = data.comment_type
 
     await exec_sql(db,
-        "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
+        "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type, created_at) VALUES (?, ?, ?, ?, datetime('now','localtime'))",
         (work_order_id, current_user.id, content, comment_type)
     )
 
@@ -568,8 +568,8 @@ async def upload_attachment(
     except ValueError as e:
         raise HTTPException(status_code=fastapi_status.HTTP_400_BAD_REQUEST, detail=str(e))
     await exec_sql(db, """
-        INSERT INTO work_order_attachments (work_order_id, file_name, file_path, file_size, file_type, uploader_id)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO work_order_attachments (work_order_id, file_name, file_path, file_size, file_type, uploader_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now','localtime'))
     """, (work_order_id, info["original_name"], info["relative_path"], info["size"], info["mime_type"], current_user.id))
     result = (await exec_sql(db, """
         SELECT wa.*, u.username as uploader_name
@@ -634,7 +634,7 @@ async def approve_work_order(
     new_status = "assigned" if row.assignee_id else "pending"
     await exec_sql(db, "UPDATE work_orders SET status = ?, approved_by = ?, approved_at = CURRENT_TIMESTAMP, reject_reason = NULL WHERE id = ?",
         (new_status, current_user.id, work_order_id))
-    await exec_sql(db, "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
+    await exec_sql(db, "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type, created_at) VALUES (?, ?, ?, ?, datetime('now','localtime'))",
         (work_order_id, current_user.id, "Approved by " + current_user.username, "process"))
     AuditService.log_request(db, request, current_user=current_user, action="approve", target_type="work_order", target_id=str(work_order_id), detail='??????')
 
@@ -658,7 +658,7 @@ async def reject_work_order(
         raise HTTPException(400, "Only work orders awaiting approval can be rejected")
     await exec_sql(db, "UPDATE work_orders SET status = 'closed', approved_by = ?, approved_at = CURRENT_TIMESTAMP, reject_reason = ? WHERE id = ?",
         (current_user.id, reason, work_order_id))
-    await exec_sql(db, "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type) VALUES (?, ?, ?, ?)",
+    await exec_sql(db, "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type, created_at) VALUES (?, ?, ?, ?, datetime('now','localtime'))",
         (work_order_id, current_user.id, "Rejected: " + reason, "close"))
     AuditService.log_request(db, request, current_user=current_user, action="reject", target_type="work_order", target_id=str(work_order_id), detail='????')
 

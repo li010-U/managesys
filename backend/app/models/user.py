@@ -4,9 +4,9 @@ from typing import Optional
 
 from sqlalchemy import String, Boolean, DateTime, Integer, ForeignKey, Table, Column
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
 
 from app.db.base import Base
+from app.core.timeutil import now_local
 
 
 # 用户-角色 多对多关联表
@@ -39,10 +39,10 @@ class User(Base):
     # 令牌原作版本号：修改密码/注销时+1，用于使已发出 JWT 失效
     token_version: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), comment="创建时间"
+        DateTime(timezone=True), default=now_local, comment="创建时间"
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间"
+        DateTime(timezone=True), default=now_local, onupdate=now_local, comment="更新时间"
     )
 
     roles: Mapped[list["Role"]] = relationship(

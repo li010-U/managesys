@@ -40,13 +40,13 @@ def test_locked_account_login_returns_401_not_500():
     from app.models.user import User
     from sqlalchemy import select
     import asyncio
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     # 先在磁停库里将 admin 锁定（设置 locked_until）
     async def lock():
         async with async_session_factory() as db:
             u = (await db.execute(select(User).where(User.username == "admin"))).scalar_one()
-            u.locked_until = datetime.now(timezone.utc) + timedelta(hours=1)
+            u.locked_until = datetime.now() + timedelta(hours=1)
             await db.commit()
     asyncio.run(lock())
 

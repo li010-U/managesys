@@ -1,4 +1,5 @@
 ﻿"""验证码模型"""
+from datetime import datetime
 from sqlalchemy import String, DateTime, Integer
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
@@ -17,8 +18,7 @@ class CaptchaCode(Base):
 
     def is_expired(self) -> bool:
         """检查是否已过期（时区安全）"""
-        from app.core.timeutil import utcnow, ensure_utc
-        return utcnow() > ensure_utc(self.expires_at)
+        return datetime.now() > self.expires_at
 
     def is_valid(self, code: str) -> bool:
         """验证验证码是否正确且未过期"""

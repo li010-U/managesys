@@ -3,8 +3,8 @@ from datetime import datetime
 from typing import Optional, List
 from sqlalchemy import String, Boolean, Integer, DateTime, Float, Text, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
 from app.db.base import Base
+from app.core.timeutil import now_local
 
 
 class DataCenter(Base):
@@ -20,8 +20,8 @@ class DataCenter(Base):
     contact_phone: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, comment="联系电话")
     contact_email: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, comment="联系邮箱")
     status: Mapped[str] = mapped_column(String(16), default="active", comment="状态: active/disabled")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, comment="创建时间")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, onupdate=now_local, comment="更新时间")
 
     rooms: Mapped[List["Room"]] = relationship("Room", back_populates="data_center", lazy="selectin")
 
@@ -46,8 +46,8 @@ class Room(Base):
     tier_level: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, comment="Tier等级: Tier I/Tier II/Tier III/Tier IV")
     description: Mapped[Optional[str]] = mapped_column(String(512), nullable=True, comment="描述")
     status: Mapped[str] = mapped_column(String(16), default="active", comment="状态: active/disabled")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, comment="创建时间")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, onupdate=now_local, comment="更新时间")
 
     data_center: Mapped["DataCenter"] = relationship("DataCenter", back_populates="rooms", lazy="selectin")
     racks: Mapped[List["Rack"]] = relationship("Rack", back_populates="room", lazy="selectin", cascade="all, delete-orphan")
@@ -77,8 +77,8 @@ class Rack(Base):
     rated_power: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="额定功率(kW)")
     status: Mapped[str] = mapped_column(String(16), default="active", comment="状态: active/disabled")
     description: Mapped[Optional[str]] = mapped_column(String(512), nullable=True, comment="描述")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, comment="创建时间")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, onupdate=now_local, comment="更新时间")
 
     room: Mapped["Room"] = relationship("Room", back_populates="racks", lazy="selectin")
     devices: Mapped[List["Device"]] = relationship("Device", back_populates="rack", lazy="selectin")

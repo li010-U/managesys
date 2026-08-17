@@ -206,7 +206,7 @@ class AuditService:
         trend_conditions = []
         try:
             from datetime import timedelta
-            since = (end_date or datetime.utcnow()) - timedelta(days=days - 1)
+            since = (end_date or datetime.now()) - timedelta(days=days - 1)
             trend_conditions.append(AuditLog.created_at >= since)
         except Exception:
             pass

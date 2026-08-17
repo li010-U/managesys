@@ -60,8 +60,8 @@ async def create_article(
     _ = Depends(require_permission("work:create")),
 ):
     await exec_sql(db, """
-        INSERT INTO kb_articles (title, category, content, source_order_id, created_by)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO kb_articles (title, category, content, source_order_id, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))
     """, (data.title, data.category, data.content, data.source_order_id, current_user.id))
     row = (await exec_sql(db, """
         SELECT k.*, u.username as creator_name

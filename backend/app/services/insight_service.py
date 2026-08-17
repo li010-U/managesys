@@ -130,7 +130,7 @@ class InsightService:
     async def sensor_baseline(self, sensor_id: int, lookback_days: Optional[int] = None) -> Dict[str, Any]:
         """对单个传感器做自学习基线：按小时槽聚合并给出 IQR/Z-score 判定。"""
         lookback_days = lookback_days or 30
-        since = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+        since = datetime.now() - timedelta(days=lookback_days)
         sensor = (await self.db.execute(select(Sensor).where(Sensor.id == sensor_id))).scalar_one_or_none()
         if sensor is None:
             return {"found": False}
@@ -174,7 +174,7 @@ class InsightService:
 
         assessment = None
         if current is not None:
-            now_hour = datetime.now(timezone.utc).hour
+            now_hour = datetime.now().hour
             slot = baseline.get(str(now_hour))
             if slot and slot.get("low") is not None:
                 if current > slot["high"]:
@@ -235,7 +235,7 @@ class InsightService:
             q = q.where(Rack.room_id == room_id)
         racks = (await self.db.execute(q)).scalars().all()
         rows = []
-        now = datetime.now(timezone.utc)
+        now = datetime.now()
         for rack in racks:
             devices = rack.devices or []
             used_units = rack.total_units - rack.available_units
@@ -280,7 +280,7 @@ class InsightService:
     # ---------------- 可靠性指标 ----------------
     async def reliability(self, room_id: Optional[int] = None, days: int = 90) -> Dict[str, Any]:
         """基于告警生命周期计算 MTTR/MTBF 与可用率。"""
-        since = datetime.now(timezone.utc) - timedelta(days=days)
+        since = datetime.now() - timedelta(days=days)
         q = select(Alert).where(Alert.created_at >= since)
         if room_id and hasattr(Alert, "room_id"):
             q = q.where(Alert.room_id == room_id)
@@ -380,10 +380,10 @@ class InsightService:
         """
         text = (query or "").lower()
         # 解析时间范围
-        since = datetime.now(timezone.utc) - timedelta(days=7)
+        since = datetime.now() - timedelta(days=7)
         for label, days in [("30天", 30), ("90天", 90), ("180天", 180), ("上周", 7), ("今天", 1), ("本周", 7), ("最近一个月", 30), ("最近一周", 7), ("一个月", 30), ("一周", 7)]:
             if label in text:
-                since = datetime.now(timezone.utc) - timedelta(days=days)
+                since = datetime.now() - timedelta(days=days)
                 break
 
         keyword_parts = [w for w in text.replace("?", "").replace("？", "").split() if w]

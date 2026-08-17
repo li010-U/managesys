@@ -5,7 +5,7 @@
   若是则写入独立表 sensor_anomaly_gap（与 alerts 互补，不重复告警）。
 - run_retention: 按 DATA_RETENTION_DAYS 滚动清理 sensor_data 与 sensor_anomaly_gap。
 """
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from app.core.timeutil import ensure_utc
 from typing import Optional
 
@@ -72,7 +72,7 @@ class SensorAnomalyService:
         返回本次新增留痕条数；按 alert_id 幂等去重。
         """
         threshold = settings.SENSOR_EXPECTED_INTERVAL_SECONDS * settings.SENSOR_GAP_TOLERANCE
-        since = since or (datetime.now(timezone.utc) - timedelta(hours=24))
+        since = since or (datetime.now() - timedelta(hours=24))
 
         result = await self.db.execute(
             select(Alert).where(
@@ -98,7 +98,7 @@ class SensorAnomalyService:
             )).scalar_one_or_none()
             if sensor is None:
                 continue
-            ts = _utc(alert.created_at) or datetime.now(timezone.utc)
+            ts = _utc(alert.created_at) or datetime.now()
             prev, nxt = await self._bracketing_samples(sensor_id, ts)
             prev_dt = _utc(prev.recorded_at) if prev else None
             nxt_dt = _utc(nxt.recorded_at) if nxt else None
@@ -135,7 +135,7 @@ class SensorAnomalyService:
         """
         days = days or settings.DATA_RETENTION_DAYS
         buffer_days = settings.DATA_RETENTION_BUFFER_DAYS
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days + buffer_days)
+        cutoff = datetime.now() - timedelta(days=days + buffer_days)
 
         sd_res = await self.db.execute(
             delete(SensorData).where(SensorData.recorded_at < cutoff)
