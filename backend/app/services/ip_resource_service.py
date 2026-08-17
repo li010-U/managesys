@@ -240,22 +240,22 @@ class IpResourceService:
                       "business": "business_ip",
                       "oob": "out_of_band_ip"}.get(role)
         if role_field is None:
-            raise ValueError("??? IP ????")
+            raise ValueError("目标IP已被占用")
         new_ip = (new_ip or "").strip()
         if not new_ip:
-            raise ValueError("? IP ????")
+            raise ValueError("该IP已被使用")
 
         # ??? IP ???????
         try:
             ipaddress.ip_address(new_ip.split("%")[0])
         except ValueError:
-            raise ValueError("? IP ?????")
+            raise ValueError("该IP地址不规范")
 
         device = (await self.db.execute(
             select(Device).where(Device.id == device_id)
         )).scalar_one_or_none()
         if device is None:
-            raise ValueError("?????")
+            raise ValueError("操作失败")
 
         old_value = getattr(device, role_field) or ""
         setattr(device, role_field, new_ip)
@@ -271,7 +271,7 @@ class IpResourceService:
             target_type="device",
             user_id=None,
             target_id=str(device_id),
-            detail=("?? IP ???%s[%s] ??=%s?IP %s -> %s"
+            detail=("设备 IP 变更 %s[%s] 角色=%s 旧IP %s -> %s"
                     % (device.name, device.asset_number, role, old_value, new_ip)),
             ip_address=operator_ip,
         )

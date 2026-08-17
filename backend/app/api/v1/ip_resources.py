@@ -8,7 +8,7 @@ from app.core.deps import get_db, get_current_user, require_permission, require_
 from app.models.user import User
 from app.services.ip_resource_service import IpResourceService
 
-router = APIRouter(prefix="/ip-resources", tags=["IP??"])
+router = APIRouter(prefix="/ip-resources", tags=["IP资源"])
 
 
 class IpResolveRequest(BaseModel):

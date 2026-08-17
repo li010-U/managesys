@@ -77,7 +77,7 @@ class FileService:
         # ? sub_dir ????????????/????????
         if sub_dir:
             if "/" in sub_dir or "\\" in sub_dir or ".." in sub_dir or sub_dir.startswith("."):
-                raise ValueError("??????: sub_dir")
+                raise ValueError("非法目录: sub_dir")
             sub_dir = sub_dir.strip("/\\")
 
         date_path = self._get_date_path()
@@ -141,7 +141,7 @@ class FileService:
         root = self.upload_dir.resolve()
         full_path = (root / relative_path).resolve()
         if not full_path.is_relative_to(root):
-            raise ValueError("???????")
+            raise ValueError("文件访问受限")
         return full_path
 
     def get_file_path(self, relative_path: str) -> Optional[Path]:
@@ -157,14 +157,14 @@ class FileService:
         try:
             full_path = self._resolve_safe_path(relative_path)
         except ValueError:
-            logger.warning("????????: %s", relative_path)
+            logger.warning("检测到越界: %s", relative_path)
             return False
         if full_path.exists():
             if full_path.is_dir():
-                logger.warning("??????: %s", relative_path)
+                logger.warning("文件不存在: %s", relative_path)
                 return False
             full_path.unlink()
-            logger.info("?????: %s", relative_path)
+            logger.info("文件已更新: %s", relative_path)
             return True
         return False
 

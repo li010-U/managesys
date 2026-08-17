@@ -75,7 +75,7 @@ export function sendMessageStreamApi(
         if (data === "[DONE]") {
           if (!doneSent) { doneSent = true; onDone() }
         } else if (data === "[ERROR]") {
-          if (!doneSent) { doneSent = true; onError("AI ????????") }
+          if (!doneSent) { doneSent = true; onError("AI 助手不可用") }
         } else if (data.startsWith("[TOOL_PROPOSAL]")) {
           if (onProposal) {
             try {
@@ -97,21 +97,21 @@ export function sendMessageStreamApi(
     } else {
       try {
         const resp = JSON.parse(xhr.responseText)
-        onError(resp.detail || "????")
+        onError(resp.detail || "服务异常")
       } catch {
-        onError("????")
+        onError("响应解析失败")
       }
     }
   }
   xhr.onerror = () => {
     if (aborted) return
-    onError("????")
+    onError("网络连接失败")
   }
 
   try {
     xhr.send(JSON.stringify({ content, conversation_id: conversationId }))
   } catch {
-    onError("????")
+    onError("请求发送失败")
   }
 
   // 返回取消函数：停止生成

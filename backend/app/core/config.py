@@ -116,7 +116,7 @@ class Settings(BaseSettings):
     def _reject_insecure_secret(cls, v: str) -> str:
         insecure = {"dev-secret-key-change-in-production-2024", "changeme", "secret", "insecure"}
         if not v or v in insecure or v.startswith("dev-"):
-            raise ValueError("SECRET_KEY ???????/.env ???????????????????????")
+            raise ValueError("SECRET_KEY 未设置，请在 .env 配置一个足够长的安全密钥字符串")
         return v
 
 settings = Settings()

@@ -63,7 +63,7 @@ const routes: RouteRecordRaw[] = [
         path: 'system/ip-conflict-center',
         name: 'IpConflictCenter',
         component: () => import('../views/system/IpConflictCenter.vue'),
-        meta: { title: 'IP冲突处理', icon: 'Warning', permission: 'device:view', parentTitle: 'IP??', parentPath: '/system/ip-resources' },
+        meta: { title: 'IP冲突处理', icon: 'Warning', permission: 'device:view', parentTitle: 'IP资源', parentPath: '/system/ip-resources' },
       },
       {
         path: 'workorder/list',
@@ -111,7 +111,7 @@ const routes: RouteRecordRaw[] = [
         path: 'device/ip-edit/:id',
         name: 'DeviceIpEdit',
         component: () => import('../views/device/DeviceIpEditView.vue'),
-        meta: { title: '??IP??', icon: 'Edit', permission: 'device:edit', parentTitle: '设备台账', parentPath: '/device/list' },
+        meta: { title: '编辑IP资源', icon: 'Edit', permission: 'device:edit', parentTitle: '设备台账', parentPath: '/device/list' },
       },
       {
         path: 'device/types',

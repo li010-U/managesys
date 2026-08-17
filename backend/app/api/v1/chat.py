@@ -1470,7 +1470,7 @@ async def create_conversation(
 
 
     from app.services.audit_service import AuditService
-    AuditService.log_request(db, request, current_user=current_user, action="create", target_type="conversation", target_id=str(conv.id), detail="??AI??")
+    AuditService.log_request(db, request, current_user=current_user, action="create", target_type="conversation", target_id=str(conv.id), detail="创建会话AI")
     return {"id": conv.id, "title": conv.title}
 
 
@@ -1529,7 +1529,7 @@ async def delete_conversation(
 
 
     from app.services.audit_service import AuditService
-    AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="conversation", target_id=str(conv_id), detail="??AI??")
+    AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="conversation", target_id=str(conv_id), detail="删除会话AI")
     return {"message": "已删除"}
 
 
@@ -1634,7 +1634,7 @@ async def execute_tool(
 
 
     from app.services.audit_service import AuditService
-    AuditService.log_request(db, request, current_user=current_user, action="execute", target_type="tool", target_id=None, detail="??AI??: " + str(getattr(req,"tool","")))
+    AuditService.log_request(db, request, current_user=current_user, action="execute", target_type="tool", target_id=None, detail="执行AI工具: " + str(getattr(req,"tool","")))
     return {"ok": True, "result": result}
 
 
