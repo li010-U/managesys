@@ -515,6 +515,99 @@ async def room_rack3d(
     }
 
 
+
+@router.get("/rooms/{room_id}/resources")
+async def room_resources(
+    room_id: int,
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(require_permission("room:view")),
+):
+    """机房资源统计：按机柜汇总 CPU核数/内存/磁盘/GPU/算力/功率，并给出总计与 CPU 型号分布。"""
+    from sqlalchemy import select, func
+    from app.models.facility import Room, Rack
+    from app.models.device import Device
+
+    room = (await db.execute(select(Room).where(Room.id == room_id))).scalar_one_or_none()
+    if not room:
+        raise HTTPException(status_code=404, detail="机房不存在")
+
+    racks = (await db.execute(
+        select(Rack).where(Rack.room_id == room_id).order_by(Rack.row_pos, Rack.col_pos)
+    )).scalars().all()
+    rack_ids = [r.id for r in racks]
+
+    rows = []
+    if rack_ids:
+        rows = (await db.execute(
+            select(Rack.id, Rack.name, Rack.code, Rack.rated_power, Rack.total_units, Rack.available_units, Device)
+            .outerjoin(Device, Device.rack_id == Rack.id)
+            .where(Rack.id.in_(rack_ids))
+        )).all()
+
+    # group by rack
+    rack_map = {}
+    for r in racks:
+        rack_map[r.id] = {
+            "id": r.id, "name": r.name, "code": r.code,
+            "rated_power_kw": r.rated_power, "total_units": r.total_units, "available_units": r.available_units,
+            "device_count": 0, "cpu_cores": 0, "memory_gb": 0, "disk_gb": 0,
+            "gpu_count": 0, "gpu_mem_gb": 0, "compute_tflops": 0, "power_kw": 0,
+        }
+
+    for rid, rname, rcode, rated, total_u, avail_u, dev in rows:
+        rm = rack_map[rid]
+        if dev is None:
+            continue
+        rm["device_count"] += 1
+        rm["cpu_cores"] += dev.cpu_cores or 0
+        rm["memory_gb"] += dev.memory_gb or 0
+        rm["disk_gb"] += dev.disk_capacity_gb or 0
+        rm["gpu_count"] += dev.gpu_count or 0
+        rm["gpu_mem_gb"] += dev.gpu_mem_gb or 0
+        rm["compute_tflops"] += dev.compute_tflops or 0
+        rm["power_kw"] += dev.power_rating or 0
+
+    rack_list = []
+    totals = {"device_count":0,"cpu_cores":0,"memory_gb":0,"disk_gb":0,
+              "gpu_count":0,"gpu_mem_gb":0,"compute_tflops":0,"power_kw":0,"used_u":0,"total_u":0}
+    cpu_dist = {}
+    for rid in rack_ids:
+        rm = rack_map[rid]
+        rm["used_u"] = (rm["total_units"] or 0) - (rm["available_units"] or 0)
+        rack_list.append(rm)
+        for k in ("device_count","cpu_cores","memory_gb","disk_gb","gpu_count","gpu_mem_gb","compute_tflops","power_kw"):
+            totals[k] += rm[k]
+        totals["used_u"] += rm["used_u"]
+        totals["total_u"] += rm["total_units"] or 0
+
+    # CPU 型号分布（通过 cpu_info）
+    if rack_ids:
+        devs = (await db.execute(
+            select(Device.cpu_info, func.count(Device.id)).where(Device.rack_id.in_(rack_ids)).group_by(Device.cpu_info)
+        )).all()
+        for cpu, cnt in devs:
+            cpu_dist[cpu or "(unknown)"] = cnt
+
+    return {
+        "room": {"id": room.id, "name": room.name, "code": room.code, "floor": room.floor},
+        "totals": {
+            "device_count": totals["device_count"],
+            "cpu_cores": totals["cpu_cores"],
+            "memory_gb": round(totals["memory_gb"], 1),
+            "disk_gb": round(totals["disk_gb"], 1),
+            "gpu_count": totals["gpu_count"],
+            "gpu_mem_gb": round(totals["gpu_mem_gb"], 1),
+            "compute_tflops": round(totals["compute_tflops"], 2),
+            "power_kw": round(totals["power_kw"], 3),
+            "rack_count": len(rack_ids),
+            "used_u": totals["used_u"],
+            "total_u": totals["total_u"],
+        },
+        "racks": rack_list,
+        "cpu_distribution": cpu_dist,
+    }
+
+
 @router.post("/racks", response_model=RackResponse, status_code=status.HTTP_201_CREATED)
 async def create_rack(
     req: RackCreate,

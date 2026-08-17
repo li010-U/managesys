@@ -160,3 +160,44 @@ export function getRoomRack3dApi(roomId: number) {
 export function getRackEnvironmentApi(id: number) {
   return http.get<{ rack_id: number; room_id: number; sensors: any[]; active_alerts: number; rack_alerts: Record<number, number> }>(`/facilities/racks/${id}/environment`)
 }
+
+export interface RoomResourceRack {
+  id: number
+  name: string
+  code: string
+  rated_power_kw?: number
+  total_units?: number
+  available_units?: number
+  used_u: number
+  device_count: number
+  cpu_cores: number
+  memory_gb: number
+  disk_gb: number
+  gpu_count: number
+  gpu_mem_gb: number
+  compute_tflops: number
+  power_kw: number
+}
+
+export interface RoomResources {
+  room: { id: number; name: string; code: string; floor?: string }
+  totals: {
+    device_count: number
+    cpu_cores: number
+    memory_gb: number
+    disk_gb: number
+    gpu_count: number
+    gpu_mem_gb: number
+    compute_tflops: number
+    power_kw: number
+    rack_count: number
+    used_u: number
+    total_u: number
+  }
+  racks: RoomResourceRack[]
+  cpu_distribution: Record<string, number>
+}
+
+export function getRoomResourcesApi(roomId: number) {
+  return http.get<RoomResources>(`/facilities/rooms/${roomId}/resources`)
+}

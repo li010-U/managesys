@@ -40,6 +40,14 @@ class Device(Base):
     out_of_band_ip: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, comment="带外地址")
     power_rating: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="额定功率(kW)，用于机柜功率负载计算")
 
+    # ==== 结构化资源参数，用于机房算力/内存/磁盘统计 ====
+    cpu_cores: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="CPU总核数") 
+    memory_gb: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="内存容量(GB)") 
+    disk_capacity_gb: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="磁盘容量(GB)") 
+    gpu_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="GPU数量") 
+    gpu_mem_gb: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="GPU显存合计(GB)") 
+    compute_tflops: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="算力(TFLOPS)，GPU指升级可填") 
+
     status: Mapped[str] = mapped_column(String(16), default="in_stock", comment="状态：in_stock/mounted/running/offline/scrapped")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, comment="创建时间")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, onupdate=now_local, comment="更新时间")

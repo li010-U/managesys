@@ -74,6 +74,12 @@ class DeviceBase(BaseModel):
     disk_info: Optional[str] = Field(None, max_length=512)
     network_info: Optional[str] = Field(None, max_length=256)
     power_rating: Optional[float] = Field(None, description="额定功率(kW)")
+    cpu_cores: Optional[int] = Field(None, description="CPU总核数")
+    memory_gb: Optional[float] = Field(None, description="内存容量(GB)")
+    disk_capacity_gb: Optional[float] = Field(None, description="磁盘容量(GB)")
+    gpu_count: Optional[int] = Field(None, description="GPU数量")
+    gpu_mem_gb: Optional[float] = Field(None, description="GPU显存合计(GB)")
+    compute_tflops: Optional[float] = Field(None, description="算力(TFLOPS)")
     purchase_order: Optional[str] = Field(None, max_length=128)
     purchase_date: Optional[date] = None
     vendor: Optional[str] = Field(None, max_length=128)
@@ -107,6 +113,12 @@ class DeviceUpdate(BaseModel):
     disk_info: Optional[str] = None
     network_info: Optional[str] = None
     power_rating: Optional[float] = None
+    cpu_cores: Optional[int] = None
+    memory_gb: Optional[float] = None
+    disk_capacity_gb: Optional[float] = None
+    gpu_count: Optional[int] = None
+    gpu_mem_gb: Optional[float] = None
+    compute_tflops: Optional[float] = None
     purchase_order: Optional[str] = None
     purchase_date: Optional[date] = None
     vendor: Optional[str] = None

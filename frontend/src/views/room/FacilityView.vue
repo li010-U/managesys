@@ -94,6 +94,49 @@
       </el-col>
     </el-row>
 
+    <!-- 机房资源统计 -->
+    <el-card shadow="never" class="table-card" v-if="roomResources">
+      <template #header>
+        <div class="table-header">
+          <span>资源统计（CPU核数 / 内存 / 磁盘 / GPU / 算力 / 功率）</span>
+          <div class="header-actions">
+            <el-button :icon="Refresh" size="small" @click="fetchRoomResources()">刷新</el-button>
+          </div>
+        </div>
+      </template>
+      <el-row :gutter="16" class="res-totals">
+        <el-col :span="6"><div class="res-stat"><span class="res-num">{{ roomResources.totals.cpu_cores }}</span><span class="res-label">CPU核数</span></div></el-col>
+        <el-col :span="6"><div class="res-stat"><span class="res-num">{{ (roomResources.totals.memory_gb / 1024).toFixed(2) }} TB</span><span class="res-label">内存</span></div></el-col>
+        <el-col :span="6"><div class="res-stat"><span class="res-num">{{ (roomResources.totals.disk_gb / 1024).toFixed(2) }} TB</span><span class="res-label">磁盘</span></div></el-col>
+        <el-col :span="6"><div class="res-stat"><span class="res-num">{{ roomResources.totals.gpu_count }}</span><span class="res-label">GPU 数量</span></div></el-col>
+        <el-col :span="6"><div class="res-stat"><span class="res-num">{{ roomResources.totals.gpu_mem_gb.toFixed(1) }} GB</span><span class="res-label">GPU 显存</span></div></el-col>
+        <el-col :span="6"><div class="res-stat"><span class="res-num">{{ roomResources.totals.compute_tflops.toFixed(2) }}</span><span class="res-label">算力 TFLOPS</span></div></el-col>
+        <el-col :span="6"><div class="res-stat"><span class="res-num">{{ roomResources.totals.power_kw.toFixed(1) }} kW</span><span class="res-label">功率</span></div></el-col>
+        <el-col :span="6"><div class="res-stat"><span class="res-num">{{ roomResources.totals.used_u }}/{{ roomResources.totals.total_u }}U</span><span class="res-label">机柜 U 位使用</span></div></el-col>
+      </el-row>
+      <el-table :data="roomResources.racks" size="small" stripe max-height="360">
+        <el-table-column prop="code" label="机柜编号" width="120" />
+        <el-table-column label="U位" width="100">
+          <template #default="{ row }"><span>{{ row.used_u }}/{{ row.total_units }}U</span></template>
+        </el-table-column>
+        <el-table-column prop="device_count" label="设备" width="70" align="center" />
+        <el-table-column prop="cpu_cores" label="CPU核" width="80" align="center" />
+        <el-table-column label="内存" width="90">
+          <template #default="{ row }"><span>{{ row.memory_gb ? (row.memory_gb / 1024).toFixed(2) + 'TB' : '0' }}</span></template>
+        </el-table-column>
+        <el-table-column label="磁盘" width="90">
+          <template #default="{ row }"><span>{{ row.disk_gb ? (row.disk_gb / 1024).toFixed(2) + 'TB' : '0' }}</span></template>
+        </el-table-column>
+        <el-table-column prop="gpu_count" label="GPU" width="70" align="center" />
+        <el-table-column label="算力" width="90">
+          <template #default="{ row }"><span>{{ row.compute_tflops ? row.compute_tflops.toFixed(1) : '0' }}</span></template>
+        </el-table-column>
+        <el-table-column label="功率" width="90">
+          <template #default="{ row }"><span>{{ row.power_kw ? row.power_kw.toFixed(1) + 'kW' : '0' }}</span></template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
     <!-- 机柜列表 -->
     <el-card shadow="never" class="table-card" v-if="selectedRoomId">
       <template #header>
@@ -347,7 +390,8 @@ import {
   getAllDataCentersApi, getDataCentersApi, createDataCenterApi, updateDataCenterApi, deleteDataCenterApi,
   getAllRoomsApi, getRoomsApi, createRoomApi, updateRoomApi, deleteRoomApi,
   getAllRacksApi, getRacksApi, createRackApi, updateRackApi, deleteRackApi,
-  type DataCenterInfo, type RoomInfo, type RackInfo
+  getRoomResourcesApi,
+  type DataCenterInfo, type RoomInfo, type RackInfo, type RoomResources
 } from "@/api/facility"
 
 const loading = ref(false)
@@ -361,6 +405,7 @@ const selectedDataCenterId = ref<number | null>(null)
 const roomList = ref<RoomInfo[]>([])
 const selectedRoomId = ref<number | null>(null)
 const currentRoom = ref<RoomInfo | null>(null)
+const roomResources = ref<RoomResources | null>(null)
 
 // 机柜相关
 const rackList = ref<RackInfo[]>([])
@@ -481,6 +526,7 @@ async function fetchRacks() {
     if (room) {
       currentRoom.value = room
     }
+    await fetchRoomResources()
   } catch (err) {
     console.error(err)
     rackList.value = []
@@ -489,10 +535,25 @@ async function fetchRacks() {
   }
 }
 
+async function fetchRoomResources() {
+  if (!selectedRoomId.value) {
+    roomResources.value = null
+    return
+  }
+  try {
+    const r = await getRoomResourcesApi(selectedRoomId.value)
+    roomResources.value = r.data
+  } catch (err) {
+    console.error(err)
+    roomResources.value = null
+  }
+}
+
 function onDataCenterChange() {
   selectedRoomId.value = null
   rackList.value = []
   currentRoom.value = null
+  roomResources.value = null
   fetchRooms()
 }
 
@@ -664,6 +725,11 @@ async function deleteRack(rack: RackInfo) {
 .dc-info, .room-info { font-size: 12px; color: #909399; }
 
 .stats-row { margin-bottom: 16px; }
+.res-totals { margin-bottom: 8px; }
+.res-stat { display: flex; flex-direction: column; gap: 2px; padding: 8px 4px; border-radius: 8px; background: #f7f9fc; margin-bottom: 8px; }
+.res-num { font-size: 20px; font-weight: 600; color: #1f2d3d; }
+.res-label { font-size: 12px; color: #8a94a6; }
+
 .stat-card { border-radius: 10px; cursor: pointer; transition: all 0.2s; }
 .stat-card:hover { transform: translateY(-2px); }
 .stat-item { display: flex; align-items: center; gap: 12px; }
