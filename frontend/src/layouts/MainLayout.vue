@@ -75,10 +75,12 @@
             </el-breadcrumb>
           </div>
           <div class="header-right">
+            <template v-if="uiStore.assistantVisible">
             <ChatPanel v-model="chatVisible" />
             <el-button text class="header-btn" @click="chatVisible = true">
               <el-icon size="20"><ChatDotRound /></el-icon>
             </el-button>
+            </template>
             <div class="theme-toggle">
               <el-switch 
                 v-model="themeStore.isDark" 
@@ -136,7 +138,7 @@
             </keep-alive>
           </router-view>
         </el-main>
-        <PetAssistant v-if="authStore.isAuthenticated" @open-chat="chatVisible = true" />
+        <PetAssistant v-if="uiStore.assistantVisible && authStore.isAuthenticated" @open-chat="chatVisible = true" />
       </el-container>
     </el-container>
   </div>
@@ -181,6 +183,7 @@ import { useAppStore } from "../stores"
 import { useAuthStore } from "../stores/auth"
 import { useThemeStore } from "../stores/theme"
 import { useTabsStore } from "../stores/tabs"
+import { useUiStore } from "../stores/ui"
 import ChatPanel from "../components/chat/ChatPanel.vue"
 import PetAssistant from "../components/assistant/PetAssistant.vue"
 import { ElMessage } from "element-plus"
@@ -194,6 +197,7 @@ const appStore = useAppStore()
 const authStore = useAuthStore()
 const themeStore = useThemeStore()
 const tabsStore = useTabsStore()
+const uiStore = useUiStore()
 // 动态详情页（带 :id）每次访问都应重建，避免不同记录复用同一缓存实例
 const keepAliveInclude = computed(() => tabsStore.includeNames.filter((n) => n !== "WorkOrderDetail"))
 const chatVisible = ref(false)

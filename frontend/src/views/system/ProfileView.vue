@@ -93,6 +93,22 @@
             </el-form-item>
           </el-form>
         </el-tab-pane>
+
+        <!-- 偏好设置 -->
+        <el-tab-pane label="偏好设置" name="preferences">
+          <el-form label-width="140px" class="pref-form">
+            <el-form-item label="智能助手">
+              <el-switch
+                :model-value="uiStore.assistantVisible"
+                @change="uiStore.setAssistantVisible"
+                inline-prompt
+                active-text="开启"
+                inactive-text="隐藏"
+              />
+              <div class="pref-tip">控制顶部聊天入口与桌面助手是否显示，仅影响当前浏览器</div>
+            </el-form-item>
+          </el-form>
+        </el-tab-pane>
       </el-tabs>
     </el-card>
   </div>
@@ -103,10 +119,12 @@ defineOptions({ name: 'Profile' })
 import { ref, computed, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../../stores/auth'
+import { useUiStore } from '../../stores/ui'
 import { changePasswordApi } from '../../api/auth'
 import type { FormInstance, FormRules } from 'element-plus'
 
 const authStore = useAuthStore()
+const uiStore = useUiStore()
 const activeTab = ref('info')
 const formRef = ref<FormInstance>()
 const pwdLoading = ref(false)
