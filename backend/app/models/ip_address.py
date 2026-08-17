@@ -46,3 +46,22 @@ class IpAddress(Base):
     device: Mapped[Optional["Device"]] = relationship("Device")
     def __repr__(self) -> str:
         return f"<IpAddress {self.address} {self.status}>"
+
+
+class IpAddressHistory(Base):
+    """IP 变更历史：记录单条 IP 的状态/归属/用途变化，支持回放与审计。"""
+    __tablename__ = "ip_address_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ip_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True, comment="关联IP台账ID")
+    address: Mapped[str] = mapped_column(String(64), nullable=False, index=True, comment="IP 地址")
+    field_changed: Mapped[str] = mapped_column(String(32), nullable=False, comment="变更字段: status/device/used_as/remark")
+    from_value: Mapped[Optional[Text]] = mapped_column(Text, nullable=True, comment="变更前值")
+    to_value: Mapped[Optional[Text]] = mapped_column(Text, nullable=True, comment="变更后值")
+    operator: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, comment="操作人")
+    source: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, comment="来源: manual/allocate/device_sync/conflict_resolve/release")
+    remark: Mapped[Optional[str]] = mapped_column(String(256), nullable=True, comment="备注")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, index=True, comment="发生时间")
+
+    def __repr__(self) -> str:
+        return f"<IpAddressHistory {self.address} {self.field_changed}>"

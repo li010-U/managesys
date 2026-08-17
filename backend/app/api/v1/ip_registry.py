@@ -30,7 +30,8 @@ class SubnetUpdate(BaseModel):
 
 
 class AddressSave(BaseModel):
-    address: str = Field(..., max_length=64)
+    address: Optional[str] = Field(None, max_length=64)
+    preferred: Optional[str] = Field(None, max_length=64)
     status: str = Field(..., description="free/reserved/allocated")
     subnet_id: Optional[int] = None
     device_id: Optional[int] = None
@@ -118,12 +119,46 @@ async def save_address(
 ):
     svc = IpRegistryService(db)
     try:
-        row = await svc.save_address(req.address, req.status, req.subnet_id, req.device_id, req.used_as, req.remark)
+        row = await svc.save_address(req.address, req.status, req.subnet_id, req.device_id, req.used_as, req.remark, operator=current_user.username)
         from app.services.audit_service import AuditService
         AuditService.log_request(db, request, current_user=current_user, action="update", target_type="ip_address", target_id=str(row.id), detail=f"登记IP {req.address} 状态={req.status}")
         return {"id": row.id, "address": row.address, "status": row.status}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/allocate", status_code=201)
+async def allocate_address(
+    req: AddressSave,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("device:edit")),
+):
+    """\u4ece\u6307\u5b9a\u5b50\u7f51\u81ea\u52a8\u5206\u914d\u4e00\u4e2a\u7a7a\u95f2 IP\uff08\u53ef\u4f20 preferred \u4f5c\u4e3a\u504f\u597d\uff09\u3002"""
+    svc = IpRegistryService(db)
+    try:
+        addr = req.preferred or (req.address if req.address else None)
+        result = await svc.allocate_ip(req.subnet_id, req.used_as or "management", req.device_id,
+                                       operator=current_user.username, preferred=addr)
+        from app.services.audit_service import AuditService
+        AuditService.log_request(db, request, current_user=current_user, action="execute", target_type="ip_address", target_id=str(result["id"]), detail="\u81ea\u52a8\u5206\u914d IP " + result["address"])
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/history")
+async def list_history(
+    address: Optional[str] = Query(None),
+    address_id: Optional[int] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("device:view")),
+):
+    """\u67e5\u8be2 IP \u53f0\u8d26\u53d8\u66f4\u5386\u53f2\u3002"""
+    items, total = await IpRegistryService(db).list_history(address, address_id, page, page_size)
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 @router.delete("/addresses/{address_id}")

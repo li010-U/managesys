@@ -42,7 +42,7 @@
           <template #default="{ row }">
             <el-button size="small" text type="primary" @click="openSubnet(row)">编辑</el-button>
             <el-button size="small" text type="danger" @click="removeSubnet(row)">删除</el-button>
-            <el-button size="small" text @click="viewSubnet(row)">台账</el-button>
+            <el-button size="small" text @click="viewSubnet(row)">台账</el-button><el-button size="small" text type="success" @click="openAllocate(row)">自动分配</el-button><el-button size="small" text @click="openHistory(row)">历史</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -106,6 +106,49 @@
     </el-form>
     <template #footer><el-button @click="addrDlg.visible = false">取消</el-button><el-button type="primary" :loading="addrSaving" @click="saveAddr">保存</el-button></template>
   </el-dialog>
+
+  <!-- 自动分配 -->
+  <el-dialog v-model="allocDlg.visible" title="自动分配 IP" width="460px" :close-on-click-modal="false">
+    <el-form label-width="90px">
+      <el-form-item label="所属子网"><b>{{ allocDlg.subnet?.cidr }}</b></el-form-item>
+      <el-form-item label="用途">
+        <el-select v-model="allocDlg.role" style="width:100%">
+          <el-option label="管理IP" value="management" />
+          <el-option label="业务IP" value="business" />
+          <el-option label="带外IP" value="oob" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="偏好地址">
+        <el-input v-model="allocDlg.preferred" placeholder="可选，若空闲则优先选它" />
+      </el-form-item>
+      <el-form-item label="挂载设备ID">
+        <el-input-number v-model="allocDlg.deviceId" :min="1" style="width:100%" placeholder="可选" />
+      </el-form-item>
+      <el-alert type="info" :closable="false" show-icon title="会自动跳过网络/广播/网关地址，并检测是否已被他设备占用" />
+    </el-form>
+    <template #footer>
+      <el-button @click="allocDlg.visible = false">取消</el-button>
+      <el-button type="primary" :loading="allocDlg.saving" @click="doAllocate">分配</el-button>
+    </template>
+  </el-dialog>
+
+  <!-- IP 变更历史 -->
+  <el-dialog v-model="histDlg.visible" title="IP 变更历史" width="760px">
+    <el-table :data="histDlg.items" v-loading="histDlg.loading" size="small" stripe max-height="420">
+      <el-table-column prop="address" label="IP 地址" width="130" />
+      <el-table-column label="变更字段" width="100">
+        <template #default="{ row }">{{ historyLabel(row.field_changed) }}</template>
+      </el-table-column>
+      <el-table-column prop="from_value" label="变更前" show-overflow-tooltip />
+      <el-table-column prop="to_value" label="变更后" show-overflow-tooltip />
+      <el-table-column prop="operator" label="操作人" width="100" />
+      <el-table-column prop="source" label="来源" width="110" />
+      <el-table-column prop="created_at" label="时间" width="170">
+        <template #default="{ row }">{{ row.created_at ? new Date(row.created_at).toLocaleString('zh-CN') : '-' }}</template>
+      </el-table-column>
+    </el-table>
+    <template #footer><el-button @click="histDlg.visible = false">关闭</el-button></template>
+  </el-dialog>
 </template>
 
 <script setup lang="ts">
@@ -118,7 +161,8 @@ import { getIpOverviewApi, type IpOverview } from "@/api/ipResource"
 import {
   getIpSubnetsApi, createIpSubnetApi, updateIpSubnetApi, deleteIpSubnetApi,
   getIpRegistryAddressesApi, saveIpRegistryAddressApi, deleteIpRegistryAddressApi, importDeviceIpsApi,
-  type IpSubnet, type IpRegistryAddress,
+  allocateIpApi, getIpHistoryApi,
+  type IpSubnet, type IpRegistryAddress, type IpAllocateResult, type IpHistoryEntry,
 } from "@/api/ipRegistry"
 
 const router = useRouter()
@@ -229,6 +273,51 @@ async function removeAddr(row: IpRegistryAddress) {
   try { await ElMessageBox.confirm('确认删除该台账地址？', '删除', { type: 'warning' }) } catch { return }
   try { await deleteIpRegistryAddressApi(row.id); ElMessage.success('删除成功'); await Promise.all([fetchAddrs(), fetchSubnets()]) }
   catch (e: any) { ElMessage.error(e?.response?.data?.detail || '删除失败') }
+}
+
+const allocDlg = reactive({ visible: false, subnet: null as any, deviceId: undefined as number | undefined, role: 'management', preferred: '', saving: false })
+function openAllocate(row: IpSubnet) {
+  allocDlg.subnet = row
+  allocDlg.deviceId = undefined
+  allocDlg.role = 'management'
+  allocDlg.preferred = ''
+  allocDlg.visible = true
+}
+async function doAllocate() {
+  allocDlg.saving = true
+  try {
+    const r = await allocateIpApi({
+      subnet_id: allocDlg.subnet.id,
+      device_id: allocDlg.deviceId || null,
+      used_as: allocDlg.role,
+      preferred: allocDlg.preferred || undefined,
+    })
+    ElMessage.success('已分配 ' + r.data.address)
+    allocDlg.visible = false
+    await Promise.all([fetchAddrs(), fetchSubnets()])
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '分配失败')
+  } finally { allocDlg.saving = false }
+}
+
+const histDlg = reactive({ visible: false, address: '', items: [] as IpHistoryEntry[], total: 0, loading: false })
+async function openHistory(row: IpSubnet) {
+  histDlg.address = row.cidr
+  histDlg.visible = true
+  await loadHistory()
+}
+async function loadHistory() {
+  histDlg.loading = true
+  try {
+    const r = await getIpHistoryApi({ page: 1, page_size: 100 })
+    histDlg.items = r.data.items || []
+    histDlg.total = r.data.total || 0
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '加载历史失败')
+  } finally { histDlg.loading = false }
+}
+function historyLabel(f: string): string {
+  return { status: '状态', device: '归属设备', used_as: '用途', remark: '备注' }[f] || f
 }
 
 async function handleImport() {

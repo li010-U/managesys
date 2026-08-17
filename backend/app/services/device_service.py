@@ -185,7 +185,7 @@ class DeviceService:
         await self.db.flush()
         # 同步 IP 台账（与设备同事务，保证唯一事实源）
         from app.services.ip_registry_service import sync_device_ip_ledger as _sync
-        await _sync(self.db, device)
+        await _sync(self.db, device, operator=operator_username)
         if device.rack_id is not None:
             from app.services.facility_service import recompute_rack_available
             await recompute_rack_available(self.db, device.rack_id)
@@ -255,7 +255,7 @@ class DeviceService:
 
         # 同步 IP 台账（与设备同事务）
         from app.services.ip_registry_service import sync_device_ip_ledger as _sync
-        await _sync(self.db, device)
+        await _sync(self.db, device, operator=operator_username)
         if old_rack is not None or device.rack_id is not None:
             from app.services.facility_service import recompute_rack_available
             if old_rack is not None:
@@ -273,7 +273,7 @@ class DeviceService:
         device_name = device.name
         # 释放该设备在 IP 台账中的条目（同事务）
         from app.services.ip_registry_service import release_device_ip_ledger as _release
-        await _release(self.db, device_id)
+        await _release(self.db, device_id, operator=operator_username)
         _del_rack_id = device.rack_id
         await self.db.delete(device)
         await self.db.flush()

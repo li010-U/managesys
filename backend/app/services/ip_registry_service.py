@@ -13,11 +13,41 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.ip_address import IpSubnet, IpAddress
+from app.models.ip_address import IpSubnet, IpAddress, IpAddressHistory
 from app.models.device import Device
 
 
 IP_STATUS = {"free", "reserved", "allocated"}
+
+
+def write_ip_history(db, ip_id, address, field_changed, from_value, to_value,
+                     operator=None, source="manual", remark=None):
+    """写一条 IP 台账变更历史，供回放与审计追溯。"""
+    db.add(IpAddressHistory(ip_id=ip_id, address=address, field_changed=field_changed,
+                            from_value=from_value, to_value=to_value, operator=operator,
+                            source=source, remark=remark))
+
+
+async def validate_no_conflict(db, ip_str, role=None, exclude_address=None, exclude_device_id=None, raise_on_conflict=True):
+    """\u5206\u914d\u524d\u9632\u51b2\u7a81\u6821\u9a8c\uff1a\u4e0b\u7ebf\u67e5\u627e\u662f\u5426\u5df2\u6709\u5176\u4ed6\u8bbe\u5907\u5360\u7528\u8be5 IP\u3002
+    \u4e0d\u533a\u5206\u89d2\u8272\u7684\u300e\u540c\u4e00 IP \u4e0d\u5f97\u88ab\u4e24\u53f0\u4e0d\u540c\u8bbe\u5907\u540c\u65f6\u5360\u7528\u300f\u4e3a\u786e\u5b9a\u51b2\u7a81\u5236\u7ea6\u3002
+    \u8fd4\u56de\u51b2\u7a81\u8bbe\u5907\uff1b\u82e5 raise_on_conflict \u4e3a\u771f\u4e14\u53d1\u751f\u51b2\u7a81\u5219\u629b\u51fa ValueError\u3002"""
+    if not ip_str:
+        return None
+    addr = ip_str.strip()
+    row = (await db.execute(select(IpAddress).options(selectinload(IpAddress.device)).where(IpAddress.address == addr))).scalar_one_or_none()
+    if row is None:
+        return None
+    if exclude_address is not None and row.address == exclude_address:
+        return None
+    if exclude_device_id is not None and row.device_id == exclude_device_id and row.status == "allocated":
+        return None
+    if row.status != "allocated":
+        return None
+    if raise_on_conflict:
+        holder = row.device.name if row.device else (str(row.device_id) if row.device_id else None)
+        raise ValueError(addr + " \u5df2\u88ab\u8bbe\u5907 " + (holder or "\u672a\u77e5") + " \u5360\u7528\uff0c\u8bf7\u91cd\u65b0\u9009\u62e9")
+    return row
 
 
 def _capacity(ip: IpSubnet) -> int:
@@ -150,39 +180,142 @@ class IpRegistryService:
             })
         return items, total
 
-    async def save_address(self, address: str, status: str, subnet_id: Optional[int] = None, device_id: Optional[int] = None, used_as: Optional[str] = None, remark: Optional[str] = None) -> IpAddress:
+    async def allocate_ip(self, subnet_id: int, role: str = "management", device_id: Optional[int] = None,
+                           operator: Optional[str] = None, source: str = "allocate",
+                           preferred: Optional[str] = None) -> dict:
+        """从指定子网自动分配一个空闲 IP（跳过网络/广播地址与网关）。
+        分配前行 IP 取消已用地址与其他设备占用检查。"""
+        sub = (await self.db.execute(select(IpSubnet).where(IpSubnet.id == subnet_id))).scalar_one_or_none()
+        if not sub:
+            raise ValueError("子网不存在")
+        try:
+            net = ipaddress.ip_network(f"{sub.network}/{sub.prefix}", strict=False)
+        except (ValueError, TypeError):
+            raise ValueError("子网格式无效")
+
+        used = set()
+        for row in (await self.db.execute(select(IpAddress.address).where(IpAddress.subnet_id == subnet_id))).scalars().all():
+            try:
+                used.add(int(ipaddress.ip_address(row.split("%")[0])))
+            except ValueError:
+                continue
+
+        skip = set()
+        if net.version == 4:
+            skip.add(int(net.network_address))
+            skip.add(int(net.network_address) + int(net.num_addresses) - 1)
+            if sub.gateway:
+                try:
+                    skip.add(int(ipaddress.ip_address(sub.gateway)))
+                except ValueError:
+                    pass
+
+        candidates = [int(a) for a in net.hosts()] if net.version == 4 else []
+        if preferred:
+            try:
+                p = int(ipaddress.ip_address(preferred.split("%")[0]))
+                if p in candidates and p not in used and p not in skip:
+                    candidates.insert(0, p)
+            except ValueError:
+                pass
+
+        chosen = None
+        for a in candidates:
+            if a in used or a in skip:
+                continue
+            chosen = ipaddress.ip_address(a)
+            break
+        if chosen is None:
+            raise ValueError("该子网已无可用空闲地址")
+
+        addr = str(chosen)
+        # 确保不与他设备冲突
+        await validate_no_conflict(self.db, addr, role=role, exclude_device_id=device_id if device_id else None)
+        row = IpAddress(address=addr, status="allocated", subnet_id=subnet_id, device_id=device_id,
+                        used_as=role, remark=None)
+        self.db.add(row)
+        await self.db.flush()
+        await self.db.refresh(row)
+        write_ip_history(self.db, row.id, addr, "device", None, str(device_id) if device_id else None,
+                         operator=operator, source=source)
+        return {"id": row.id, "address": addr, "status": row.status, "subnet_id": subnet_id,
+                "subnet": f"{sub.network}/{sub.prefix}", "device_id": device_id, "used_as": role}
+
+    async def save_address(self, address: str, status: str, subnet_id: Optional[int] = None,
+                            device_id: Optional[int] = None, used_as: Optional[str] = None,
+                            remark: Optional[str] = None, operator: Optional[str] = None) -> IpAddress:
+        address = (address or "").strip()
+        if not address:
+            raise ValueError("\u8bf7\u586b\u5199 IP \u5730\u5740")
         if status not in IP_STATUS:
-            raise ValueError("状态非法")
+            raise ValueError("\u72b6\u6001\u975e\u6cd5")
         try:
             ipaddress.ip_address(address.split("%")[0])
         except ValueError:
-            raise ValueError("IP 格式不正确")
-        # 若指定子网，确保地址属于该网段
+            raise ValueError("IP \u683c\u5f0f\u4e0d\u6b63\u786e")
         if subnet_id:
-            sub = (await self.db.execute(select(IpSubnet).where(IpSubnet.id == subnet_id))).scalar_one_or_none()
-            if not sub:
-                raise ValueError("子网不存在")
+            raw = (await self.db.execute(select(IpSubnet).where(IpSubnet.id == subnet_id))).scalar_one_or_none()
+            if not raw:
+                raise ValueError("\u5b50\u7f51\u4e0d\u5b58\u5728")
             try:
-                if ipaddress.ip_address(address.split("%")[0]) not in ipaddress.ip_network(f"{sub.network}/{sub.prefix}", strict=False):
-                    raise ValueError("该 IP 不属于所选子网")
+                if ipaddress.ip_address(address.split("%")[0]) not in ipaddress.ip_network(f"{raw.network}/{raw.prefix}", strict=False):
+                    raise ValueError("\u8be5 IP \u4e0d\u5c5e\u4e8e\u6240\u9009\u5b50\u7f51")
             except ValueError:
-                raise ValueError("该 IP 不属于所选子网")
+                raise ValueError("\u8be5 IP \u4e0d\u5c5e\u4e8e\u6240\u9009\u5b50\u7f51")
 
         row = (await self.db.execute(select(IpAddress).where(IpAddress.address == address))).scalar_one_or_none()
         if row:
+            # \u5206\u914d\u524d\u9632\u51b2\u7a81\uff1a\u5c06\u67d0 IP \u6807\u8bb0\u4e3a allocated \u4e14\u7ed1\u5b9a\u8bbe\u5907\u65f6\u8fdb\u884c\u5355\u4e00\u5360\u7528\u6821\u9a8c
+            from_value = row.status
+            old_device = row.device_id
+            if status == "allocated" and device_id and row.device_id != device_id:
+                await validate_no_conflict(self.db, address, exclude_address=address, exclude_device_id=device_id)
             row.status = status
             row.subnet_id = subnet_id if subnet_id is not None else row.subnet_id
             row.device_id = device_id
             row.used_as = used_as
-            if remark is not None: row.remark = remark
+            if remark is not None:
+                row.remark = remark
             await self.db.flush()
             await self.db.refresh(row)
+            if from_value != status or old_device != device_id:
+                write_ip_history(self.db, row.id, address, "status" if from_value != status else "device",
+                                 from_value if from_value != status else str(old_device),
+                                 status if from_value != status else str(device_id),
+                                 operator=operator, source="manual")
             return row
-        row = IpAddress(address=address, status=status, subnet_id=subnet_id, device_id=device_id, used_as=used_as, remark=remark)
+        if status == "allocated" and device_id:
+            await validate_no_conflict(self.db, address, exclude_address=address, exclude_device_id=device_id)
+        row = IpAddress(address=address, status=status, subnet_id=subnet_id, device_id=device_id,
+                        used_as=used_as, remark=remark)
         self.db.add(row)
         await self.db.flush()
         await self.db.refresh(row)
+        to_val = (str(device_id) if device_id else None) or status or None
+        write_ip_history(self.db, row.id, address, "device", None, to_val,
+                         operator=operator, source="manual")
         return row
+
+    async def list_history(self, address: Optional[str] = None, address_id: Optional[int] = None,
+                           page: int = 1, page_size: int = 20) -> tuple[list, int]:
+        """\u67e5\u8be2 IP \u53f0\u8d26\u53d8\u66f4\u5386\u53f2\uff0c\u53ef\u6309 IP \u5730\u5740\u6216\u53f0\u8d26 ID \u8fc7\u6ee4\uff0c\u6309\u65f6\u95f4\u5012\u5e8f\u3002"""
+        conds = []
+        if address:
+            conds.append(IpAddressHistory.address == address)
+        if address_id:
+            conds.append(IpAddressHistory.ip_id == address_id)
+        base = select(IpAddressHistory).where(*conds) if conds else select(IpAddressHistory)
+        total = (await self.db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
+        rows = (await self.db.execute(
+            base.order_by(IpAddressHistory.created_at.desc(), IpAddressHistory.id.desc())
+            .offset((page - 1) * page_size).limit(page_size)
+        )).scalars().all()
+        items = [{
+            "id": r.id, "ip_id": r.ip_id, "address": r.address, "field_changed": r.field_changed,
+            "from_value": r.from_value, "to_value": r.to_value, "operator": r.operator,
+            "source": r.source, "remark": r.remark, "created_at": r.created_at,
+        } for r in rows]
+        return items, total
 
     async def delete_address(self, address_id: int) -> bool:
         row = (await self.db.execute(select(IpAddress).where(IpAddress.id == address_id))).scalar_one_or_none()
@@ -193,7 +326,8 @@ class IpRegistryService:
         return True
 
     async def import_device_ips(self) -> dict:
-        """自动把设备的管理/业务/带外 IP 登记到匹配子网的台账。"""
+        """\u81ea\u52a8\u628a\u8bbe\u5907\u7684\u7ba1\u7406/\u4e1a\u52a1/\u5e26\u5916 IP \u767b\u8bb0\u5230\u5339\u914d\u5b50\u7f51\u7684\u53f0\u8d26\u3002
+        \u76f8\u540c IP \u5df2\u88ab\u5176\u4ed6\u8bbe\u5907\u5360\u7528\u65f6\u8df3\u8fc7\u5e76\u8bb0\u5f55\u4e3a skipped\u3002"""
         rows = (await self.db.execute(
             select(Device.id, Device.name, Device.management_ip, Device.business_ip, Device.out_of_band_ip)
         )).all()
@@ -207,12 +341,10 @@ class IpRegistryService:
 
         def _to_bytes(s):
             try:
-                out = int(ipaddress.ip_address(s.split("%")[0]))
-                return out
+                return int(ipaddress.ip_address(s.split("%")[0]))
             except Exception:
                 return None
 
-        import json
         added = 0
         skipped = 0
         for r in rows:
@@ -221,7 +353,7 @@ class IpRegistryService:
                 raw = getattr(r, attr)
                 if not raw:
                     continue
-                for part in str(raw).replace(";", ",").replace("，", ",").split(","):
+                for part in str(raw).replace(";", ",").replace("\uff0c", ",").split(","):
                     addr = part.strip()
                     if not addr:
                         continue
@@ -234,29 +366,39 @@ class IpRegistryService:
                     row = (await self.db.execute(select(IpAddress).where(IpAddress.address == addr))).scalar_one_or_none()
                     if row:
                         if row.status == "free":
-                            row.status = "allocated"; row.device_id = r.id; row.used_as = role; row.subnet_id = target.id if target else row.subnet_id; added += 1
+                            row.status = "allocated"; row.device_id = r.id; row.used_as = role
+                            if target is not None:
+                                row.subnet_id = target.id
+                            write_ip_history(self.db, row.id, addr, "device", None, str(r.id),
+                                             operator="system", source="device_sync")
+                            added += 1
                         else:
-                            skipped += 1
+                            if row.device_id != r.id:
+                                skipped += 1
                         continue
-                    row = IpAddress(address=addr, status="allocated", device_id=r.id, used_as=role, subnet_id=target.id if target else None)
-                    self.db.add(row); added += 1
+                    row = IpAddress(address=addr, status="allocated", device_id=r.id, used_as=role,
+                                    subnet_id=target.id if target else None)
+                    self.db.add(row)
+                    added += 1
+                    write_ip_history(self.db, None, addr, "device", None, str(r.id),
+                                     operator="system", source="device_sync")
         await self.db.flush()
         return {"added": added, "skipped": skipped}
 
 _SYNC_ROLE_FIELDS = [("management_ip", "management"), ("business_ip", "business"), ("out_of_band_ip", "oob")]
 
 
-async def sync_device_ip_ledger(db, device) -> dict:
+async def sync_device_ip_ledger(db, device, operator: str = None) -> dict:
     """\u5c06\u8bbe\u5907\u7684 IP \u5b57\u6bb5\uff08management/business/oob\uff09\u81ea\u52a8\u540c\u6b65\u5230 IP \u53f0\u8d26\uff0c
     \u4fdd\u8bc1\u8bbe\u5907\u4e3a\u552f\u4e00\u4e8b\u5b9e\u6e90\uff0c\u53f0\u8d26\u968f\u8bbe\u5907\u53d8\u66f4\u5728\u540c\u4e00\u4e8b\u52a1\u5185\u81ea\u52a8\u66f4\u65b0\u3002
     - \u65b0\u589e/\u4fee\u6539\u8bbe\u5907 IP \u65f6\uff0c\u81ea\u52a8\u5c06\u5bf9\u5e94\u53f0\u8d26\u6807\u8bb0\u4e3a allocated \u5e76\u6302\u7ed1\u8bbe\u5907\u3002
+    - \u5df2\u88ab\u4ed6\u8bbe\u5907\u5360\u7528\u7684 IP \u4e0d\u81ea\u52a8\u62a2\u5360\uff0c\u800c\u662f\u8bb0\u4e3a conflict \u8df3\u8fc7\u3002
     - \u79fb\u9664\u8bbe\u5907 IP \u65f6\uff0c\u91ca\u653e\u539f\u5148\u5f52\u5c5e\u8be5\u8bbe\u5907\u4e14\u4e0d\u518d\u4f7f\u7528\u7684 IP \uff08\u6807\u8bb0 free\uff09\u3002
     - \u4e0d\u4f1a\u91ca\u653e\u5df2\u88ab\u5176\u4ed6\u8bbe\u5907\u5360\u7528\u6216\u624b\u52a8\u9884\u7559\u7684 IP\uff0c\u907f\u514d\u8986\u76d6\u4eba\u5de5\u7f16\u8f91\u3002
     """
     if device is None:
-        return {"added": 0, "released": 0}
+        return {"added": 0, "updated": 0, "released": 0, "conflict": 0}
 
-    # 1) \u89e3\u6790\u8bbe\u5907\u5f53\u524d\u6240\u6709 IP -> (ip, role)
     wanted = []
     seen_addrs = set()
     for attr, role in _SYNC_ROLE_FIELDS:
@@ -272,7 +414,6 @@ async def sync_device_ip_ledger(db, device) -> dict:
             seen_addrs.add(addr)
             wanted.append((addr, role))
 
-    # 2) \u83b7\u53d6\u6240\u6709\u5b50\u7f51\u7528\u4e8e\u5339\u914d subnet_id
     subnets = (await db.execute(select(IpSubnet))).scalars().all()
     nets = []
     for sub in subnets:
@@ -291,7 +432,6 @@ async def sync_device_ip_ledger(db, device) -> dict:
                 return sub
         return None
 
-    # 3) \u51c6\u5907\u5f53\u524d\u53f0\u8d26\u4e2d\u5f52\u5c5e\u8be5\u8bbe\u5907\u7684 IP
     held = {}
     for row in (await db.execute(
         select(IpAddress).where(IpAddress.device_id == device.id, IpAddress.status == "allocated")
@@ -301,47 +441,63 @@ async def sync_device_ip_ledger(db, device) -> dict:
     added = 0
     updated = 0
     released = 0
+    conflict = 0
     wanted_map = dict(wanted)
 
-    # 4) upsert \u5f53\u524d\u7528\u4e8e\u7684 IP
     for addr, role in wanted:
         row = held.get(addr)
         if row is None:
             row = (await db.execute(select(IpAddress).where(IpAddress.address == addr))).scalar_one_or_none()
         sub = _match_subnet(addr)
         if row is None:
-            db.add(IpAddress(address=addr, status="allocated", device_id=device.id, used_as=role, subnet_id=sub.id if sub else None))
+            db.add(IpAddress(address=addr, status="allocated", device_id=device.id, used_as=role,
+                             subnet_id=sub.id if sub else None))
             added += 1
+            write_ip_history(db, None, addr, "device", None, str(device.id), operator=operator, source="device_sync")
         else:
+            # \u5148\u5f00\u5927\u96f7\u963b\uff1a\u5982\u679c\u8be5 IP \u5df2\u88ab\u5176\u4ed6\u8bbe\u5907\u5360\u7528\uff0c\u4e0d\u81ea\u52a8\u62a2\u5360
+            if row.status == "allocated" and row.device_id is not None and row.device_id != device.id:
+                conflict += 1
+                continue
+            from_status = row.status
+            from_device = row.device_id
             if row.status != "allocated":
-                # \u8bbe\u5907\u5148\u4f7f\u7528 -> \u6807\u8bb0 allocated\uff1b\u4f46\u4e0d\u91ca\u653e\u522b\u4eba\u7684\u9884\u7559
                 row.status = "allocated"
             row.device_id = device.id
             row.used_as = role
             if sub is not None:
                 row.subnet_id = sub.id
+            if from_status != "allocated" or from_device != device.id:
+                write_ip_history(db, row.id, addr, "status" if from_status != "allocated" else "device",
+                                 from_status if from_status != "allocated" else str(from_device),
+                                 "allocated" if from_status != "allocated" else str(device.id),
+                                 operator=operator, source="device_sync")
             updated += 1
 
-    # 5) \u91ca\u653e\u88ab\u79fb\u9664\u7684 IP\uff08\u4ec5\u5f53\u4ecd\u5f52\u5c5e\u672c\u8bbe\u5907\u4e14\u4e0d\u518d\u4f7f\u7528\uff09
     for addr, row in held.items():
         if addr not in wanted_map and row is not None and row.device_id == device.id:
-            # \u4ec5\u91ca\u653e\u5f53\u524d\u8bbe\u5907\u81ea\u52a8\u7ef4\u62a4\u7684 allocated\uff0c\u4fdd\u7559\u624b\u52a8\u9884\u7559/beans\u8bb0
+            if row.status == "allocated":
+                write_ip_history(db, row.id, addr, "status", "allocated", "free",
+                                 operator=operator, source="device_sync")
             row.status = "free"
             row.device_id = None
             row.used_as = None
             released += 1
 
     await db.flush()
-    return {"added": added, "updated": updated, "released": released}
+    return {"added": added, "updated": updated, "released": released, "conflict": conflict}
 
 
-async def release_device_ip_ledger(db, device_id) -> int:
-    """\u5220\u9664\u8bbe\u5907\u65f6\uff0c\u91ca\u653e\u8be5\u8bbe\u5907\u5728 IP \u53f0\u8d26\u4e2d\u5360\u7528\u7684\u6240\u6709\u6761\u76ee\u3002"""
+async def release_device_ip_ledger(db, device_id, operator: str = None) -> int:
+    """\u5220\u9664\u8bbe\u5907\u65f6\uff0c\u91ca\u653e\u8be5\u8bbe\u5907\u5728 IP \u53f0\u8d26\u4e2d\u5360\u7528\u7684\u6240\u6709\u6761\u76ee\uff0c\u5e76\u7559\u74e3\u53d8\u66f4\u5386\u53f2\u3002"""
     rows = (await db.execute(
         select(IpAddress).where(IpAddress.device_id == device_id)
     )).scalars().all()
     n = 0
     for row in rows:
+        if row.status == "allocated":
+            write_ip_history(db, row.id, row.address, "status", "allocated", "free",
+                             operator=operator or "system", source="release")
         row.device_id = None
         if row.status == "allocated":
             row.status = "free"

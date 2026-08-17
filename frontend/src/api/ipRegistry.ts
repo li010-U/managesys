@@ -61,3 +61,35 @@ export function deleteIpRegistryAddressApi(id: number) {
 export function importDeviceIpsApi() {
   return http.post('/ip-registry/import-device-ips')
 }
+
+
+export interface IpAllocateResult {
+  id: number
+  address: string
+  status: string
+  subnet_id: number
+  subnet: string
+  device_id?: number
+  used_as?: string
+}
+
+export interface IpHistoryEntry {
+  id: number
+  ip_id?: number
+  address: string
+  field_changed: string
+  from_value?: string
+  to_value?: string
+  operator?: string
+  source?: string
+  remark?: string
+  created_at?: string
+}
+
+export function allocateIpApi(data: { subnet_id?: number; device_id?: number | null; used_as?: string; preferred?: string }) {
+  return http.post<IpAllocateResult>("/ip-registry/allocate", data)
+}
+
+export function getIpHistoryApi(params: { address?: string; address_id?: number; page?: number; page_size?: number }) {
+  return http.get<{ items: IpHistoryEntry[]; total: number; page: number; page_size: number }>("/ip-registry/history", { params })
+}

@@ -229,39 +229,49 @@ class IpResourceService:
 
     async def resolve_conflict(self, device_id: int, role: str, new_ip: str,
                                operator_username: str = None, operator_ip: str = None) -> dict:
-        """??????????? role ???? IP?????????????
-
-        ???{"device": {...}, "ip": new_ip, "role": role, "remaining_conflicts": int}
+        """\u5904\u7406 IP \u51b2\u7a81\uff1a\u5c06\u8bbe\u5907\u7684\u6307\u5b9a role \u5b57\u6bb5\u66f4\u6539\u4e3a\u65b0 IP\uff0c
+        \u5e76\u91cd\u65b0\u7edf\u8ba1\u5269\u4f59\u51b2\u7a81\u3002\u5728\u66f4\u6539\u524d\u505a\u5360\u7528\u524d\u7f6e\u68c0\u67e5\uff0c\u907f\u514d\u5f15\u5165\u65b0\u7684\u5355\u4e00 IP \u53cc\u53f0\u5360\u7528\u3002
+        \u8fd4\u56de {"device": {...}, "ip": new_ip, "role": role, "remaining_conflicts": int, "blocked": bool}
         """
         from app.models.device import Device
         from app.services.audit_service import AuditService
+        from app.services.ip_registry_service import validate_no_conflict
 
         role_field = {"management": "management_ip",
                       "business": "business_ip",
                       "oob": "out_of_band_ip"}.get(role)
         if role_field is None:
-            raise ValueError("目标IP已被占用")
+            raise ValueError("\u89d2\u8272\u4e0d\u6b63\u786e")
         new_ip = (new_ip or "").strip()
         if not new_ip:
-            raise ValueError("该IP已被使用")
-
-        # ??? IP ???????
+            raise ValueError("\u8bf7\u586b\u5199\u65b0 IP")
         try:
             ipaddress.ip_address(new_ip.split("%")[0])
         except ValueError:
-            raise ValueError("该IP地址不规范")
+            raise ValueError("IP \u5730\u5740\u89c4\u8303\u4e0d\u6b63\u786e")
 
         device = (await self.db.execute(
             select(Device).where(Device.id == device_id)
         )).scalar_one_or_none()
         if device is None:
-            raise ValueError("操作失败")
+            raise ValueError("\u8bbe\u5907\u4e0d\u5b58\u5728")
 
         old_value = getattr(device, role_field) or ""
+        blocked = False
+        # \u5360\u7528\u524d\u7f6e\u68c0\u67e5\uff1a\u65b0 IP \u5df2\u88ab\u5176\u4ed6\u8bbe\u5907\u5360\u7528 -> \u62d2\u7edd
+        try:
+            await validate_no_conflict(self.db, new_ip, role=role,
+                                 exclude_address=old_value, exclude_device_id=device_id)
+        except ValueError:
+            blocked = True
+            raise ValueError("\u76ee\u6807 IP \u5df2\u88ab\u5176\u4ed6\u8bbe\u5907\u5360\u7528\uff0c\u65e0\u6cd5\u5206\u914d")
+
         setattr(device, role_field, new_ip)
+        # \u540c\u6b65 IP \u53f0\u8d26\uff08\u81ea\u52a8\uff09
+        from app.services.ip_registry_service import sync_device_ip_ledger as _sync
+        await _sync(self.db, device, operator=operator_username)
         await self.db.commit()
 
-        # ??? IP ??????????? conflicts???????????
         remaining = await self._count_conflicts_after(device_id, role, new_ip)
 
         AuditService.log(
@@ -271,7 +281,7 @@ class IpResourceService:
             target_type="device",
             user_id=None,
             target_id=str(device_id),
-            detail=("设备 IP 变更 %s[%s] 角色=%s 旧IP %s -> %s"
+            detail=("\u8bbe\u5907 IP \u53d8\u66f4 %s[%s] \u89d2\u8272=%s \u65e7IP %s -> %s"
                     % (device.name, device.asset_number, role, old_value, new_ip)),
             ip_address=operator_ip,
         )
@@ -283,6 +293,7 @@ class IpResourceService:
             "old_ip": old_value,
             "new_ip": new_ip,
             "remaining_conflicts": remaining,
+            "blocked": blocked,
         }
 
     async def _count_conflicts_after(self, device_id: int, role: str, new_ip: str) -> int:
