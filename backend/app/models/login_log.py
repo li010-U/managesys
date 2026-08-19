@@ -1,13 +1,16 @@
 """登录日志模型"""
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import String, Integer, DateTime, Text
+from sqlalchemy import String, Integer, DateTime, Text, Index
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 from app.core.timeutil import now_local
 
 class LoginLog(Base):
     __tablename__ = "login_logs"
+    __table_args__ = (
+        Index("ix_login_logs_created_at", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(64), nullable=False, comment="登录用户名")

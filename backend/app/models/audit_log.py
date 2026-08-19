@@ -1,7 +1,7 @@
 """审计日志模型"""
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import String, Integer, DateTime, Text, ForeignKey
+from sqlalchemy import String, Integer, DateTime, Text, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 from app.core.timeutil import now_local
@@ -9,6 +9,9 @@ from app.core.timeutil import now_local
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
+    __table_args__ = (
+        Index("ix_audit_logs_created_at", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, comment="操作用户ID")
