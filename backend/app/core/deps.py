@@ -44,6 +44,13 @@ async def get_current_user(
             detail="无效的认证凭证",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    # 仅允许访问令牌调用受保护接口；刷新令牌只能经 /auth/refresh 换取新令牌。
+    if payload.get("type") == "refresh":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="使用错误的令牌类型",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     user_id: str = payload.get("sub")
     token_ver: int = payload.get("ver", 0)

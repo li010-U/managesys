@@ -42,6 +42,26 @@ def _get_write_lock() -> asyncio.Lock:
     return lock
 
 
+class ConcurrencyLock:
+    """进程内写锁上下文管理器（串行化关键读改写）。"""
+
+    def __init__(self):
+        self._lock = _get_write_lock()
+
+    async def __aenter__(self):
+        await self._lock.acquire()
+        return self
+
+    async def __aexit__(self, *exc):
+        self._lock.release()
+        return False
+
+
+def write_lock():
+    """获取异步写锁，用于并发安全的读改写。"""
+    return ConcurrencyLock()
+
+
 def _is_lock_error(exc: BaseException) -> bool:
     """判断异常是否为 SQLite 并发锁导致的错误。"""
     cursor = exc

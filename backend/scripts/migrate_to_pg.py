@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """SQLite -> PostgreSQL 一键迁移脚本。
 
 把"建库 -> 迁移数据 -> alembic 补齐版本 -> 体检 -> 切换 .env"整合为一条命令，
@@ -99,12 +99,11 @@ def maint_url(info: dict) -> str:
 
 
 def db_exists(info: dict) -> bool:
-    # 用维护库查询目标库是否存在
-    cmd = ["psql", maint_url(info), "-tAc", "SELECT 1 FROM pg_database WHERE datname=:db"]
-    # psql 不支持 :db 参数绑定，改用文本
+    # 用维护库查询目标库是否存在。psql 不支持 :db 参数绑定，db 名需文本转义。
+    # 与 create_db 一致地传入 _pg_env，保证 host/port/user/password 与 PG* 环境统一生效。
     dbq = info["db"].replace("'", "''")
     cmd = ["psql", maint_url(info), "-tAc", "SELECT 1 FROM pg_database WHERE datname='%s'" % dbq]
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    r = subprocess.run(cmd, capture_output=True, text=True, env=dict(os.environ, **_pg_env(info)))
     return r.returncode == 0 and r.stdout.strip() == "1"
 
 

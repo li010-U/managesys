@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """简易 IP/用户端口限流器（内存滑动窗口）。
 
 用于登录/注册等无鉴权端点的 IP 限流，以及 AI 聊天等登录端点的按用户限流，
@@ -43,7 +43,56 @@ class SlidingWindowLimiter:
 
 
 # 全局单例
-limiter = SlidingWindowLimiter()
+
+
+
+
+class RedisSlidingWindowLimiter:
+    """基于 Redis ZSET 的滑动窗口限流（多 worker 共享计数）。
+
+    仅在配置 REDIS_URL 且 redis 库可用时启用；否则回退进程内内存实现。
+    """
+
+    def __init__(self, redis_url: str):
+        import redis.asyncio as aioredis
+        self._redis = aioredis.from_url(redis_url, decode_responses=True)
+        self._available = True
+
+    async def allow(self, key: str, max_attempts: int, window_seconds: float) -> bool:
+        import time
+        try:
+            now = time.time()
+            pipe = self._redis.pipeline()
+            pipe.zremrangebyscore(key, 0, now - window_seconds)
+            pipe.zcard(key)
+            pipe.zadd(key, {str(now): now})
+            pipe.expire(key, int(window_seconds) + 1)
+            results = await pipe.execute()
+            count = results[1] + 1
+            return count <= max_attempts
+        except Exception:
+            # Redis 故障时放行（保可用性）；计数可靠性由内存兜底降级交由上层选择
+            return True
+
+    async def close(self):
+        try:
+            await self._redis.aclose()
+        except Exception:
+            pass
+
+
+def build_limiter():
+    """根据配置构建限流器：优先 Redis（多 worker 集中），否则内存实现。"""
+    from app.core.config import settings
+    if settings.REDIS_URL:
+        try:
+            return RedisSlidingWindowLimiter(settings.REDIS_URL)
+        except Exception as e:
+            import logging
+            logging.getLogger("app").warning("Redis 限流初始化失败，回退内存限流: %s", e)
+    return SlidingWindowLimiter()
+
+limiter = build_limiter()
 
 
 def get_client_ip(request: Request) -> str:

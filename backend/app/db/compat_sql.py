@@ -18,12 +18,47 @@ from app.core.config import settings
 _PLACEHOLDER = re.compile(r"\?")
 
 
+
+def _is_sqlite() -> bool:
+    """按需读取当前数据库方言（惰性，避免导入环）。"""
+    try:
+        from app.db.session import IS_SQLITE
+        return IS_SQLITE
+    except Exception:
+        from app.core.config import settings
+        return settings.DATABASE_URL.startswith("sqlite")
+
+
+_SQLITE_DT = (
+    ("datetime('now','localtime')", "CURRENT_TIMESTAMP"),
+    ("datetime('now', 'localtime')", "CURRENT_TIMESTAMP"),
+    ("datetime('now')", "CURRENT_TIMESTAMP"),
+    ("datetime('now' )", "CURRENT_TIMESTAMP"),
+)
+
+
+def translate_sql(sql: str) -> str:
+    """把 SQLite 专有的时间函数翻译为跨方言表达式。
+
+    仅当当前方言不是 SQLite（PostgreSQL）时启用，SQLite 下保持原样，
+    因此对现有 SQLite 运行零影响；一旦切到 PostgreSQL，原生 INSERT 里的
+    datetime('now','localtime') 会自动映射为 CURRENT_TIMESTAMP，避免方言报错。
+    """
+    if _is_sqlite():
+        return sql
+    out = sql
+    for pat, repl in _SQLITE_DT:
+        out = out.replace(pat, repl)
+    return out
+
+
 def q(sql: str, *params) -> TextClause:
     """把 SQL 中的 ? 占位符替换为 :pN 并绑定参数。
 
     SQLAlchemy 在执行时会按当前方言把 :pN 翻译成合适的绑定样式，
     因此同一段 SQL 可同时用于 SQLite 与 PostgreSQL。
     """
+    sql = translate_sql(sql)
     binds = {}
     counter = 0
 
@@ -48,6 +83,7 @@ async def exec_sql(session, sql: str, params=()):
     带单条 SQL 执行超时保护：超过 DB_QUERY_TIMEOUT 秒则抛出错误，
     避免查询悬置时请求长久排队导致“点快了加载不出来”。
     """
+    sql = translate_sql(sql)
     async def _run():
         if params:
             return await session.execute(q(sql, *params))
