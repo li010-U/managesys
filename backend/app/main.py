@@ -253,10 +253,15 @@ def _start_retention_task():
     _retention_task = asyncio.create_task(_retention_loop())
 
 
-def _stop_retention_task():
+async def _stop_retention_task():
     global _retention_task
     if _retention_task is not None:
         _retention_task.cancel()
+        try:
+            await _retention_task
+        except (asyncio.CancelledError, Exception):
+            pass
+        _retention_task = None
 
 _alert_intel_task: Optional[asyncio.Task] = None
 
@@ -286,10 +291,15 @@ def _start_alert_intel_task():
     _alert_intel_task = asyncio.create_task(_alert_escalation_loop())
 
 
-def _stop_alert_intel_task():
+async def _stop_alert_intel_task():
     global _alert_intel_task
     if _alert_intel_task is not None:
         _alert_intel_task.cancel()
+        try:
+            await _alert_intel_task
+        except (asyncio.CancelledError, Exception):
+            pass
+        _alert_intel_task = None
 
 
 _alert_lifecycle_task: Optional[asyncio.Task] = None
@@ -321,10 +331,15 @@ def _start_alert_lifecycle_task():
     _alert_lifecycle_task = asyncio.create_task(_alert_lifecycle_loop())
 
 
-def _stop_alert_lifecycle_task():
+async def _stop_alert_lifecycle_task():
     global _alert_lifecycle_task
     if _alert_lifecycle_task is not None:
         _alert_lifecycle_task.cancel()
+        try:
+            await _alert_lifecycle_task
+        except (asyncio.CancelledError, Exception):
+            pass
+        _alert_lifecycle_task = None
 
 
 _env_poll_task: Optional[asyncio.Task] = None
@@ -357,10 +372,15 @@ def _start_env_poll_task():
     _env_poll_task = asyncio.create_task(_env_poll_loop())
 
 
-def _stop_env_poll_task():
+async def _stop_env_poll_task():
     global _env_poll_task
     if _env_poll_task is not None:
         _env_poll_task.cancel()
+        try:
+            await _env_poll_task
+        except (asyncio.CancelledError, Exception):
+            pass
+        _env_poll_task = None
 
 
 
@@ -608,10 +628,10 @@ async def lifespan(app: FastAPI):
     yield
 
     # 关闭时释放资源
-    _stop_alert_intel_task()
-    _stop_alert_lifecycle_task()
-    _stop_env_poll_task()
-    _stop_retention_task()
+    await _stop_alert_intel_task()
+    await _stop_alert_lifecycle_task()
+    await _stop_env_poll_task()
+    await _stop_retention_task()
     await engine.dispose()
     logger.info("应用已关闭，数据库连接已释放")
 
