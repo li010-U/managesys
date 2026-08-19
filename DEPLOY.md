@@ -176,3 +176,69 @@ python -m alembic upgrade head
 注意：
 - 迁移文件属于源码，应随版本控制提交。
 - 不依赖 Alembic 时建议保持启动时的 create_all 作为新存数据库的底座，在新存库上 可用 `alembic upgrade head` 建立全量结构；已有数据库不会重复创建。
+
+
+## 12. 运行测试
+
+后端测试套件（pytest）：在**项目根目录**或 **backend 目录**均可直接运行，两种方式等效（根目录已提供 pytest.ini 指定 testpaths 与 asyncio 配置）：
+
+```bat
+cd D:\managesys
+.venv\Scripts\python.exe -m pytest -q -p no:warnings
+
+:: 或
+cd D:\managesys\backend
+..\.venv\Scripts\python.exe -m pytest -q -p no:warnings
+```
+
+说明：
+- 根目录 `pytest.ini` 仅配置了 pytest-asyncio（asyncio_mode=auto）与 `testpaths = backend/tests`。该配置为单一源，从根目录或 backend 目录运行时 pytest 都会向上发现根目录 `pytest.ini`。
+- 测试使用隔离的临时 SQLite，不会触碰线上 `data/managesys.db`。
+
+
+
+## 12.1 多进程（worker）部署说明：限流与后台任务
+
+当前系统的并发限流、SSE 连接数限制，以及 4 个内置后台任务（数据保留清理、告警自动升级、告警生命周期、环境数据轮询）都是**单进程内**实现（内存信号量与 asyncio 任务，位于 `app/core/concurrency.py` 与 `app/main.py` 的启动逻辑）。这意味着：
+
+- **单 worker（`uvicorn --workers 1`，默认/开发模式）**：各限流与后台任务工作正常，这是推荐且已充分验证的部署形态。
+- **盲目开启多 worker（`--workers N`，N>1）**：每个 worker 会各自再跑一遍后台任务（出现「重复清理/重复升级/重复轮询」），且限流与 SSH 连接数各按进程独立计数，整体行为会失真，甚至出现数据竞争。
+
+因此生产扩容请遵循以下原则，**不要「拆东墙补西墙」地直接加 worker**：
+1. 优先迁移到 PostgreSQL（见第 13 节）以提升写入并发，仍保持单 worker。
+2. 确实需要多 worker 时，必须先落地 Redis 集中状态（`requirements.txt` 取消 `redis` 注释、`.env` 配置 `REDIS_URL`，并将后台任务调度改为「分布式互斥/只在一个实例执行」），否则多 worker 会引入新问题。
+3. 在未配置 Redis 前，`--workers` 请一律保持为 1。
+
+## 13. 迁移到 PostgreSQL（提升并发承载）
+
+当前系统默认使用 SQLite（单写者串行化，高并发下 `sensor_data` 高频写入会出现排队超时）。若需支撑更高并发，建议迁移到 PostgreSQL。工具链与代码方言适配均已就绪，可直接按下面步骤执行。
+
+### 前置条件
+- 安装 PostgreSQL 服务器与客户端工具（`psql / pg_dump / pg_restore / createdb`），并确保其所在目录已加入 `PATH`。
+- 安装 PyPI 依赖：`pip install asyncpg psycopg2-binary`。
+- （可选，多 worker）如需开启多个 worker，请先阅读下方「多进程（worker）部署说明」并配置 Redis 集中限流/任务互斥，否则不要盲目开启多个 worker。
+
+### 一键迁移（在 backend 目录下）
+```bat
+:: 1) 先备份 SQLite 库（迁移脚本也会自动再做一次）
+python manage.py backup
+
+:: 2) 预览（不建库/不写库/不切配置）
+python scripts/migrate_to_pg.py --pg-url "postgresql+asyncpg://user:pass@127.0.0.1:5432/managesys" --dry-run
+
+:: 3) 全自动迁移：建库 + 搬数据 + alembic 补齐 + 体检 + 切换 .env
+python scripts/migrate_to_pg.py --pg-url "postgresql+asyncpg://user:pass@127.0.0.1:5432/managesys" --create-db --apply-env
+
+:: 4) 重启后端生效（start_prod.bat 或 uvicorn 均会读取 .env 里的 DATABASE_URL）
+```
+
+### 回滚
+```bat
+:: 还原 .env 到迁移前的 SQLite 配置
+python scripts/migrate_to_pg.py --rollback
+```
+
+### 跨方言兼容说明
+- 检索类 `LIKE` 已统一为 `LOWER(col) LIKE ?` 且参数小写化，SQLite 与 PostgreSQL 搜索结果一致。
+- 原生 INSERT 里 SQLite 专有的 `datetime('now','localtime')` 已由 `app/db/compat_sql.py` 的 `translate_sql()` 在非 SQLite 方言下自动映射为 `CURRENT_TIMESTAMP`；`?` 占位符也由同一模块按方言转换。
+- 模型时间列多为 `DateTime(timezone=True)`，PostgreSQL 存 UTC timestamptz、读取时转本地时区；SQLite 存本地时间文本，两侧语义各自一致。
