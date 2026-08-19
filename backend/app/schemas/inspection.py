@@ -1,7 +1,7 @@
 ﻿"""设备巡检 Schema"""
 from datetime import datetime, date
 from typing import Optional, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 # ============ 巡检模板 ============
@@ -28,8 +28,7 @@ class InspectionTemplateResponse(InspectionTemplateBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ============ 巡检计划 ============
@@ -75,8 +74,7 @@ class InspectionPlanResponse(InspectionPlanBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class InspectionPlanListResponse(BaseModel):
@@ -92,8 +90,7 @@ class InspectionPlanListResponse(BaseModel):
     last_execute_date: Optional[date] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ============ 巡检任务 ============
@@ -122,8 +119,7 @@ class InspectionTaskResponse(BaseModel):
     updated_at: datetime
     record_count: int = 0
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class InspectionTaskListResponse(BaseModel):
@@ -142,8 +138,7 @@ class InspectionTaskListResponse(BaseModel):
     abnormal_items: int
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ============ 巡检记录 ============
@@ -172,8 +167,7 @@ class InspectionRecordResponse(BaseModel):
     inspector_name: Optional[str] = None
     checked_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ============ 巡检问题 ============
@@ -212,8 +206,7 @@ class InspectionIssueResponse(InspectionIssueBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class InspectionIssueListResponse(BaseModel):
@@ -228,8 +221,7 @@ class InspectionIssueListResponse(BaseModel):
     handler_name: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ============ 统计 ============

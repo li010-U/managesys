@@ -1,7 +1,7 @@
 ﻿"""工单相关 Schema"""
 from datetime import datetime, date
 from typing import Optional, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 # ============ 工单分类 ============
@@ -29,8 +29,7 @@ class WorkOrderCategoryResponse(WorkOrderCategoryBase):
     id: int
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ============ 工单评论 ============
@@ -50,8 +49,7 @@ class WorkOrderCommentResponse(WorkOrderCommentBase):
     user_name: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ============ 工单附件 ============
@@ -66,8 +64,7 @@ class WorkOrderAttachmentResponse(BaseModel):
     uploader_name: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ============ 工单 ============
@@ -145,8 +142,7 @@ class WorkOrderResponse(WorkOrderBase):
     comments: List[WorkOrderCommentResponse] = []
     attachments: List[WorkOrderAttachmentResponse] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class WorkOrderListResponse(BaseModel):
@@ -166,8 +162,7 @@ class WorkOrderListResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class WorkOrderStats(BaseModel):

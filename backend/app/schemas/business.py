@@ -1,5 +1,5 @@
 ﻿"""业务系统 Schema"""
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 from typing import Optional
 
@@ -29,8 +29,7 @@ class DeviceBrief(BaseModel):
     name: str
     rack_name: Optional[str] = None
     management_ip: Optional[str] = None
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class BusinessSystemResponse(BaseModel):
@@ -49,8 +48,7 @@ class BusinessSystemResponse(BaseModel):
     deployed_devices: list[DeviceBrief] = []
     created_at: datetime
     updated_at: datetime
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class BusinessSystemPageResponse(BaseModel):
     items: list[BusinessSystemResponse]
@@ -69,5 +67,4 @@ class DeploymentResponse(BaseModel):
     id: int; system_id: int; device_id: int; service_port: Optional[str]
     process_name: Optional[str]; system_version: Optional[str]; middleware_version: Optional[str]
     device_name: Optional[str] = None; created_at: datetime
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

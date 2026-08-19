@@ -13,7 +13,7 @@ from sqlalchemy import select, desc, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 from typing import List, Optional
@@ -136,10 +136,7 @@ class MessageResponse(BaseModel):
 
 
 
-    class Config:
-
-
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 
@@ -166,10 +163,7 @@ class ConversationResponse(BaseModel):
 
 
 
-    class Config:
-
-
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 

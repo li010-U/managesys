@@ -1,6 +1,6 @@
 ﻿"""应用配置"""
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, NoDecode
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from typing import Optional, List, Annotated
 
 
@@ -154,9 +154,7 @@ class Settings(BaseSettings):
     SMTP_USE_TLS: bool = True
     SMTP_ENABLED: bool = False
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 
     @staticmethod
