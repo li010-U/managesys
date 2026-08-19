@@ -57,60 +57,28 @@ async def _seed_default_facility():
         logger.info("Created default data center and room")
 
 
-def _ensure_columns(conn):
-    """幂等补齐已有表的列（SQLite 不支持 create_all 加列，需手动 ALTER）"""
-    import sqlalchemy as sa
-    inspector = sa.inspect(conn)
-    def _has(table, col):
-        cols = [c["name"] for c in inspector.get_columns(table)]
-        return col in cols
-    if not _has("work_order_categories", "need_approval"):
-        conn.exec_driver_sql("ALTER TABLE work_order_categories ADD COLUMN need_approval BOOLEAN DEFAULT 0")
-    for table, col, ddl in [
-        ("work_orders", "approved_by", "ALTER TABLE work_orders ADD COLUMN approved_by INTEGER"),
-        ("work_orders", "approved_at", "ALTER TABLE work_orders ADD COLUMN approved_at DATETIME"),
-        ("work_orders", "reject_reason", "ALTER TABLE work_orders ADD COLUMN reject_reason TEXT"),
-        ("users", "must_change_password", "ALTER TABLE users ADD COLUMN must_change_password BOOLEAN DEFAULT 0"),
-        ("users", "token_version", "ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 0"),
-        ("sensor_data", "source_mark", "ALTER TABLE sensor_data ADD COLUMN source_mark VARCHAR(16) DEFAULT 'normal'"),
-        ("devices", "power_rating", "ALTER TABLE devices ADD COLUMN power_rating FLOAT"),
-        ("racks", "pos_x_m", "ALTER TABLE racks ADD COLUMN pos_x_m FLOAT"),
-        ("racks", "pos_z_m", "ALTER TABLE racks ADD COLUMN pos_z_m FLOAT"),
-        ("racks", "width_m", "ALTER TABLE racks ADD COLUMN width_m FLOAT"),
-        ("racks", "depth_m", "ALTER TABLE racks ADD COLUMN depth_m FLOAT"),
-        ("racks", "facing_deg", "ALTER TABLE racks ADD COLUMN facing_deg FLOAT"),
-        ("alerts", "dedupe_key", "ALTER TABLE alerts ADD COLUMN dedupe_key VARCHAR(128)"),
-        ("alerts", "occurrences", "ALTER TABLE alerts ADD COLUMN occurrences INTEGER DEFAULT 1"),
-        ("alerts", "first_seen_at", "ALTER TABLE alerts ADD COLUMN first_seen_at DATETIME"),
-        ("alerts", "acknowledged_at", "ALTER TABLE alerts ADD COLUMN acknowledged_at DATETIME"),
-        ("alerts", "resolved_at", "ALTER TABLE alerts ADD COLUMN resolved_at DATETIME"),
-        ("alerts", "escalated_at", "ALTER TABLE alerts ADD COLUMN escalated_at DATETIME"),
-        ("alerts", "escalated_from", "ALTER TABLE alerts ADD COLUMN escalated_from VARCHAR(16)"),
-        ("audit_logs", "request_path", "ALTER TABLE audit_logs ADD COLUMN request_path VARCHAR(256)"),
-        ("audit_logs", "user_agent", "ALTER TABLE audit_logs ADD COLUMN user_agent VARCHAR(512)"),
-    ]:
-        if not _has(table, col):
-            conn.exec_driver_sql(ddl)
-    if _has("alerts", "dedupe_key"):
-        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_alerts_dedupe_key ON alerts(dedupe_key)")
+def _run_migrations_sync(conn):
+    """Run Alembic migrations to head at startup.
 
-    # 传感器异常留痕独立表 + 时序按 (sensor_id, recorded_at) 索引（幂等）
-    conn.exec_driver_sql("""
-        CREATE TABLE IF NOT EXISTS sensor_anomaly_gap (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            sensor_id INTEGER NOT NULL REFERENCES sensors(id) ON DELETE CASCADE,
-            alert_id INTEGER,
-            detected_at DATETIME,
-            window_start DATETIME,
-            window_end DATETIME,
-            anomaly_type VARCHAR(32) DEFAULT 'between_points_breach',
-            severity VARCHAR(16) DEFAULT 'warning',
-            remark TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_sensor_data_sensor_time ON sensor_data(sensor_id, recorded_at)")
-    conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_anomaly_gap_sensor_time ON sensor_anomaly_gap(sensor_id, detected_at)")
+    Invoked as a subprocess using the current interpreter so that env.py''s
+    online migration (which internally calls asyncio.run) does not collide with
+    the already-running event loop. The migration scripts carry idempotent
+    guards so they are safe on databases previously built via create_all.
+    """
+    import os
+    import subprocess
+    import sys as _sys
+    from pathlib import Path
+    # alembic.ini lives in the backend/ dir (parent of the app package);
+    # pin the working directory so uvicorn''s CWD cannot break discovery.
+    app_pkg_dir = Path(__file__).resolve().parent
+    backend_dir = app_pkg_dir.parent
+    env = dict(os.environ)
+    cmd = [_sys.executable, "-m", "alembic", "upgrade", "head"]
+    proc = subprocess.run(cmd, cwd=str(backend_dir), env=env, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError("Alembic migration failed: " + (proc.stderr or proc.stdout or "")[:2000])
+    return proc
 
 
 async def _init_builtin_data():
@@ -247,7 +215,7 @@ async def _init_builtin_data():
 
 
 
-# ???????????????????????
+# ===== 后台保留清理任务（每日滚动删除超期数据）=====
 
 _retention_task: Optional[asyncio.Task] = None
 
@@ -323,6 +291,79 @@ def _stop_alert_intel_task():
     if _alert_intel_task is not None:
         _alert_intel_task.cancel()
 
+
+_alert_lifecycle_task: Optional[asyncio.Task] = None
+
+
+async def _alert_lifecycle_loop():
+    """进程内告警生命周期任务：周期扫描自动恢复（连续正常->已解决）与偶发登记。"""
+    from app.services.alert_lifecycle_service import AlertLifecycleService
+    interval = settings.ALERT_LIFECYCLE_INTERVAL_SECONDS
+    while True:
+        try:
+            async with async_session_factory() as db:
+                svc = AlertLifecycleService(db)
+                ids = await svc.sweep_auto_resolve()
+                if ids:
+                    logger.info("告警自动恢复 %d 条: %s", len(ids), ids)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning("告警生命周期扫描失败: %s", e)
+        await asyncio.sleep(interval)
+
+
+def _start_alert_lifecycle_task():
+    global _alert_lifecycle_task
+    if not settings.ALERT_LIFECYCLE_TASK_ENABLED:
+        logger.info("告警生命周期任务未启用（ALERT_LIFECYCLE_TASK_ENABLED=false）")
+        return
+    _alert_lifecycle_task = asyncio.create_task(_alert_lifecycle_loop())
+
+
+def _stop_alert_lifecycle_task():
+    global _alert_lifecycle_task
+    if _alert_lifecycle_task is not None:
+        _alert_lifecycle_task.cancel()
+
+
+_env_poll_task: Optional[asyncio.Task] = None
+
+
+async def _env_poll_loop():
+    """进程内环境/气象自动轮询采集任务（默认关闭，由 ENV_POLL_TASK_ENABLED 开启）。"""
+    from app.services.environment_service import EnvPoller
+    interval = settings.ENV_POLL_INTERVAL_SECONDS
+    while True:
+        try:
+            async with async_session_factory() as db:
+                values = await EnvPoller(db).poll_once()
+                if values:
+                    logger.info("环境采集: %s %s°C / %s%%RH / %sm/s",
+                                values.get("weather"), values.get("temperature"),
+                                values.get("humidity"), values.get("windspeed"))
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning("环境采集失败: %s", e)
+        await asyncio.sleep(interval)
+
+
+def _start_env_poll_task():
+    global _env_poll_task
+    if not settings.ENV_POLL_TASK_ENABLED:
+        logger.info("环境采集任务未启用（ENV_POLL_TASK_ENABLED=false）")
+        return
+    _env_poll_task = asyncio.create_task(_env_poll_loop())
+
+
+def _stop_env_poll_task():
+    global _env_poll_task
+    if _env_poll_task is not None:
+        _env_poll_task.cancel()
+
+
+
 async def _flag_default_password_admin():
     """对仍在使用默认初始密码的账号打上"需强制改密"标记（兼容历史库 admin）。
 
@@ -361,6 +402,10 @@ BUILTIN_PERMISSIONS = [
     ("\u5220\u9664\u8bbe\u5907", "device:delete", "\u8bbe\u5907\u7ba1\u7406"),
     ("\u4e0a\u67b6\u8bbe\u5907", "device:mount", "\u8bbe\u5907\u7ba1\u7406"),
     ("\u4e0b\u67b6\u8bbe\u5907", "device:unmount", "\u8bbe\u5907\u7ba1\u7406"),
+    ("\u67e5\u770b IP \u8d44\u6e90", "ip:view", "IP\u8d44\u6e90\u7ba1\u7406"),
+    ("\u7f16\u8f91 IP \u53f0\u8d26/\u7f51\u6b65", "ip:edit", "IP\u8d44\u6e90\u7ba1\u7406"),
+    ("\u5206\u914d / \u91ca\u653e IP", "ip:allocate", "IP\u8d44\u6e90\u7ba1\u7406"),
+    ("\u56de\u6536\u95f2\u7f6e IP", "ip:recycle", "IP\u8d44\u6e90\u7ba1\u7406"),
     ("\u67e5\u770b\u76d1\u63a7\u5927\u76d8", "monitor:view_dashboard", "\u76d1\u63a7\u7ba1\u7406"),
     ("\u67e5\u770b\u544a\u8b66", "monitor:view_alerts", "\u76d1\u63a7\u7ba1\u7406"),
     ("\u5904\u7406\u544a\u8b66", "monitor:handle_alert", "\u76d1\u63a7\u7ba1\u7406"),
@@ -394,11 +439,13 @@ BUILTIN_ROLES = [
      ["room:view", "room:create", "room:edit", "room:delete", "rack:view", "rack:create", "rack:edit", "rack:delete",
       "device:view", "device:create", "device:edit", "device:delete", "device:mount", "device:unmount",
       "monitor:view_dashboard", "monitor:view_alerts", "monitor:handle_alert",
-      "work:view", "work:create", "work:edit", "work:delete", "inspection:view", "inspection:create", "inspection:edit", "inspection:delete"]),
+      "work:view", "work:create", "work:edit", "work:delete", "inspection:view", "inspection:create", "inspection:edit", "inspection:delete",
+      "ip:view", "ip:edit", "ip:allocate", "ip:recycle"]),
     ("\u8fd0\u7ef4\u4eba\u5458", "operator", "\u65e5\u5e38\u8fd0\u7ef4\u64cd\u4f5c\u6743\u9650", False,
      ["room:view", "rack:view", "device:view", "device:mount", "device:unmount",
       "system:view", "monitor:view_dashboard", "monitor:view_alerts", "monitor:handle_alert",
-      "work:view", "work:create", "work:edit", "inspection:view", "inspection:create", "inspection:edit"]),
+      "work:view", "work:create", "work:edit", "inspection:view", "inspection:create", "inspection:edit",
+      "ip:view"]),
     ("\u666e\u901a\u7528\u6237", "user", "\u57fa\u7840\u67e5\u770b\u6743\u9650", False,
      ["room:view", "rack:view", "device:view", "monitor:view_dashboard", "monitor:view_alerts", "system:view", "work:view", "inspection:view"]),
     ("\u8bbf\u5ba2", "guest", "\u53ea\u8bfb\u8bbf\u5ba2\u6743\u9650", False,
@@ -411,7 +458,7 @@ BUILTIN_ROLES = [
 
 
 async def _sync_builtin_data():
-    """?????????????????????????????????????"""
+    """同步内置角色与权限（幂等）；生产保留任务启动时调用。"""
     from app.models.role import Role
     from app.models.permission import Permission
     from sqlalchemy import select as _sel
@@ -452,6 +499,14 @@ def _check_security_config():
         critical.append("DEBUG=true 已开启（生产版必须关闭）")
     if settings.SECRET_KEY == "dev-secret-key-change-in-production-2024":
         critical.append("SECRET_KEY 是默认值（请更改为强随机密钥）")
+    import re as _cfg_re
+    if settings.INIT_ADMIN_PASSWORD in ("", "admin@123456", "admin123456", "12345678", "password"):
+        critical.append("INIT_ADMIN_PASSWORD 是默认/弱口令（请通过环境变量设置为强随机初始密码）")
+    elif len(settings.INIT_ADMIN_PASSWORD) < settings.PASSWORD_MIN_LENGTH:
+        critical.append("INIT_ADMIN_PASSWORD 长度不足（需 >= %d 位）" % settings.PASSWORD_MIN_LENGTH)
+    elif not (_cfg_re.search(r"[a-zA-Z]", settings.INIT_ADMIN_PASSWORD)
+              and _cfg_re.search(r"[0-9]", settings.INIT_ADMIN_PASSWORD)):
+        critical.append("INIT_ADMIN_PASSWORD 需同时包含字母与数字")
     if not settings.ENABLE_CAPTCHA:
         weak.append("ENABLE_CAPTCHA=false （建议生产环境开启验证码）")
     if critical and settings.ENFORCE_SECURITY:
@@ -479,14 +534,22 @@ async def lifespan(app: FastAPI):
 
     _check_security_config()
 
+    # 将可信任反代网段注入 IP 提取工具（默认空=不信任转发头，取直连 IP）
+    from app.core import iputils as _iputils
+    _iputils.TRUSTED_PROXIES = [p.strip() for p in settings.TRUSTED_PROXIES.split(",") if p.strip()]
+
+
     # 导入所有模型以确保注册到 Base.metadata
     import app.models  # noqa: F401
 
     # 创建数据库表
     try:
         async with engine.begin() as conn:
+            # Consolidate legacy create_all + _ensure_columns DDL into Alembic.
+            # Migration scripts are idempotent for both fresh and existing DBs.
             await conn.run_sync(Base.metadata.create_all)
-            await conn.run_sync(_ensure_columns)
+            # 先以模型为准建全表结构，再做迁移补齐，保证新库/存量库 schema 完整。
+            await conn.run_sync(_run_migrations_sync)
         logger.info("数据库表结构检查/创建完成")
     except Exception as e:
         logger.error("数据库表创建失败: %s", str(e))
@@ -537,6 +600,8 @@ async def lifespan(app: FastAPI):
     try:
         _start_retention_task()
         _start_alert_intel_task()
+        _start_alert_lifecycle_task()
+        _start_env_poll_task()
     except Exception as e:
         logger.warning("启动保留清理任务失败: %s", str(e))
 
@@ -544,6 +609,8 @@ async def lifespan(app: FastAPI):
 
     # 关闭时释放资源
     _stop_alert_intel_task()
+    _stop_alert_lifecycle_task()
+    _stop_env_poll_task()
     _stop_retention_task()
     await engine.dispose()
     logger.info("应用已关闭，数据库连接已释放")

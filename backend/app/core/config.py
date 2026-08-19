@@ -1,4 +1,4 @@
-"""应用配置"""
+﻿"""应用配置"""
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
 from typing import Optional, List
@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "dev-secret-key-change-in-production-2024"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8
+    # 刷新令牌有效期（分钟）：短访问令牌 + 长刷新令牌（默认 7 天，可覆盖）
+    REFRESH_TOKEN_EXPIRE_MINUTES: int = 7 * 24 * 60
     # ===== 初始管理员密码（仅首次初始化时使用，建议从环境变量设置）=====
     # 生产环境必须通过环境变量 INIT_ADMIN_PASSWORD 设置为强随机密码，不要使用默认。
     INIT_ADMIN_PASSWORD: str = "admin@123456"
@@ -31,6 +33,12 @@ class Settings(BaseSettings):
     INTERNAL_LLM_KEY: str = ""
     INTERNAL_LLM_BASE_URL: str = ""
     LLM_MODEL: str = "deepseek-chat"
+    # 每个 provider 可独立指定模型，切换 LLM_PROVIDER 时模型自动联动。
+    DEEPSEEK_MODEL: str = "deepseek-chat"
+    OPENAI_MODEL: str = "gpt-4o-mini"
+    INTERNAL_MODEL: str = "deepseek-chat"
+    # LLM 调用超时（秒）：可配置，避免上游悬置拖死请求。
+    LLM_TIMEOUT_SECONDS: int = 60
 
     # ===== CORS =====
     CORS_ORIGINS: list[str] = [
@@ -45,7 +53,7 @@ class Settings(BaseSettings):
     ENABLE_CAPTCHA: bool = False
     # 生产纯开启后，启动时对不可妥协项直接拒绝启动（DEBUG=true 等）
     ENFORCE_SECURITY: bool = False
-    # ===== ????????????????????????? .env ? REGISTER_ENABLED=true =====
+    # ===== 注册开关（由 .env 配置 REGISTER_ENABLED）=====
     REGISTER_ENABLED: bool = False
     # --- 端口限流（防止暴力碰库 / 注册垃圾账号） ---
     # 每个 IP 每窗口内允许的请求数与窗口长度（秒）
@@ -57,8 +65,21 @@ class Settings(BaseSettings):
     ]
     RATE_LIMIT_REGISTER_MAX: int = 5
     RATE_LIMIT_WINDOW_SECONDS: int = 60
+    # 可信任的反向代理/内网网段（逗号分隔），仅当直连对端在这些网段才信任转发头
+    # 空（默认）= 一律不信任 X-Forwarded-For / X-Real-IP，用直连 IP（防伪造，推荐直连公网场景）
+    TRUSTED_PROXIES: str = ""
     LOGIN_MAX_ATTEMPTS: int = 5
     LOGIN_LOCK_MINUTES: int = 30
+
+    # ===== Centralized rate limiting (optional Redis) =====
+    # Leave empty for in-process memory limiting (single worker).
+    # Set e.g. redis://127.0.0.1:6379/0 so multiple workers share one counter.
+    REDIS_URL: str = ""
+    # 验证码有效期（秒）：默认 5 分钟。多 worker 部署建议配置 REDIS_URL，
+    # 使验证码跨进程共享并原子一次性消费，彻底消除“验证码正确却提示错误”。
+    CAPTCHA_TTL_SECONDS: int = 300
+    # 验证码 Redis 键前缀（避免与限流计数等冲突）
+    CAPTCHA_REDIS_PREFIX: str = "captcha:"
 
     # ===== 文件上传 =====
     UPLOAD_DIR: str = "data/uploads"
@@ -95,6 +116,32 @@ class Settings(BaseSettings):
     DATA_RETENTION_TASK_ENABLED: bool = True
     # 进程内告警自动升级任务：是否启用（测试环境可关闭以避免 TestClient 挂起）
     ALERT_INTEL_TASK_ENABLED: bool = True
+    # ===== 告警生命周期（自动恢复 / 去重防抖 / 偶发故障） =====
+    # "已解决"判定：设备参数连续保持正常的最短时长（分钟）
+    ALERT_AUTO_RESOLVE_MINUTES: int = 30
+    # 偶发(短时自愈)故障窗口：故障发生在此秒数内恢复，则记为偶发、只记录不推送
+    ALERT_TRANSIENT_MAX_SECONDS: int = 300
+    # 去重防抖：同一设备已解决后，再次出现异常需等待的冷却时长（分钟）
+    ALERT_COOLDOWN_MINUTES: int = 5
+    # 进程内告警生命周期任务（自动恢复扫描/偶发识别/去重归一）：是否启用
+    ALERT_LIFECYCLE_TASK_ENABLED: bool = True
+    # 生命周期扫描间隔（秒）
+    ALERT_LIFECYCLE_INTERVAL_SECONDS: int = 60
+    # 环境/气象关联统计历史保留天数
+    ENV_RETENTION_DAYS: int = 180
+    # ===== 环境/气象自动轮询采集（后台常驻任务，默认关闭） =====
+    # 是否启用进程内环境采集轮询任务
+    ENV_POLL_TASK_ENABLED: bool = False
+    # 轮询间隔（秒）
+    ENV_POLL_INTERVAL_SECONDS: int = 300
+    # 数据源：sim=演示值 / real=Open-Meteo 真实天气
+    ENV_POLL_SOURCE: str = "sim"
+    # real 源定位（默认合肥）
+    ENV_POLL_LAT: float = 31.82
+    ENV_POLL_LON: float = 117.23
+    # 采集写入的位置名/位置ID
+    ENV_POLL_LOCATION_NAME: str = "主机房"
+    ENV_POLL_LOCATION_ID: int = 0
 
     # ===== 邮件服务 =====
     SMTP_HOST: str = ""
@@ -120,3 +167,5 @@ class Settings(BaseSettings):
         return v
 
 settings = Settings()
+
+
