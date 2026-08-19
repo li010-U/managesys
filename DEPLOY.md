@@ -9,7 +9,7 @@
 
 ## 1. 内网部署版升级到最新代码\uff08解决\u300c回复还是重复\u300d\uff09
 
-生产环境由 `backend\start_prod.bat` 启动\uff08后端 0.0.0.0:8000\uff0c前端构建后由 Nginx/静态托管\uff09\u3002
+生产环境由 `scripts\start_dev.bat` 启动\uff08后端 0.0.0.0:8000\uff0c前端构建后由 Nginx/静态托管\uff09\u3002
 
 在内网服务器上执行\uff1a
 
@@ -29,7 +29,7 @@ python manage.py init
 ::     把 .env.example 里新增的 LLM 段拷贝到 backend/.env
 
 :: 5) 停止旧后端并重新启动
-::    生产：回到项目根目录执行 start_prod.bat
+::    生产：在项目根执行 scripts\start_dev.bat（开发）或 scripts\start_prod.bat（生产）
 ::    或后台启动：python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 :: 6) 重新构建并部署前端\uff08前端也改过桌宠轮询频率\uff09
@@ -109,7 +109,7 @@ AI 助手需要**能正确识别中文**的模型。两个可用方向\uff1a
 不存在时回退系统 Python。`.venv` 已配置为复用系统 site-packages（`include-system-site-packages=true`），
 因此无需重新下载依赖即可直接运行。
 
-- 所有入口已统一解析 `.venv`：`start_prod.bat`、`start_dev.bat`（含 `dev_server.py`）、
+- 所有入口已统一解析 `.venv`：`scripts\start_prod.bat`、`scripts\start_dev.bat`（及 `scripts\dev_server.py`）、
   `backend\scripts\start_backend.ps1`（开机守护）、`backend\scripts\install_tasks.ps1`（计划任务）。
 - 手动操作建议：`cd backend && ..\.venv\Scripts\python.exe manage.py <命令>`。
 - `requirements.txt` 已更新为 Python 3.14 可安装的已验证版本。若在全新机器上从零建环境：
@@ -229,7 +229,7 @@ python scripts/migrate_to_pg.py --pg-url "postgresql+asyncpg://user:pass@127.0.0
 :: 3) 全自动迁移：建库 + 搬数据 + alembic 补齐 + 体检 + 切换 .env
 python scripts/migrate_to_pg.py --pg-url "postgresql+asyncpg://user:pass@127.0.0.1:5432/managesys" --create-db --apply-env
 
-:: 4) 重启后端生效（start_prod.bat 或 uvicorn 均会读取 .env 里的 DATABASE_URL）
+:: 4) 重启后端生效（scripts\start_prod.bat 或 uvicorn 均会读取 .env 里的 DATABASE_URL）
 ```
 
 ### 回滚

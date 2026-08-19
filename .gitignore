@@ -97,7 +97,8 @@ temp_srs.txt
 /data/
 /backend/data/
 /backend/data.db
-/*.docx
+# 需求/技术文档（docx）不入库
+*.docx
 /frontend/_run_frontend.pid
 
 # 一次性调试/巡检脚本归档区（不入库）
