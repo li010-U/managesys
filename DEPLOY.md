@@ -114,7 +114,7 @@ AI 助手需要**能正确识别中文**的模型。两个可用方向\uff1a
 - 手动操作建议：`cd backend && ..\.venv\Scripts\python.exe manage.py <命令>`。
 - `requirements.txt` 已更新为 Python 3.14 可安装的已验证版本。若在全新机器上从零建环境：
   ```
-  cd D:managesys
+  cd D:\managesys
   python -m venv --system-site-packages .venv
   .venv\Scripts\python.exe -m pip install -r backend\requirements.txt
   ```
@@ -122,7 +122,7 @@ AI 助手需要**能正确识别中文**的模型。两个可用方向\uff1a
 
 ---
 
-## 10. 安全加固清单（本版本新增）说明
+## 7. 安全加固清单（本版本新增）说明
 
 部署前请在 `backend/.env` 中确认以下配置（`backend/.env.example` 已含注释）：
 
@@ -152,7 +152,7 @@ AI 助手需要**能正确识别中文**的模型。两个可用方向\uff1a
 > 注：`DEPLOY.md` 全文历史说明（如"回帖重复/模型渠道"等）对应此前迭代，
 > 与本次安全加固无关，可保留。
 
-## 11. 数据库迁移（Alembic）
+## 8. 数据库迁移（Alembic）
 
 从本版开始，数据库表结构改动建议统一走 Alembic 迁移，不再依赖启动时的 create_all 硬加列（_ensure_columns）。
 
@@ -178,7 +178,7 @@ python -m alembic upgrade head
 - 不依赖 Alembic 时建议保持启动时的 create_all 作为新存数据库的底座，在新存库上 可用 `alembic upgrade head` 建立全量结构；已有数据库不会重复创建。
 
 
-## 12. 运行测试
+## 9. 运行测试
 
 后端测试套件（pytest）：在**项目根目录**或 **backend 目录**均可直接运行，两种方式等效（根目录已提供 pytest.ini 指定 testpaths 与 asyncio 配置）：
 
@@ -197,7 +197,7 @@ cd D:\managesys\backend
 
 
 
-## 12.1 多进程（worker）部署说明：限流与后台任务
+## 9.1 多进程（worker）部署说明：限流与后台任务
 
 当前系统的并发限流、SSE 连接数限制，以及 4 个内置后台任务（数据保留清理、告警自动升级、告警生命周期、环境数据轮询）都是**单进程内**实现（内存信号量与 asyncio 任务，位于 `app/core/concurrency.py` 与 `app/main.py` 的启动逻辑）。这意味着：
 
@@ -205,11 +205,11 @@ cd D:\managesys\backend
 - **盲目开启多 worker（`--workers N`，N>1）**：每个 worker 会各自再跑一遍后台任务（出现「重复清理/重复升级/重复轮询」），且限流与 SSH 连接数各按进程独立计数，整体行为会失真，甚至出现数据竞争。
 
 因此生产扩容请遵循以下原则，**不要「拆东墙补西墙」地直接加 worker**：
-1. 优先迁移到 PostgreSQL（见第 13 节）以提升写入并发，仍保持单 worker。
+1. 优先迁移到 PostgreSQL（见第 10 节）以提升写入并发，仍保持单 worker。
 2. 确实需要多 worker 时，必须先落地 Redis 集中状态（`requirements.txt` 取消 `redis` 注释、`.env` 配置 `REDIS_URL`，并将后台任务调度改为「分布式互斥/只在一个实例执行」），否则多 worker 会引入新问题。
 3. 在未配置 Redis 前，`--workers` 请一律保持为 1。
 
-## 13. 迁移到 PostgreSQL（提升并发承载）
+## 10. 迁移到 PostgreSQL（提升并发承载）
 
 当前系统默认使用 SQLite（单写者串行化，高并发下 `sensor_data` 高频写入会出现排队超时）。若需支撑更高并发，建议迁移到 PostgreSQL。工具链与代码方言适配均已就绪，可直接按下面步骤执行。
 
@@ -246,29 +246,29 @@ python scripts/migrate_to_pg.py --rollback
 
 ---
 
-## 14. 内网部署访问配置（CORS / ALLOWED_HOSTS）
+## 11. 内网部署访问配置（CORS / ALLOWED_HOSTS）
 
 多人通过内网 IP/域名访问时，后端默认只放行 localhost，必须按实际访问地址配置 `.env`。
 以下条目**逗号分隔或 JSON 数组两种写法都支持**（已在配置层统一兼容，避免启动报错）。
 
-### 14.1 允许访问的 Host（必配）
+### 11.1 允许访问的 Host（必配）
 ```ini
 # 填前端/后端的实际访问域名或 IP（可带端口），逗号分隔
 ALLOWED_HOSTS=192.168.1.10,dcimanage.example.com,10.0.0.5:5173
 ```
 
-### 14.2 允许跨域的前端来源 CORS（按需）
+### 11.2 允许跨域的前端来源 CORS（按需）
 ```ini
 # 仅当"前端页面"与"后端 API"不同源（不同端口/IP）时才需要。
 # 生产若由 Nginx 同源托管 dist 并反代 /api，可留空为 localhost 两项。
 CORS_ORIGINS=http://192.168.1.10:5173,http://10.0.0.5:5173
 ```
 
-### 14.3 PostgreSQL 连接（提高并发承载，多人必选）
+### 11.3 PostgreSQL 连接（提高并发承载，多人必选）
 ```ini
 DATABASE_URL=postgresql+asyncpg://用户名:密码@127.0.0.1:5432/managesys
 ```
-- 完整的 SQLite→PostgreSQL 迁移（建库、搬数据、切 .env）见 **第 13 节** 的 `scripts/migrate_to_pg.py` 一键流程。
+- 完整的 SQLite→PostgreSQL 迁移（建库、搬数据、切 .env）见 **第 10 节** 的 `scripts/migrate_to_pg.py` 一键流程。
 - `start_prod.bat` 会自动识别 PostgreSQL 并切到多 worker；SQLite 时保持单进程最稳。
 - 多个后端 worker 共享限流/验证码时，建议再配 `REDIS_URL`（见 `backend/.env.example`）。
 
