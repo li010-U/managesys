@@ -1,4 +1,4 @@
-"""??????? API"""
+"""工单自动规则 API"""
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -82,12 +82,25 @@ async def update_rule(
     row = (await exec_sql(db, "SELECT id FROM work_order_auto_rules WHERE id = ?", (rule_id,))).fetchone()
     if not row:
         raise HTTPException(404, "Rule not found")
+    # 可编辑字段白名单映射到数据库列，避免拼接任意 SQL
+    # 仅白名单字段参与更新（defensive）
+    FIELD_TO_COL = {
+        "name": "name", "enabled": "enabled", "match_keyword": "match_keyword",
+        "match_category_id": "match_category_id", "match_priority": "match_priority",
+        "action_set_priority": "action_set_priority", "action_assign_user_id": "action_assign_user_id",
+        "action_auto_complete": "action_auto_complete", "sort": "sort",
+    }
     updates, params = [], []
     for key, value in data.model_dump(exclude_unset=True).items():
+        col = FIELD_TO_COL.get(key)
+        if col is None:
+            continue
         if key == "match_keyword" and value is not None:
             value = value.strip()
-        updates.append(f"{key} = ?")
+        updates.append(f"{col} = ?")
         params.append(value)
+    if not updates:
+        return {"message": "Rule updated"}
     params.append(rule_id)
     await exec_sql(db, "UPDATE work_order_auto_rules SET {} WHERE id = ?".format(", ".join(updates)), tuple(params))
     from app.services.audit_service import AuditService
@@ -136,13 +149,13 @@ async def apply_auto_rules(db, title: str, description: Optional[str], category_
 
 
 async def resolve_auto_complete(db, order_id: int):
-    """???????????????? completed?????????"""
+    """按匹配规则自动完成已派单工单（并记录 applied_name）"""
     order = (await exec_sql(db, "SELECT * FROM work_orders WHERE id = ?", (order_id,))).fetchone()
     if not order:
         return
     if order.status != "assigned":
         return
-    # ?????????????????????
+    # 仅对“已派单”状态执行自动完成
     rows = (await exec_sql(db, "SELECT * FROM work_order_auto_rules WHERE enabled = ? AND action_auto_complete = ? ORDER BY sort ASC, id ASC", (True, True))).fetchall()
     if not rows:
         return

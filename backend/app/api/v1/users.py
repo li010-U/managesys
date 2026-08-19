@@ -1,23 +1,15 @@
-﻿"""用户管理API路由"""
+"""用户管理API路由"""
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db, get_current_user, require_permission, has_permission
+from app.core.iputils import request_client_ip
 from app.models.user import User
 from app.schemas.user import UserResponse, UserCreateRequest, UserUpdateRequest, UserPageResponse
 from app.services.user_service import UserService
 
 router = APIRouter(prefix="/users", tags=["用户管理"])
 
-
-def get_client_ip(request: Request) -> str:
-    """获取客户端真实IP"""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    if request.client:
-        return request.client.host
-    return None
 
 
 @router.get("", response_model=UserPageResponse)
@@ -74,7 +66,7 @@ async def create_user(
         user = await service.create_user(
             req,
             operator_username=current_user.username,
-            operator_ip=get_client_ip(request),
+            operator_ip=request_client_ip(request),
         )
         from app.services.audit_service import AuditService
         AuditService.log_request(db, request, current_user=current_user, action="create", target_type="user", target_id=str(user.id), detail=f"创建用户: {user.username}")
@@ -99,7 +91,7 @@ async def update_user(
         user = await service.update_user(
             user_id, req,
             operator_username=current_user.username,
-            operator_ip=get_client_ip(request),
+            operator_ip=request_client_ip(request),
         )
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
@@ -125,7 +117,7 @@ async def delete_user(
         result = await service.delete_user(
             user_id,
             operator_username=current_user.username,
-            operator_ip=get_client_ip(request),
+            operator_ip=request_client_ip(request),
         )
         if not result:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")

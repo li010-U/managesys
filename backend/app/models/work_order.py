@@ -117,7 +117,7 @@ class WorkOrderAttachment(Base):
 
 
 class WorkOrderAutoRule(Base):
-    """???????"""
+    """工单自动规则"""
     __tablename__ = "work_order_auto_rules"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

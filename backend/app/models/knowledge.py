@@ -1,4 +1,4 @@
-"""?????"""
+"""知识库文章模型"""
 from datetime import datetime
 from typing import Optional
 from sqlalchemy import String, Integer, Text, DateTime, ForeignKey
@@ -8,7 +8,7 @@ from app.core.timeutil import now_local
 
 
 class KnowledgeArticle(Base):
-    """?????"""
+    """知识库文章"""
     __tablename__ = "kb_articles"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

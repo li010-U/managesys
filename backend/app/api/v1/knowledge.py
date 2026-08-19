@@ -1,4 +1,4 @@
-"""??? API"""
+﻿"""??? API"""
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -34,8 +34,8 @@ async def list_articles(
     conditions = []
     params = []
     if keyword:
-        conditions.append("(title LIKE ? OR content LIKE ?)")
-        params.extend(["%{}%".format(keyword), "%{}%".format(keyword)])
+        conditions.append("(LOWER(title) LIKE ? OR LOWER(content) LIKE ?)")
+        params.extend(["%{}%".format(keyword.lower()), "%{}%".format(keyword.lower())])
     if category:
         conditions.append("category = ?")
         params.append(category)
@@ -83,9 +83,9 @@ async def recommend_articles(
     sql = """
         SELECT k.*, u.username as creator_name
         FROM kb_articles k LEFT JOIN users u ON k.created_by = u.id
-        WHERE (k.title LIKE ? OR k.content LIKE ?)
+        WHERE (LOWER(k.title) LIKE ? OR LOWER(k.content) LIKE ?)
         ORDER BY k.created_at DESC
         LIMIT {}
     """.format(limit)
-    rows = (await exec_sql(db, sql, ("%{}%".format(keyword), "%{}%".format(keyword)))).fetchall()
+    rows = (await exec_sql(db, sql, ("%{}%".format(keyword.lower()), "%{}%".format(keyword.lower())))).fetchall()
     return {"data": [_row_to_dict(r) for r in rows]}

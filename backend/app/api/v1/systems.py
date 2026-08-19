@@ -78,7 +78,7 @@ async def create_system(req: BusinessSystemCreate, request: Request, db: AsyncSe
         from app.services.audit_service import AuditService
         AuditService.log_request(db, request, current_user=current_user, action="create", target_type="business_system", target_id=str(obj.id), detail=f"创建业务系统: {obj.name}")
         return BusinessSystemResponse.model_validate(obj)
-    except Exception as e:
+    except ValueError as e:
         from fastapi import HTTPException
         await db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

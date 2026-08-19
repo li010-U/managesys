@@ -41,12 +41,12 @@ for rule in alert_rules:
     resp = requests.post(f'{BASE_URL}/alerts/rules', headers=headers, json=rule)
     if resp.status_code in [200, 201]:
         rules_created += 1
-        print(f'  Created: {rule[\"name\"]} ({rule[\"code\"]})')
+        print(f'  Created: {rule["name"]} ({rule["code"]})')
     else:
-        print(f'  Failed: {rule[\"name\"]} - {resp.status_code}')
+        print(f'  Failed: {rule["name"]} - {resp.status_code}')
 
 print(f'\\nTotal rules created: {rules_created}')
 
 # Verify
 resp = requests.get(f'{BASE_URL}/alerts/rules', headers=headers)
-print(f'\\nTotal rules in system: {resp.json().get(\"total\", 0)}')
+print(f'\\nTotal rules in system: {resp.json().get("total", 0)}')

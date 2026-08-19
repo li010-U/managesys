@@ -1,8 +1,9 @@
-﻿"""设备管理 API 路由"""
+"""设备管理 API 路由"""
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db, get_current_user, require_permission, require_any_permission
+from app.core.iputils import request_client_ip
 from app.models.user import User
 from app.services.device_service import DeviceTypeService, DeviceService
 from app.schemas.device import (
@@ -12,16 +13,6 @@ from app.schemas.device import (
 )
 
 router = APIRouter(prefix="/devices", tags=["设备管理"])
-
-
-def get_client_ip(request: Request) -> str:
-    """获取客户端真实IP"""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    if request.client:
-        return request.client.host
-    return None
 
 
 # ==================== DeviceType ====================
@@ -81,10 +72,10 @@ async def create_device_type(
         dt = await service.create(
             req,
             operator_username=current_user.username,
-            operator_ip=get_client_ip(request),
+            operator_ip=request_client_ip(request),
         )
         return DeviceTypeResponse.model_validate(dt)
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
@@ -101,7 +92,7 @@ async def update_device_type(
     dt = await service.update(
         dt_id, req,
         operator_username=current_user.username,
-        operator_ip=get_client_ip(request),
+        operator_ip=request_client_ip(request),
     )
     if not dt:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="设备类型不存在")
@@ -124,7 +115,7 @@ async def update_device_type_thresholds(
     dt = await service.update_thresholds(
         dt_id, req,
         operator_username=current_user.username,
-        operator_ip=get_client_ip(request),
+        operator_ip=request_client_ip(request),
     )
     if not dt:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="设备类型不存在")
@@ -146,11 +137,11 @@ async def delete_device_type(
         if not await service.delete(
             dt_id,
             operator_username=current_user.username,
-            operator_ip=get_client_ip(request),
+            operator_ip=request_client_ip(request),
         ):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="设备类型不存在")
         return {"message": "设备类型已删除"}
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
@@ -211,7 +202,7 @@ async def create_device(
         d = await service.create(
             req,
             operator_username=current_user.username,
-            operator_ip=get_client_ip(request),
+            operator_ip=request_client_ip(request),
         )
         r = DeviceResponse.model_validate(d)
         r.device_type_name = d.device_type.name if d.device_type else ""
@@ -219,7 +210,7 @@ async def create_device(
         r.rack_name = d.rack.name if d.rack else ""
         r.room_name = d.rack.room.name if d.rack and d.rack.room else ""
         return r
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
@@ -236,7 +227,7 @@ async def update_device(
     d = await service.update(
         device_id, req,
         operator_username=current_user.username,
-        operator_ip=get_client_ip(request),
+        operator_ip=request_client_ip(request),
     )
     if not d:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="设备不存在")
@@ -260,7 +251,7 @@ async def delete_device(
     if not await service.delete(
         device_id,
         operator_username=current_user.username,
-        operator_ip=get_client_ip(request),
+        operator_ip=request_client_ip(request),
     ):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="设备不存在")
     return {"message": "设备已删除"}
@@ -270,17 +261,17 @@ async def delete_device(
 async def change_device_status(
     device_id: int,
     status: str = Query(..., description="新状态"),
-    operator: str = Query(None),
-    remark: str = Query(None),
+    remark: str = Query(None, max_length=256, description="备注(可选,最长256)"),
     request: Request = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _ = Depends(require_any_permission("device:mount", "device:unmount", "device:edit"))
 ):
+    # 操作人一律以服务端认证用户为准，不接受客户端传入 operator，防止审计冒名
     service = DeviceService(db)
-    client_ip = get_client_ip(request) if request else None
+    client_ip = request_client_ip(request) if request else None
     d = await service.change_status(
-        device_id, status, operator, remark,
+        device_id, status, None, remark,
         operator_username=current_user.username,
         operator_ip=client_ip,
     )

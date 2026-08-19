@@ -1,4 +1,4 @@
-
+﻿
 """AI LLM ?? - ???? DeepSeek / OpenAI?OpenAI ????????
 
 ???
@@ -18,7 +18,7 @@ from app.core.config import settings
 
 
 class LLMNotConfiguredError(RuntimeError):
-    """??? LLM API Key ??????????"""
+    """根据 provider 选择 LLM API Key，未知则返回空。"""
 
 
 _CHAT_SUFFIX_OPENAI = "/v1/chat/completions"
@@ -30,17 +30,17 @@ def _provider_config():
     if provider == "deepseek":
         key = settings.DEEPSEEK_API_KEY
         base = settings.DEEPSEEK_BASE_URL
-        model = settings.LLM_MODEL or "deepseek-chat"
+        model = settings.DEEPSEEK_MODEL or settings.LLM_MODEL or "deepseek-chat"
         suffix = _CHAT_SUFFIX_OPENAI
     elif provider == "openai":
         key = settings.OPENAI_API_KEY
         base = settings.OPENAI_BASE_URL
-        model = settings.LLM_MODEL or "gpt-4o-mini"
+        model = settings.OPENAI_MODEL or settings.LLM_MODEL or "gpt-4o-mini"
         suffix = _CHAT_SUFFIX_OPENAI
     elif provider == "internal":
         key = settings.INTERNAL_LLM_KEY
         base = settings.INTERNAL_LLM_BASE_URL
-        model = settings.LLM_MODEL or "deepseek-chat"
+        model = settings.INTERNAL_MODEL or settings.LLM_MODEL or "deepseek-chat"
         suffix = _CHAT_SUFFIX_INTERNAL
     else:
         raise LLMNotConfiguredError(f"unknown LLM provider: {provider}")
@@ -71,7 +71,7 @@ class LLMService:
         temperature: float = 0.3,
         max_tokens: int = 1024,
     ) -> str:
-        """?????????????"""
+        """单次 LLM 同步补全请求。"""
         provider, key, base, model, suffix = _provider_config()
         payload = {
             "model": model,
@@ -82,7 +82,7 @@ class LLMService:
             "frequency_penalty": 0.6,
             "presence_penalty": 0.4,
         }
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT_SECONDS) as client:
             resp = await client.post(_chat_url(base, suffix), headers=_headers(key), json=payload)
             resp.raise_for_status()
             data = resp.json()
@@ -94,7 +94,7 @@ class LLMService:
         temperature: float = 0.3,
         max_tokens: int = 1024,
     ) -> AsyncIterator[str]:
-        """??????????????"""
+        """LLM 流式补全请求（SSE）。"""
         provider, key, base, model, suffix = _provider_config()
         payload = {
             "model": model,
@@ -105,7 +105,7 @@ class LLMService:
             "frequency_penalty": 0.6,
             "presence_penalty": 0.4,
         }
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT_SECONDS) as client:
             async with client.stream(
                 "POST", _chat_url(base, suffix), headers=_headers(key), json=payload
             ) as resp:

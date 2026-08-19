@@ -17,7 +17,7 @@ ALLOWED_EXTENSIONS = {
     ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
     ".pdf", ".txt", ".md", ".csv",
     # 图片
-    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".ico", ".svg",
+    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".ico",
     # 压缩包
     ".zip", ".rar", ".7z", ".tar", ".gz",
     # 其他
@@ -73,8 +73,12 @@ class FileService:
         if len(content) > MAX_FILE_SIZE:
             raise ValueError(f"文件过大，最大支持 {MAX_FILE_SIZE // 1024 // 1024}MB")
 
+        # 图片类要求 magic bytes 与扩展名匹配，防止伪装成图片上传可执行/脚本文件
+        if ext in {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".ico", ".webp"} and not _is_valid_image_bytes(content[:16], ext):
+            raise ValueError("文件内容与图片格式不匹配")
+
         # 生成存储路径
-        # ? sub_dir ????????????/????????
+        # 校验 sub_dir 防止路径穿越/绝对路径/隐藏目录
         if sub_dir:
             if "/" in sub_dir or "\\" in sub_dir or ".." in sub_dir or sub_dir.startswith("."):
                 raise ValueError("非法目录: sub_dir")
@@ -134,9 +138,9 @@ class FileService:
         }
 
     def _resolve_safe_path(self, relative_path: str) -> Path:
-        """????????????? upload_dir ?????????????
+        """把相对路径安全规约到 upload_dir 内，防路径穿越。
 
-        ????? .. ?????? upload_dir ????????? ValueError?
+        若包含 .. 或逃逸出 upload_dir，则抛出 ValueError。
         """
         root = self.upload_dir.resolve()
         full_path = (root / relative_path).resolve()
@@ -145,7 +149,7 @@ class FileService:
         return full_path
 
     def get_file_path(self, relative_path: str) -> Optional[Path]:
-        """???????????????????"""
+        """返回已存在文件的沙箱内绝对路径（不存在则返回 None）。"""
         try:
             full_path = self._resolve_safe_path(relative_path)
         except ValueError:
@@ -153,7 +157,7 @@ class FileService:
         return full_path if full_path.exists() else None
 
     def delete_file(self, relative_path: str) -> bool:
-        """???????????"""
+        """删除沙箱内指定文件。"""
         try:
             full_path = self._resolve_safe_path(relative_path)
         except ValueError:

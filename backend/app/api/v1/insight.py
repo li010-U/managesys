@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, Request, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db, get_current_user, require_permission
+from app.core.config import settings
+from app.core.ratelimit import user_rate_limit
 from app.models.user import User
 from app.services.insight_service import InsightService
 from app.services.alert_intelligence_service import AlertIntelligenceService
@@ -67,6 +69,7 @@ async def alert_trace(
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(require_permission("monitor:view_dashboard")),
+    _rate: None = Depends(user_rate_limit(settings.CHAT_RATE_LIMIT_MAX, settings.CHAT_RATE_LIMIT_WINDOW_SECONDS, "llm")),
 ):
     """LLM 数据追溯：回溯告警生命周期、同类复发、Top 频发对象。"""
     svc = InsightService(db)
@@ -114,6 +117,7 @@ async def correlate_room(
     room_id: int,
     db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(require_permission("monitor:view_dashboard")),
+    _rate: None = Depends(user_rate_limit(settings.CHAT_RATE_LIMIT_MAX, settings.CHAT_RATE_LIMIT_WINDOW_SECONDS, "llm")),
 ):
     """机房告警根因关联：聚合开放告警并给出根因提示。"""
     svc = AlertIntelligenceService(db)
@@ -128,6 +132,7 @@ async def inspection_checklist(
     with_llm: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(require_permission("monitor:view_dashboard")),
+    _rate: None = Depends(user_rate_limit(settings.CHAT_RATE_LIMIT_MAX, settings.CHAT_RATE_LIMIT_WINDOW_SECONDS, "llm")),
 ):
     """AI 辅助巡检：根据机房近期告警/趋势生成重点检查清单。"""
     svc = InspectionAIService(db, with_llm=with_llm)

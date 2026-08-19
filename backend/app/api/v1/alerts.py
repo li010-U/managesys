@@ -3,6 +3,8 @@ from fastapi import APIRouter, Depends, Query, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db, get_current_user, require_permission
+from app.core.config import settings
+from app.core.ratelimit import user_rate_limit
 from app.models.user import User
 from app.services.alert_service import AlertRuleService, AlertService
 from app.services.llm_service import llm_service
@@ -51,7 +53,7 @@ async def create_alert_rule(
         from app.services.audit_service import AuditService
         AuditService.log_request(db, request, current_user=current_user, action="create", target_type="alert_rule", target_id=str(obj.id), detail=f"创建告警规则: {obj.name}")
         return AlertRuleResponse.model_validate(obj)
-    except Exception as e:
+    except ValueError as e:
         from fastapi import HTTPException
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -151,6 +153,7 @@ async def alert_attribution(
     alert_id: int,
     db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(require_permission("monitor:view_alerts")),
+    _llm_rate: None = Depends(user_rate_limit(settings.CHAT_RATE_LIMIT_MAX, settings.CHAT_RATE_LIMIT_WINDOW_SECONDS, "llm")),
 ):
     """AI 告警归因建议：基于告警信息 + 关联设备 + 实时快照，生成可能原因与处置步骤。"""
     from fastapi import HTTPException

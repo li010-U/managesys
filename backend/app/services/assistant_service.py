@@ -1,4 +1,4 @@
-"""AI 桌宠助手 - 实时统计与智能提醒服务
+﻿"""AI 桌宠助手 - 实时统计与智能提醒服务
 
 基于规则引擎聚合系统实时数据，生成主动提醒与建议。
 无需外部大模型依赖；如需接入 LLM，可在 generate_advisor 处扩展。
@@ -21,7 +21,7 @@ from app.core.cache import AsyncTTLSingleFlight
 
 # \u5168\u5c40\u77ed TTL \u5feb\u7167\u7f13\u5b58\uff1a\u591a\u4eba\u540c\u65f6\u5728\u7ebf\u65f6\u5171\u4eab\u540c\u4e00\u4efd\u5b9e\u65f6\u5feb\u7167
 # \u907f\u514d\u6bcf\u4e2a\u684c\u5ba0 tick / \u8f6e\u8be2 / \u5bf9\u8bdd\u90fd\u91cd\u5efa\u4e00\u6b21\u6570\u636e\u5e93\u5feb\u7167\uff08\u51cf\u5c11\u8bf7\u6c42\u4e0e DB \u67e5\u8be2\u653e\u5927\uff09
-_snapshot_cache = AsyncTTLSingleFlight(ttl_seconds=4.0)
+_snapshot_cache = AsyncTTLSingleFlight(ttl_seconds=4.0, loader_timeout_seconds=30.0)
 
 
 async def _build_snapshot_with_session() -> dict:
@@ -33,14 +33,95 @@ async def _build_snapshot_with_session() -> dict:
         return await service.build_snapshot()
 
 
+# JSON-serializable snapshot for cross-worker sharing via Redis.
+_SNAPSHOT_REDIS_KEY = "dcms:snapshot:v1"
+_SNAPSHOT_REDIS_TTL = 4.0
+
+_redis_snapshot = None
+_redis_snapshot_tried = False
+
+
+def _get_redis_snapshot_backend():
+    """合并单例：配置 REDIS_URL 且 redis 库可导入时启用 Redis 快照后端。
+
+    返回支持 get/put/delete 的对象，否则返回 None（保持进程内缓存）。
+    由于 redis 包未默认安装，未配置 REDIS_URL 时该路径保持休眠，不影响现有行为。
+    """
+    global _redis_snapshot, _redis_snapshot_tried
+    if _redis_snapshot_tried:
+        return _redis_snapshot
+    _redis_snapshot_tried = True
+    try:
+        from app.core.config import settings
+        if not settings.REDIS_URL:
+            return None
+        import json as _json
+        import redis.asyncio as aioredis
+
+        class _RedisSnapshot:
+            def __init__(self, url):
+                self._r = aioredis.from_url(url, decode_responses=True)
+
+            async def get(self):
+                raw = await self._r.get(_SNAPSHOT_REDIS_KEY)
+                if not raw:
+                    return None
+                try:
+                    return _json.loads(raw)
+                except Exception:
+                    return None
+
+            async def put(self, value) -> None:
+                try:
+                    raw = _json.dumps(value, ensure_ascii=False, default=str)
+                    await self._r.set(_SNAPSHOT_REDIS_KEY, raw, ex=int(_SNAPSHOT_REDIS_TTL) + 1)
+                except Exception:
+                    pass
+
+            async def delete(self) -> None:
+                try:
+                    await self._r.delete(_SNAPSHOT_REDIS_KEY)
+                except Exception:
+                    pass
+
+        _redis_snapshot = _RedisSnapshot(settings.REDIS_URL)
+        import logging
+        logging.getLogger("app").info("已启用 Redis 快照缓存（多 worker 共享）")
+        return _redis_snapshot
+    except Exception as e:
+        import logging
+        logging.getLogger("app").warning("Redis 快照缓存初始化失败，回退进程内缓存: %s", e)
+        return None
+
+
 async def get_cached_snapshot() -> dict:
-    """\u8fd4\u56de\u5e26 TTL + singleflight \u7684\u5b9e\u65f6\u5feb\u7167\u3002"""
+    """返回带 TTL + singleflight 的实时快照。
+
+    配置 REDIS_URL 且 redis 可导入时，快照跨 worker 共享（写入 Redis 由各 worker 复用），
+    否则保持进程内 singleflight 缓存（当前单进程部署下的默认路径）。
+    """
+    backend = _get_redis_snapshot_backend()
+    if backend is not None:
+        cached = await backend.get()
+        if cached is not None:
+            return cached
+        value = await _snapshot_cache.get_or_load(_build_snapshot_with_session)
+        await backend.put(value)
+        return value
     return await _snapshot_cache.get_or_load(_build_snapshot_with_session)
 
 
 def invalidate_snapshot_cache() -> None:
-    """\u6570\u636e\u53d1\u751f\u53d8\u5316\u540e\u8c03\u7528\uff0c\u5f3a\u5236\u5237\u65b0\u5feb\u7167\u7f13\u5b58\u3002"""
+    """数据发生变化后调用，强制刷新快照缓存。"""
     _snapshot_cache.invalidate()
+    backend = _get_redis_snapshot_backend()
+    if backend is not None:
+        try:
+            import asyncio
+            asyncio.ensure_future(backend.delete())
+        except Exception:
+            pass
+
 
 # 指标中文名 / 单位
 SENSOR_UNITS = {
@@ -226,17 +307,17 @@ class AssistantService:
         for s in sensors:
             if s.sensor_type not in ("temperature", "humidity"):
                 continue
-            rows = await self.db.execute(
-                select(SensorData)
-                .where(SensorData.sensor_id == s.id)
-                .where(SensorData.recorded_at >= since)
-                .order_by(SensorData.recorded_at.asc())
+            # 只取窗口内最早与最新两个点即可判断趋势，避免对每传感器拉取整个窗口的全量采样
+            base = select(SensorData.value).where(
+                SensorData.sensor_id == s.id,
+                SensorData.recorded_at >= since,
             )
-            pts = rows.scalars().all()
-            if len(pts) < 2:
+            first_row = (await self.db.execute(base.order_by(SensorData.recorded_at.asc()).limit(1))).scalar_one_or_none()
+            last_row = (await self.db.execute(base.order_by(SensorData.recorded_at.desc()).limit(1))).scalar_one_or_none()
+            if first_row is None or last_row is None:
                 continue
-            first = pts[0].value
-            last = pts[-1].value
+            first = first_row
+            last = last_row
             if last is None or first is None or first == 0:
                 continue
             delta = last - first
@@ -395,6 +476,7 @@ class AssistantService:
                     "level": "danger",
                     "title": f"有 {new} 条告警待处理",
                     "content": f"当前有 {new} 条未处理的告警，建议尽快查看并处理，避免影响业务运行。",
+                    "locate": {"kind": "alert"},
                     "target": "/monitor/alerts",
                     "actions": [
                         {"type": "create_work_order", "label": "生成工单", "priority": "high"},
@@ -411,6 +493,7 @@ class AssistantService:
                 "level": "warning",
                 "title": f"{abnormal} 个传感器数据越限",
                 "content": f"以下传感器超出阈值：{names}。请检查对应机房环境。",
+                "locate": {"kind": "sensor", "sensor_id": snapshot["sensor"]["abnormal_items"][0]["id"], "room_id": snapshot["sensor"]["abnormal_items"][0].get("room_id"), "name": snapshot["sensor"]["abnormal_items"][0]["name"]},
                 "target": "/environment",
                 "actions": [
                     {"type": "create_work_order", "label": "生成工单", "priority": "high"},
@@ -427,6 +510,7 @@ class AssistantService:
                     "level": "info",
                     "title": f"{offline} 个传感器离线",
                     "content": f"有 {offline} 个传感器处于离线状态，可能是网络或供电问题，建议排查。",
+                    "locate": {"kind": "sensor", "sensor_id": (snapshot.get("sensor", {}).get("offline_items") or [{}])[0].get("id"), "room_id": (snapshot.get("sensor", {}).get("offline_items") or [{}])[0].get("room_id"), "name": (snapshot.get("sensor", {}).get("offline_items") or [{}])[0].get("name")},
                     "target": "/environment",
                 }
             )
@@ -441,6 +525,7 @@ class AssistantService:
                             "level": "warning",
                             "title": f"传感器离线已持续 {max_min} 分钟",
                             "content": f"传感器 {names} 已离线超过 30 分钟，建议尽快排查网络或供电。",
+                            "locate": {"kind": "sensor", "sensor_id": offline_items[0].get("id"), "room_id": offline_items[0].get("room_id"), "name": offline_items[0].get("name")},
                             "target": "/environment",
                         }
                     )
@@ -455,6 +540,7 @@ class AssistantService:
                     "level": "warning",
                     "title": f"{len(trend_items)} 个传感器数值快速上升",
                     "content": f"传感器 {names} 在短时间内快速上升，可能存在环境异常，建议关注。",
+                    "locate": {"kind": "sensor", "sensor_id": trend_items[0].get("id"), "room_id": trend_items[0].get("room_id"), "name": trend_items[0].get("name")},
                     "target": "/environment",
                 }
             )
@@ -469,6 +555,7 @@ class AssistantService:
                     "level": "warning",
                     "title": f"{high_num} 个机柜利用率超过 80%",
                     "content": f"机柜 {codes} 空间紧张，建议提前规划扩容或上架调整。",
+                    "locate": {"kind": "rack", "rack_id": snapshot["high_usage_racks"][0].get("id"), "room_id": snapshot["high_usage_racks"][0].get("room_id"), "code": snapshot["high_usage_racks"][0].get("code")},
                     "target": "/room/racks",
                     "actions": [
                         {"type": "create_work_order", "label": "生成工单", "priority": "normal"},
@@ -493,6 +580,7 @@ class AssistantService:
                 "level": worst,
                 "title": f"还有 {open_count} 张工单未处理",
                 "content": "以下工单仍未处理完成：" + titles + "。",
+                "locate": {"kind": "work_order", "order_id": open_items[0].get("id"), "order_no": open_items[0].get("order_no")},
                 "target": "/workorder/list",
                 "actions": [],
             })
@@ -507,6 +595,7 @@ class AssistantService:
                     "level": "info",
                     "title": "机柜整体利用率偏低",
                     "content": f"当前机柜平均利用率约 {avg_usage}%，可考虑集中整合以降低能耗。",
+                    "locate": {"kind": "rack"},
                     "target": "/room/racks",
                 }
             )

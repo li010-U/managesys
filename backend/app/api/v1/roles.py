@@ -1,8 +1,9 @@
-﻿"""角色与权限API路由"""
+"""角色与权限API路由"""
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db, get_current_user, require_permission
+from app.core.iputils import request_client_ip
 from app.models.user import User
 from app.schemas.role import RoleResponse, RoleCreateRequest, RoleUpdateRequest, PermissionInfo
 from app.services.role_service import RoleService
@@ -10,15 +11,6 @@ from app.services.permission_service import PermissionService
 
 router = APIRouter(prefix="/roles", tags=["角色管理"])
 
-
-def get_client_ip(request: Request) -> str:
-    """获取客户端真实IP"""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    if request.client:
-        return request.client.host
-    return None
 
 
 @router.get("", response_model=list[RoleResponse])
@@ -61,7 +53,7 @@ async def create_role(
         role = await service.create_role(
             req,
             operator_username=current_user.username,
-            operator_ip=get_client_ip(request),
+            operator_ip=request_client_ip(request),
         )
         from app.services.audit_service import AuditService
         AuditService.log_request(db, request, current_user=current_user, action="create", target_type="role", target_id=str(role.id), detail=f"创建角色: {role.name}")
@@ -86,7 +78,7 @@ async def update_role(
         role = await service.update_role(
             role_id, req,
             operator_username=current_user.username,
-            operator_ip=get_client_ip(request),
+            operator_ip=request_client_ip(request),
         )
         if not role:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="角色不存在")
@@ -112,7 +104,7 @@ async def delete_role(
         result = await service.delete_role(
             role_id,
             operator_username=current_user.username,
-            operator_ip=get_client_ip(request),
+            operator_ip=request_client_ip(request),
         )
         if not result:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="角色不存在")

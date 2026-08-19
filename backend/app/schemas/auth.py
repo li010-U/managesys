@@ -1,4 +1,4 @@
-﻿"""认证相关 Pydantic Schema"""
+"""认证相关 Pydantic Schema"""
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field, computed_field
@@ -8,12 +8,18 @@ class LoginRequest(BaseModel):
     username: str = Field(..., min_length=2, max_length=64, description="用户名")
     password: str = Field(..., min_length=1, max_length=128, description="密码")
     captcha_id: Optional[str] = Field(None, description="验证码ID")
-    captcha_code: Optional[str] = Field(None, min_length=4, max_length=4, description="验证码")
+    captcha_code: Optional[str] = Field(None, min_length=6, max_length=6, description="验证码")
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str = Field(..., description="刷新令牌")
 
 
 class TokenResponse(BaseModel):
     access_token: str = Field(..., description="JWT访问令牌")
+    refresh_token: Optional[str] = Field(None, description="刷新令牌（用于获取新的访问令牌）")
     token_type: str = Field("bearer", description="令牌类型")
+    expires_in: Optional[int] = Field(None, description="访问令牌有效期（秒）")
 
 
 class RegisterRequest(BaseModel):

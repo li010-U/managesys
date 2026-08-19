@@ -51,7 +51,10 @@ async def upload_avatar(
 
 
 @router.get("/avatars/{filename}")
-async def get_avatar(filename: str):
+async def get_avatar(
+    filename: str,
+    current_user: User = Depends(get_current_user),
+):
     """获取头像文件"""
     file_path = file_service.get_file_path(f"avatars/{filename}")
     if not file_path:

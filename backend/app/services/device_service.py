@@ -7,6 +7,12 @@ from app.models.device import Device, DeviceLifecycle
 from app.schemas.device import DeviceTypeCreate, DeviceTypeUpdate, DeviceCreate, DeviceUpdate, ThresholdConfigUpdate
 from app.services.ip_registry_service import sync_device_ip_ledger, release_device_ip_ledger
 
+# 设备状态白名单：仅允许以下取值，避免任意字符串写入破坏状态机与统计语义
+ALLOWED_DEVICE_STATUSES = {
+    "online", "mounted", "offline", "in_stock", "maintenance", "scrapped",
+}
+
+
 
 class DeviceTypeService:
     def __init__(self, db: AsyncSession):
@@ -301,9 +307,14 @@ class DeviceService:
         device = await self.get_by_id(device_id)
         if not device:
             return None
+        # 状态白名单校验：拒绝非法/任意字符串，避免破坏状态机与统计语义
+        if new_status not in ALLOWED_DEVICE_STATUSES:
+            raise ValueError(f"不支持的设备状态: {new_status}")
         old_status = device.status
         device.status = new_status
-        self._add_lifecycle(device_id, "change", old_status, new_status, operator, remark)
+        # 生命周期“操作人”以服务端认证用户为准，不接受客户端传入的 operator 冒名
+        device_operator = operator_username or operator or "system"
+        self._add_lifecycle(device_id, "change", old_status, new_status, device_operator, remark)
         await self.db.flush()
         await self.db.refresh(device)
 
@@ -311,7 +322,7 @@ class DeviceService:
         from app.services.audit_service import AuditService
         AuditService.log(
             self.db,
-            username=operator_username or operator or "system",
+            username=device_operator,
             action="update",
             target_type="device",
             target_id=str(device.id),

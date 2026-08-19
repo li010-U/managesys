@@ -30,6 +30,29 @@ router = APIRouter(prefix="/work-orders", tags=["Work Order"])
 def generate_order_no():
     return f"WO{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
+async def _ensure_manageable(work_order_id: int, current_user: User, db: AsyncSession, need_creator: bool = False):
+    """Object-level authorization guard for work order writes.
+
+    Consistent with start/complete/verify/close:
+      - need_creator=True:  only the creator (or super admin) may act.
+      - need_creator=False: creator, assignee, or super admin may act.
+    Returns the work order row (creator_id/assignee_id/status) for reuse;
+    raises 403 when the caller has no authority over this order.
+    """
+    row = (await exec_sql(db, "SELECT creator_id, assignee_id, status FROM work_orders WHERE id = ?", (work_order_id,))).fetchone()
+    if not row:
+        raise HTTPException(404, "Work order not found")
+    if current_user.is_super_admin:
+        return row
+    if need_creator:
+        if row.creator_id != current_user.id:
+            raise HTTPException(403, "Only the creator or an admin can perform this action on the work order")
+        return row
+    if row.creator_id != current_user.id and row.assignee_id != current_user.id:
+        raise HTTPException(403, "Only the creator, assignee, or an admin can perform this action on the work order")
+    return row
+
+
 
 # ============ Work Order Categories ============
 @router.get("/categories", summary="Get work order categories")
@@ -138,8 +161,8 @@ async def get_work_orders(
         conditions.append("w.priority = ?")
         params.append(priority)
     if keyword:
-        conditions.append("(w.title LIKE ? OR w.order_no LIKE ?)")
-        params.extend([f"%{keyword}%", f"%{keyword}%"])
+        conditions.append("(LOWER(w.title) LIKE ? OR LOWER(w.order_no) LIKE ?)")
+        params.extend([f"%{keyword.lower()}%", f"%{keyword.lower()}%"])
     
     where_clause = " AND ".join(conditions) if conditions else "1=1"
     offset = (page - 1) * page_size
@@ -348,11 +371,8 @@ async def update_work_order(
     current_user: User = Depends(get_current_user),
     _ = Depends(require_permission("work:edit"))
 ):
-    result = await exec_sql(db, "SELECT status FROM work_orders WHERE id = ?", (work_order_id,))
-    order = result.fetchone()
-    if not order:
-        raise HTTPException(404, "Work order not found")
-    if order.status in ["completed", "closed"]:
+    row = await _ensure_manageable(work_order_id, current_user, db)
+    if row.status in ["completed", "closed"]:
         raise HTTPException(400, "Cannot update completed or closed work order")
 
     updates = []
@@ -383,6 +403,8 @@ async def assign_work_order(
     assignee_id = data.assignee_id
     if not assignee_id:
         raise HTTPException(400, "Assignee is required")
+
+    await _ensure_manageable(work_order_id, current_user, db, need_creator=True)
 
     await exec_sql(db,
         "UPDATE work_orders SET assignee_id = ?, status = 'assigned' WHERE id = ?",
@@ -537,12 +559,14 @@ async def add_comment(
     content = data.content
     comment_type = data.comment_type
 
+    await _ensure_manageable(work_order_id, current_user, db)
+
     await exec_sql(db,
         "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type, created_at) VALUES (?, ?, ?, ?, datetime('now','localtime'))",
         (work_order_id, current_user.id, content, comment_type)
     )
 
-    result = await exec_sql(db, "SELECT * FROM work_order_comments ORDER BY id DESC LIMIT 1")
+    result = await exec_sql(db, "SELECT * FROM work_order_comments WHERE work_order_id = ? ORDER BY id DESC LIMIT 1", (work_order_id,))
     AuditService.log_request(db, request, current_user=current_user, action="comment", target_type="work_order", target_id=str(work_order_id), detail='工单评论')
 
     row = result.fetchone()
@@ -560,9 +584,7 @@ async def upload_attachment(
     current_user: User = Depends(get_current_user),
     _ = Depends(require_permission("work:edit"))
 ):
-    order = (await exec_sql(db, "SELECT id FROM work_orders WHERE id = ?", (work_order_id,))).fetchone()
-    if not order:
-        raise HTTPException(404, "Work order not found")
+    await _ensure_manageable(work_order_id, current_user, db)
     try:
         info = await file_service.save_upload(file, sub_dir="work_orders")
     except ValueError as e:
@@ -673,8 +695,8 @@ async def get_assignable_users(
 ):
     if keyword:
         result = await exec_sql(db,
-            "SELECT id, username, real_name, email FROM users WHERE is_active = ? AND (username LIKE ? OR real_name LIKE ?) ORDER BY id",
-            (True, "%{0}%".format(keyword), "%{0}%".format(keyword))
+            "SELECT id, username, real_name, email FROM users WHERE is_active = ? AND (LOWER(username) LIKE ? OR LOWER(real_name) LIKE ?) ORDER BY id",
+            (True, "%{0}%".format(keyword.lower()), "%{0}%".format(keyword.lower()))
         )
     else:
         result = await exec_sql(db,
