@@ -86,3 +86,39 @@ def test_device_write_operations_are_audited():
         dtd = client.delete(f"/api/v1/devices/types/{dt_id}", headers=h)
         assert dtd.status_code == 200, dtd.text
         assert _audit_for(client, h, "device_type", "delete"), "应产生 device_type delete 审计"
+
+
+def test_facility_resource_update_is_audited():
+    with TestClient(app) as client:
+        h = _auth(client)
+        dc = client.post("/api/v1/facilities/data-centers",
+                         json={"name": "AD-DC2", "code": "ADDC2", "status": "active"}, headers=h)
+        assert dc.status_code == 201, dc.text
+        dc_id = dc.json()["id"]
+        room = client.post("/api/v1/facilities/rooms",
+                           json={"data_center_id": dc_id, "name": "AD-Room2", "code": "AD-RM-02", "floor": "2F"},
+                           headers=h)
+        assert room.status_code == 201, room.text
+        room_id = room.json()["id"]
+        rack = client.post("/api/v1/facilities/racks",
+                           json={"room_id": room_id, "name": "Rack-B", "code": "RM-02-R",
+                                 "total_units": 42, "available_units": 40, "rated_power": 10,
+                                 "row_pos": 0, "col_pos": 0}, headers=h)
+        assert rack.status_code == 201, rack.text
+        rack_id = rack.json()["id"]
+
+        # update each resource -> audit "update" for that target_type
+        ud = client.put(f"/api/v1/facilities/data-centers/{dc_id}",
+                        json={"name": "AD-DC2-r", "status": "active"}, headers=h)
+        assert ud.status_code == 200, ud.text
+        assert _audit_for(client, h, "data_center", "update"), "应产生 data_center update 审计"
+
+        ur = client.put(f"/api/v1/facilities/rooms/{room_id}",
+                        json={"name": "AD-Room2-r", "floor": "2F"}, headers=h)
+        assert ur.status_code == 200, ur.text
+        assert _audit_for(client, h, "room", "update"), "应产生 room update 审计"
+
+        uk = client.put(f"/api/v1/facilities/racks/{rack_id}",
+                        json={"name": "Rack-B-r", "available_units": 38}, headers=h)
+        assert uk.status_code == 200, uk.text
+        assert _audit_for(client, h, "rack", "update"), "应产生 rack update 审计"

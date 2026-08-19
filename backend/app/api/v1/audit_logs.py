@@ -162,6 +162,8 @@ async def cleanup_retention(
     before = datetime.now() - timedelta(days=days)
     service = AuditService(db)
     removed = await service.purge(before)
+    # 记录本次清理操作本身（新建条目晚于清理截止时间，不会被本次清理删除）
+    AuditService.log(db, username=current_user.username, action="purge", target_type="audit_log", target_id=str(removed), detail=f"清理审计日志，仅保留最近 {days} 天，删除 {removed} 条")
     return {"removed": removed, "kept_days": days}
 
 
