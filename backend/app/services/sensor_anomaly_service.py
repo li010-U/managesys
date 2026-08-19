@@ -132,22 +132,40 @@ class SensorAnomalyService:
         """滚动清理超期数据。
 
         实际保留时长 = days + BUFFER，避免时区/边界误删刚满保留期的记录。
+        删除按 DATA_RETENTION_BATCH_SIZE 分批滚动执行并逐批提交，
+        避免对超大表一次性执行大 DELETE 造成长时间锁库/长事务。
         """
         days = days or settings.DATA_RETENTION_DAYS
         buffer_days = settings.DATA_RETENTION_BUFFER_DAYS
         cutoff = datetime.now() - timedelta(days=days + buffer_days)
+        batch = settings.DATA_RETENTION_BATCH_SIZE
 
-        sd_res = await self.db.execute(
-            delete(SensorData).where(SensorData.recorded_at < cutoff)
+        sd_deleted = await self._delete_expired_batches(
+            SensorData, SensorData.id, SensorData.recorded_at < cutoff, batch
         )
-        ag_res = await self.db.execute(
-            delete(SensorAnomalyGap).where(SensorAnomalyGap.detected_at < cutoff)
+        ag_deleted = await self._delete_expired_batches(
+            SensorAnomalyGap, SensorAnomalyGap.id, SensorAnomalyGap.detected_at < cutoff, batch
         )
-        await with_commit_retry(self.db.commit)
         return {
             "days": days,
             "buffer_days": buffer_days,
             "cutoff": cutoff.isoformat(),
-            "sensor_data_deleted": sd_res.rowcount,
-            "anomaly_gap_deleted": ag_res.rowcount,
+            "sensor_data_deleted": sd_deleted,
+            "anomaly_gap_deleted": ag_deleted,
         }
+
+    async def _delete_expired_batches(self, model, pk_col, condition, batch):
+        """分批删除满足条件的记录，逐批提交，返回累计删除行数。"""
+        total = 0
+        while True:
+            ids = list((
+                await self.db.execute(
+                    select(pk_col).where(condition).order_by(pk_col).limit(batch)
+                )
+            ).scalars())
+            if not ids:
+                break
+            res = await self.db.execute(delete(model).where(pk_col.in_(ids)))
+            await with_commit_retry(self.db.commit)
+            total += res.rowcount
+        return total

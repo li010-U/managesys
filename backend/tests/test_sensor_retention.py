@@ -202,3 +202,42 @@ async def test_get_all_is_single_query_no_nplus1(db_session):
         _sa_event.remove(db_session.get_bind(), "before_cursor_execute", _count_sql)
 
     assert _QUERY_COUNT["n"] == 1, f"get_all ?? 1 ? SQL??? {_QUERY_COUNT['n']} ??N+1 ???"
+
+
+@pytest.mark.asyncio
+async def test_run_retention_batches_in_chunks(db_session):
+    """分批删除：超过单批上限的过期数据被全部删除，每批不超 batch，且保留新鲜数据。"""
+    from datetime import datetime as _dt
+    now = _dt.now()
+    svc = SensorAnomalyService(db_session)
+
+    room = await _make_room(db_session)
+    sensor = Sensor(room_id=room.id, name="r", code="rbatch", sensor_type="temperature")
+    db_session.add(sensor)
+    await db_session.flush()
+
+    cutoff = now - timedelta(days=180)
+    batch = 10
+    old_count = 25
+    for i in range(old_count):
+        db_session.add(SensorData(
+            sensor_id=sensor.id, value=1.0,
+            recorded_at=now - timedelta(days=365) + timedelta(seconds=i),
+        ))
+    for i in range(2):
+        db_session.add(SensorData(
+            sensor_id=sensor.id, value=1.0,
+            recorded_at=now - timedelta(days=10) + timedelta(seconds=i),
+        ))
+    await db_session.commit()
+
+    deleted = await svc._delete_expired_batches(
+        SensorData, SensorData.id, SensorData.recorded_at < cutoff, batch
+    )
+    assert deleted == old_count
+
+    remaining = (await db_session.execute(
+        __import__("sqlalchemy").select(SensorData).where(SensorData.sensor_id == sensor.id)
+    )).scalars().all()
+    assert len(remaining) == 2
+    assert all(r.recorded_at > now - timedelta(days=30) for r in remaining)
