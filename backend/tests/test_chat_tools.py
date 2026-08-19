@@ -157,7 +157,7 @@ async def test_execute_mount_capacity_exceeded(db_session):
 
 @pytest.mark.asyncio
 async def test_create_work_order_acknowledges_new_alerts(db_session):
-    """???????????(new)??????(acknowledged)??????????????"""
+    """创建工单会确认并处理相关的新告警(new)，防止重复处理(acknowledged)。"""
     from app.models import Alert
     db_session.add(Alert(target_type="sensor", target_id="s1", title="????", level="serious", status="new", source="sensor"))
     await db_session.flush()
@@ -168,7 +168,7 @@ async def test_create_work_order_acknowledges_new_alerts(db_session):
     assert res["result"] == "created"
     assert res["handled_alerts"] == 1
 
-    # ??????????? acknowledged
+    # 确认所有相关告警都已转为 acknowledged
     from sqlalchemy import select
     alerts = list((await db_session.execute(select(Alert))).scalars().all())
     assert len(alerts) == 1

@@ -242,11 +242,11 @@ class TestFacilityServiceCRUD:
         r2 = await service.create(RackCreate(room_id=room.id, name="机柜2", code="RK2"), operator_username="admin", operator_ip="127.0.0.1")
         await db_session.commit()
 
-        # ????????????
+        # 自动分配的坐标不为空
         assert r1.row_pos is not None and r1.col_pos is not None
         assert r2.row_pos is not None and r2.col_pos is not None
         assert (r1.row_pos, r1.col_pos) != (r2.row_pos, r2.col_pos)
-        # ???????????
+        # 物理坐标由行列推算得出
         assert r1.pos_x_m is not None and r1.pos_z_m is not None
         assert r1.pos_x_m == round((r1.col_pos - 1) * 1.3, 2)
         assert r1.pos_z_m == round((r1.row_pos - 1) * 1.7, 2)
@@ -263,7 +263,7 @@ class TestFacilityServiceCRUD:
 
         service = RackService(db_session)
         await service.create(RackCreate(room_id=room.id, name="机柜1", code="RK1", row_pos=1, col_pos=1), operator_username="admin", operator_ip="127.0.0.1")
-        # ???????? (1,1) ???????????????
+        # 重复 (1,1) 应被自动探测并换位，避免坐标冲突
         r2 = await service.create(RackCreate(room_id=room.id, name="机柜2", code="RK2", row_pos=1, col_pos=1), operator_username="admin", operator_ip="127.0.0.1")
         await db_session.commit()
 

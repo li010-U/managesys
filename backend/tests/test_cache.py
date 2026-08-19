@@ -1,4 +1,4 @@
-"""core ???????"""
+"""核心工具/缓存回归测试。"""
 import asyncio
 
 from app.core.cache import AsyncTTLSingleFlight
@@ -17,7 +17,7 @@ def test_singleflight_runs_builder_once():
         results = await asyncio.gather(*(cache.get_or_load(loader) for _ in range(5)))
         assert all(r == {"v": 1} for r in results)
         assert calls["n"] == 1
-        # ????
+        # 缓存命中，loader 不再被调用
         assert await cache.get_or_load(loader) == {"v": 1}
         assert calls["n"] == 1
 

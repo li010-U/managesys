@@ -124,3 +124,41 @@ def test_enforce_security_off_only_warns():
     # 未开启生产准入 + 弱配置 -> 仅警告、不拒绝（兼容开发模式）
     assert _run_security_check(debug=True, enforce=False,
                                secret="dev-secret-key-change-in-production-2024") is False
+
+
+def _run_security_check_admin_pw(admin_pw, enforce=True):
+    """在给定初始管理员密码下调用 _check_security_config()，返回是否抛出 RuntimeError。"""
+    import app.main as m
+    orig = (m.settings.DEBUG, m.settings.ENFORCE_SECURITY, m.settings.SECRET_KEY, m.settings.INIT_ADMIN_PASSWORD)
+    m.settings.DEBUG = False
+    m.settings.ENFORCE_SECURITY = enforce
+    m.settings.SECRET_KEY = "a-real-strong-secret-key-value"
+    m.settings.INIT_ADMIN_PASSWORD = admin_pw
+    try:
+        m._check_security_config()
+    except RuntimeError:
+        return True
+    finally:
+        m.settings.DEBUG, m.settings.ENFORCE_SECURITY, m.settings.SECRET_KEY, m.settings.INIT_ADMIN_PASSWORD = orig
+    return False
+
+
+def test_enforce_security_blocks_default_admin_password():
+    # 生产准入开启 + 默认初始管理员密码 -> 拒绝启动
+    assert _run_security_check_admin_pw("admin@123456") is True
+
+
+def test_enforce_security_blocks_weak_admin_password():
+    # 生产准入开启 + 弱初始管理员密码 -> 拒绝启动
+    assert _run_security_check_admin_pw("password") is True
+    assert _run_security_check_admin_pw("abc123") is True  # 缺字母/数字或过短
+
+
+def test_enforce_security_ok_with_strong_admin_password():
+    # 生产准入开启 + 强初始管理员密码 -> 不拒绝
+    assert _run_security_check_admin_pw("Pytest-Admin-12345") is False
+
+
+def test_enforce_security_off_allows_default_admin_password():
+    # 未开启生产准入时仅告警、不拒绝（兼容开发模式）
+    assert _run_security_check_admin_pw("admin@123456", enforce=False) is False

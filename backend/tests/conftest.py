@@ -19,6 +19,8 @@ os.environ.setdefault("INIT_ADMIN_PASSWORD", "Pytest-Admin-12345")
 os.environ.setdefault("SECRET_KEY", "pytest-secret-key-0123456789-abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJ")
 os.environ.setdefault("DATA_RETENTION_TASK_ENABLED", "false")
 os.environ.setdefault("ALERT_INTEL_TASK_ENABLED", "false")
+os.environ.setdefault("ALERT_LIFECYCLE_TASK_ENABLED", "false")
+os.environ.setdefault("ENV_POLL_TASK_ENABLED", "false")
 os.environ.setdefault("ENABLE_CAPTCHA", "false")
 os.environ.setdefault("REGISTER_ENABLED", "true")
 

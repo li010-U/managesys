@@ -74,7 +74,7 @@ class TestAuthServiceLogin:
         await db_session.commit()
         
         # 登录
-        token, user = await service.login("login_test_user", "Test1234", "127.0.0.1")
+        token, refresh_token, user = await service.login("login_test_user", "Test1234", "127.0.0.1")
         
         assert token is not None
         assert user.username == "login_test_user"
@@ -115,7 +115,7 @@ class TestCaptchaService:
         assert captcha_id is not None
         assert len(captcha_id) > 0
         assert code is not None
-        assert len(code) == 4
+        assert len(code) == 6
         assert img_bytes is not None
         assert len(img_bytes) > 0
     
@@ -144,3 +144,31 @@ class TestCaptchaService:
         result = verify_captcha("invalid-id", "1234")
         
         assert result is False
+
+
+class TestRefreshToken:
+    """Refresh-token behavior: token type isolation and interchangeable minting."""
+
+    def test_token_type_isolation(self):
+        from app.core.security import (
+            create_access_token, create_refresh_token,
+            decode_access_token, is_refresh_token,
+        )
+        access = create_access_token({"sub": "1"}, token_version=0)
+        refresh = create_refresh_token({"sub": "1"}, token_version=0)
+        assert is_refresh_token(decode_access_token(refresh)) is True
+        assert is_refresh_token(decode_access_token(access)) is False
+        assert decode_access_token(refresh)["type"] == "refresh"
+        assert decode_access_token(access)["type"] == "access"
+        assert decode_access_token(refresh)["jti"]
+        assert decode_access_token(refresh)["ver"] == 0
+
+    def test_refresh_token_tied_to_token_version(self):
+        from app.core.security import (
+            create_refresh_token, decode_access_token, is_refresh_token,
+        )
+        old = create_refresh_token({"sub": "1"}, token_version=0)
+        new = create_refresh_token({"sub": "1"}, token_version=1)
+        assert decode_access_token(old)["ver"] == 0
+        assert decode_access_token(new)["ver"] == 1
+        assert is_refresh_token(decode_access_token(old))

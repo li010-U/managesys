@@ -70,7 +70,7 @@ async def test_user_with_no_roles_forbidden():
 
 @pytest.mark.asyncio
 async def test_any_permission_from_multiple_roles():
-    # ???????????
+    # 来自多个角色任一权限满足即可
     user = FakeUser(roles=[FakeRole(["room:view"]), FakeRole(["monitor:handle_alert"])])
     result = await _call("monitor:handle_alert", user)
     assert result is user

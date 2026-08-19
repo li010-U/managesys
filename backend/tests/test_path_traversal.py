@@ -20,7 +20,7 @@ def fs(tmp_path):
 
 
 def _write(service, rel: str, data=b"x"):
-    """? service ??????????????????"""
+    """通过 service 在沙箱内写入测试文件。"""
     base = service.upload_dir
     p = base / rel
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -47,10 +47,10 @@ def test_get_file_path_blocks_absolute(tmp_path):
 
 def test_get_file_path_blocks_direct_escape(tmp_path):
     fs = FileService(str(tmp_path))
-    # ?????????????????????????
+    # 构造一个沙箱外的敏感文件
     outside = tmp_path.parent / "secret.txt"
     outside.write_text("secret")
-    # ??????????????????????
+    # 越界访问应被拒绝并返回 None
     assert fs.get_file_path("../../secret.txt") is None
     os.path.exists(outside)
 
@@ -96,6 +96,6 @@ def test_save_upload_accepts_safe_subdir(tmp_path):
 
     info = asyncio.run(fs.save_upload(F(), "docs"))
     assert "docs/" in info["relative_path"]
-    # ??????????????
+    # 解析后的路径必须仍在沙箱内
     full = (fs.upload_dir / info["relative_path"]).resolve()
     assert full.is_relative_to(fs.upload_dir.resolve())
