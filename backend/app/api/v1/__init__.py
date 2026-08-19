@@ -19,6 +19,7 @@ from app.api.v1.ip_resources import router as ip_resources_router
 from app.api.v1.ip_registry import router as ip_registry_router
 from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.insight import router as insight_router
+from app.api.v1.alert_lifecycle import router as alert_lifecycle_router
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(chat_router)
@@ -41,4 +42,5 @@ router.include_router(ip_resources_router)
 router.include_router(ip_registry_router)
 router.include_router(dashboard_router)
 router.include_router(insight_router)
+router.include_router(alert_lifecycle_router)
 

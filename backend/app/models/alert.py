@@ -1,7 +1,7 @@
 ﻿"""告警规则/告警/告警处理模型"""
 from datetime import datetime
 from typing import Optional, List
-from sqlalchemy import String, Integer, DateTime, Float, Text, ForeignKey, Boolean, JSON
+from sqlalchemy import String, Integer, DateTime, Float, Text, ForeignKey, Boolean, JSON, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 from app.core.timeutil import now_local
@@ -29,6 +29,9 @@ class AlertRule(Base):
 
 class Alert(Base):
     __tablename__ = "alerts"
+    __table_args__ = (
+        Index("ix_alerts_status_created_at", "status", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     alert_rule_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("alert_rules.id", ondelete="SET NULL"), nullable=True, comment="触发规则ID")
@@ -48,6 +51,21 @@ class Alert(Base):
     acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment="确认时间")
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment="解决时间")
     escalated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment="自动升级时间")
+    # ==== 告警生命周期（自动恢复 / 去重防抖 / 偶发故障识别） ====
+    # 最近一次异常(越阈/故障)发生时间
+    last_abnormal_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment="最近异常时间")
+    # 参数恢复正常的时间（用于累计"连续正常时长"）
+    normal_since_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment="恢复正常时间")
+    # 自动恢复判定用的阈值（连续正常多少分钟后标记已解决）
+    auto_resolve_minutes: Mapped[int] = mapped_column(Integer, default=30, comment="连续正常多少分钟后自动解决")
+    # 告警实际持续时长（秒），解决时回填
+    duration_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="持续时长(秒)")
+    # 是否偶发(短时自愈)故障：自愈窗口内恢复，只记录不推送
+    is_transient: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否偶发(短时自愈)故障")
+    # 冷却到期时间：同一设备已解决后再次异常前的防抖冷却
+    cooldown_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment="去重防抖冷却到期时间")
+    # 告警自动恢复/去重产生的处置方式：auto_resolve/normal/transient/cooldown(null=手动)
+    lifecycle_action: Mapped[Optional[str]] = mapped_column(String(24), nullable=True, comment="生命周期处置方式")
     escalated_from: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, comment="升级前级别")
 
     rule: Mapped[Optional["AlertRule"]] = relationship("AlertRule", back_populates="alerts", lazy="selectin")
@@ -72,3 +90,4 @@ class AlertAction(Base):
 
     def __repr__(self) -> str:
         return f"<AlertAction {self.alert_id} {self.action_type}>"
+

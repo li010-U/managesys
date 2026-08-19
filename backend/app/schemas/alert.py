@@ -69,6 +69,14 @@ class AlertResponse(BaseModel):
     resolved_at: Optional[datetime] = None
     escalated_at: Optional[datetime] = None
     escalated_from: Optional[str] = None
+    # ==== 告警生命周期（自动恢复/去重防抖/偶发故障） ====
+    last_abnormal_at: Optional[datetime] = None
+    normal_since_at: Optional[datetime] = None
+    auto_resolve_minutes: Optional[int] = 30
+    duration_seconds: Optional[int] = None
+    is_transient: Optional[bool] = False
+    cooldown_until: Optional[datetime] = None
+    lifecycle_action: Optional[str] = None
 
 class AlertPageResponse(BaseModel):
     items: list[AlertResponse]
