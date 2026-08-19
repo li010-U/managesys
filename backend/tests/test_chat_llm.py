@@ -146,3 +146,35 @@ def test_stream_falls_back_to_chinese_mock_when_model_garbles(monkeypatch):
 
     got2 = asyncio.run(run_good())
     assert "\u8d85\u9608\u503c" in got2
+
+
+@pytest.mark.asyncio
+async def test_spawn_summary_refresh_bounds_concurrency(monkeypatch):
+    """摘要刷新任务走有上限的 spawn；并发不超过上限，且计数器最终归零不漏。"""
+    import asyncio
+    from app.api.v1 import chat as chat_mod
+
+    state = {"running": set(), "max_running": 0, "spawned": 0}
+
+    async def _stub(conv_id):
+        state["running"].add(conv_id)
+        state["max_running"] = max(state["max_running"], len(state["running"]))
+        await asyncio.sleep(0.01)
+        state["running"].discard(conv_id)
+
+    monkeypatch.setattr(chat_mod, "_refresh_conversation_summary", _stub)
+    monkeypatch.setattr(chat_mod, "_SUMMARY_TASK_MAX", 3)
+    chat_mod._summary_inflight = 0
+
+    # spawn 是同步的, 计数在有上限闸门处封顶; 给事件循环一次机会真正运行这些任务
+    for i in range(20):
+        chat_mod._spawn_summary_refresh(i)
+    await asyncio.sleep(0.05)
+
+    # 事件循环运行后, 并发应被上限约束在 3 内
+    assert 0 < state["max_running"] <= 3, f"并发应被上限约束, 实际 {state['max_running']}"
+
+    # 等待派生任务全部完成, 验证计数器不泄漏
+    while chat_mod._summary_inflight > 0:
+        await asyncio.sleep(0.02)
+    assert chat_mod._summary_inflight == 0

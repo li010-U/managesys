@@ -71,6 +71,26 @@ logger = logging.getLogger("managesys.chat")
 _SUMMARY_SEM = asyncio.Semaphore(2)
 _SUMMARY_COOLDOWN_SECONDS = 60
 _summary_last_run: dict[int, float] = {}
+# fire-and-forget 摘要任务并发上限：防止多条会话并发时无限堆积任务/DB 会话。
+# 达到上限时跳过本次刷新(保底: 下次消息冷却期后仍会再触发)，仅作为压力下的安全阀。
+_SUMMARY_TASK_MAX = 16
+_summary_inflight = 0
+
+
+def _spawn_summary_refresh(conv_id: int) -> None:
+    """有上限地后台刷新会话摘要，避免 fire-and-forget 任务无限堆积。"""
+    global _summary_inflight
+    if _summary_inflight >= _SUMMARY_TASK_MAX:
+        return
+    _summary_inflight += 1
+    task = asyncio.create_task(_refresh_conversation_summary(conv_id))
+
+    def _done(_task):
+        global _summary_inflight
+        _summary_inflight -= 1
+
+    task.add_done_callback(_done)
+
 
 
 def _summary_cooldown_ok(conv_id: int) -> bool:
@@ -1909,7 +1929,7 @@ async def send_message(
 
 
 
-    asyncio.create_task(_refresh_conversation_summary(conv.id))
+    _spawn_summary_refresh(conv.id)
 
 
 
@@ -2237,7 +2257,11 @@ async def send_message_stream(
                     finally:
 
 
-                        await queue.put(_END)
+                        try:
+                            queue.put_nowait(_END)
+                        except Exception:
+                            # 消费方可能已退出/队列已满：勿阻塞取消收尾，静默丢弃哨兵即可
+                            pass
 
 
 
@@ -2381,7 +2405,7 @@ async def send_message_stream(
             await _save_assistant_reply(conv_id, full_content)
 
 
-            asyncio.create_task(_refresh_conversation_summary(conv_id))
+            _spawn_summary_refresh(conv_id)
 
 
             proposal = _finalize_proposal(ai_tools.parse_proposal(req.content, full_content))
