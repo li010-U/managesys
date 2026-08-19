@@ -199,6 +199,7 @@ import {
 const rooms = ref<RoomInfo[]>([])
 const selectedRoomId = ref<number | undefined>(undefined)
 const tempSensors = ref<SensorInfo[]>([])
+let sensorLoadSeq = 0
 const globalLoading = ref(false)
 
 const reliability = ref<ReliabilityResult>({ days: 90, alert_count: 0, emergency_count: 0, serious_count: 0, avg_mttr_hours: null, availability_pct: 100, estimated_outage_hours: 0, device_health: [], type_health: [] })
@@ -247,12 +248,21 @@ async function loadRooms() {
   try { const rr = await getAllRoomsApi(); rooms.value = rr.data || [] } catch { rooms.value = [] }
 }
 async function loadSensors(roomId?: number) {
-  try { const sr = await getAllSensorsApi({ room_id: roomId }); tempSensors.value = sr.data || [] } catch { tempSensors.value = [] }
-  if (tempSensors.value.length) {
-    if (!baselineSensorId.value) baselineSensorId.value = tempSensors.value[0].id
-    if (!forecastSensorId.value) forecastSensorId.value = tempSensors.value[0].id
+  const seq = ++sensorLoadSeq
+  let list: SensorInfo[] = []
+  try { const sr = await getAllSensorsApi({ room_id: roomId }); list = sr.data || [] } catch { list = [] }
+  if (seq !== sensorLoadSeq) return
+  tempSensors.value = list
+  if (list.length) {
+    if (!list.some((s) => s.id === baselineSensorId.value)) baselineSensorId.value = list[0].id
+    if (!list.some((s) => s.id === forecastSensorId.value)) forecastSensorId.value = list[0].id
     loadBaseline()
     loadForecast()
+  } else {
+    baselineSensorId.value = 0
+    forecastSensorId.value = 0
+    baseline.value = null
+    forecast.value = null
   }
 }
 async function onRoomChange() {

@@ -242,3 +242,34 @@ python scripts/migrate_to_pg.py --rollback
 - 检索类 `LIKE` 已统一为 `LOWER(col) LIKE ?` 且参数小写化，SQLite 与 PostgreSQL 搜索结果一致。
 - 原生 INSERT 里 SQLite 专有的 `datetime('now','localtime')` 已由 `app/db/compat_sql.py` 的 `translate_sql()` 在非 SQLite 方言下自动映射为 `CURRENT_TIMESTAMP`；`?` 占位符也由同一模块按方言转换。
 - 模型时间列多为 `DateTime(timezone=True)`，PostgreSQL 存 UTC timestamptz、读取时转本地时区；SQLite 存本地时间文本，两侧语义各自一致。
+
+
+---
+
+## 14. 内网部署访问配置（CORS / ALLOWED_HOSTS）
+
+多人通过内网 IP/域名访问时，后端默认只放行 localhost，必须按实际访问地址配置 `.env`。
+以下条目**逗号分隔或 JSON 数组两种写法都支持**（已在配置层统一兼容，避免启动报错）。
+
+### 14.1 允许访问的 Host（必配）
+```ini
+# 填前端/后端的实际访问域名或 IP（可带端口），逗号分隔
+ALLOWED_HOSTS=192.168.1.10,dcimanage.example.com,10.0.0.5:5173
+```
+
+### 14.2 允许跨域的前端来源 CORS（按需）
+```ini
+# 仅当"前端页面"与"后端 API"不同源（不同端口/IP）时才需要。
+# 生产若由 Nginx 同源托管 dist 并反代 /api，可留空为 localhost 两项。
+CORS_ORIGINS=http://192.168.1.10:5173,http://10.0.0.5:5173
+```
+
+### 14.3 PostgreSQL 连接（提高并发承载，多人必选）
+```ini
+DATABASE_URL=postgresql+asyncpg://用户名:密码@127.0.0.1:5432/managesys
+```
+- 完整的 SQLite→PostgreSQL 迁移（建库、搬数据、切 .env）见 **第 13 节** 的 `scripts/migrate_to_pg.py` 一键流程。
+- `start_prod.bat` 会自动识别 PostgreSQL 并切到多 worker；SQLite 时保持单进程最稳。
+- 多个后端 worker 共享限流/验证码时，建议再配 `REDIS_URL`（见 `backend/.env.example`）。
+
+> 改完 `.env` 后必须重启后端才生效。

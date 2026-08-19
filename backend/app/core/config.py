@@ -1,7 +1,7 @@
 ﻿"""应用配置"""
-from pydantic_settings import BaseSettings
 from pydantic import field_validator
-from typing import Optional, List
+from pydantic_settings import BaseSettings, NoDecode
+from typing import Optional, List, Annotated
 
 
 class Settings(BaseSettings):
@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     LLM_TIMEOUT_SECONDS: int = 60
 
     # ===== CORS =====
-    CORS_ORIGINS: list[str] = [
+    CORS_ORIGINS: Annotated[list[str], NoDecode] = [
         "http://localhost:5173",
         "http://localhost:3000",
         "http://127.0.0.1:5173",
@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     # 每个 IP 每窗口内允许的请求数与窗口长度（秒）
     RATE_LIMIT_LOGIN_MAX: int = 10
     # 允许的 Host 头（防 Host 头投毒；若需多域名请在 .env 使用 ALLOWED_HOSTS，逗号分隔）
-    ALLOWED_HOSTS: list[str] = [
+    ALLOWED_HOSTS: Annotated[list[str], NoDecode] = [
         "localhost", "127.0.0.1",
         "testserver", "test", "localhost:5173", "localhost:3000",
     ]
@@ -156,6 +156,36 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
 
+
+    @staticmethod
+    def _parse_host_list(raw) -> list[str]:
+        import json as _json
+        if raw is None:
+            return []
+        if isinstance(raw, list):
+            items = raw
+        else:
+            text = str(raw).strip()
+            if not text:
+                return []
+            if text.startswith("[") and text.endswith("]"):
+                try:
+                    items = _json.loads(text)
+                except Exception:
+                    items = [p.strip() for p in text.strip("[]").split(",") if p.strip()]
+            else:
+                items = [p.strip() for p in text.split(",") if p.strip()]
+        out = []
+        for it in items:
+            s = str(it).strip()
+            if s and s not in out:
+                out.append(s)
+        return out
+
+    @field_validator("CORS_ORIGINS", "ALLOWED_HOSTS", mode="before")
+    @classmethod
+    def _parse_host_origins(cls, v):
+        return cls._parse_host_list(v)
 
 
     @field_validator("SECRET_KEY")

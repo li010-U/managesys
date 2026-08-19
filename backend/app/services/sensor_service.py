@@ -26,11 +26,21 @@ class _PointSample:
         self.source_mark = mid.source_mark if mid is not None else "normal"
 
 
+def _summarize_bucket(bucket) -> "_PointSample":
+    """把一个升序时间桶聚合成一个代表点：取中位样本 + 桶内均值。
+
+    与 _downsample 原有逐桶逻辑保持一致，供批量与流式降采样共用。
+    """
+    mid = bucket[len(bucket) // 2]
+    avg = sum(float(r.value) for r in bucket) / len(bucket)
+    return _PointSample(value=avg, recorded_at=mid.recorded_at, mid=mid)
+
+
 def _downsample(rows, max_points: int) -> list:
     """把升序的时间序列降采样到最多 max_points 个点（按时间等分桶取均值）。
 
     rows 为升序 SensorData 列表；返回降采样后的 _PointSample 列表（倒序，最新在前），
-    与前端 reverse 契约保持一致。
+    与前端 reverse 契约保持一致。仅用于行数已整体载入内存的场景（行数受限）。
     """
     if not rows:
         return []
@@ -42,13 +52,8 @@ def _downsample(rows, max_points: int) -> list:
     sampled = []
     for idx in range(0, n, bucket_size):
         bucket = rows[idx:idx + bucket_size]
-        mid = bucket[len(bucket) // 2]
-        avg = sum(float(r.value) for r in bucket) / len(bucket)
-        sampled.append((mid.recorded_at, avg, mid))
-    out = []
-    for rec_at, avg_val, mid in reversed(sampled):
-        out.append(_PointSample(value=avg_val, recorded_at=rec_at, mid=mid))
-    return out
+        sampled.append(_summarize_bucket(bucket))
+    return list(reversed(sampled))
 
 from app.schemas.sensor import SensorCreate, SensorUpdate
 
@@ -149,15 +154,27 @@ class SensorService:
                     )
                 ).scalars().all())
                 return rows
-            # 2) 全量窗口拉取（覆盖整个窗口），在 Python 内按时间分桶降采样
-            rows = list((
-                await self.db.execute(
-                    select(SensorData)
-                    .where(SensorData.sensor_id == sensor_id, SensorData.recorded_at >= cutoff_ts)
-                    .order_by(SensorData.recorded_at.asc())
-                )
-            ).scalars().all())
-            return _downsample(rows, MAX_TREND_POINTS)
+            # 2) 窗口内点数超过上限：流式分桶降采样，整窗覆盖、内存恒定。
+            #    不把窗口内全部行一次性载入内存，而是按桶大小分批流式读取，
+            #    每桶就地聚合出一个代表点（均值 + 中位样本），内存上限约为
+            #    一个桶的大小 + 已产出桶数（<= MAX_TREND_POINTS），与总量无关。
+            bucket_size = (total + MAX_TREND_POINTS - 1) // MAX_TREND_POINTS
+            _sstream = await self.db.stream_scalars(
+                select(SensorData)
+                .where(SensorData.sensor_id == sensor_id, SensorData.recorded_at >= cutoff_ts)
+                .order_by(SensorData.recorded_at.asc())
+                .execution_options(yield_per=bucket_size)
+            )
+            _sampled = []
+            _buf = []
+            async for _row in _sstream:
+                _buf.append(_row)
+                if len(_buf) >= bucket_size:
+                    _sampled.append(_summarize_bucket(_buf))
+                    _buf = []
+            if _buf:
+                _sampled.append(_summarize_bucket(_buf))
+            return list(reversed(_sampled))
 
         # hours 未指定：保持原有“最近 limit 条”语义
         query = (
