@@ -7,7 +7,8 @@ echo    生产模式启动
 echo ============================================
 echo.
 
-set ROOT_DIR=%~dp0
+:: 脚本位于 scripts/ 子目录，ROOT_DIR 需上溯到项目根
+set ROOT_DIR=%~dp0..
 set BACKEND_DIR=%ROOT_DIR%backend
 
 :: 统一使用 .venv 解释器（不存在则回退系统 python）
