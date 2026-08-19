@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.py[cod]
 venv/
@@ -104,3 +104,16 @@ temp_srs.txt
 /tools/dev/
 # Runtime PID files (not committed)
 backend/scripts/backend.pid
+
+# 压测/巡检生成产物（不入库）
+loadtest_report_*
+loadtest_samples_*
+/reports/
+/data/loadtest_*
+# 一次性调试残留（不入库）
+_pw_*
+_pytest_enc*
+
+# 环境配置文件备份（含敏感信息，不入库）
+.env.bak
+*.env.bak
