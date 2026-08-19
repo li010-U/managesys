@@ -12,11 +12,12 @@ from app.core.iputils import get_client_ip, classify_ip
 from app.models.user import User
 from app.schemas.auth import (
     LoginRequest, TokenResponse, RegisterRequest,
-    PasswordChangeRequest, CaptchaResponse,
+    PasswordChangeRequest, CaptchaResponse, RefreshTokenRequest,
 )
+from app.core.security import decode_access_token, create_access_token, create_refresh_token, is_refresh_token
 from app.schemas.user import UserResponse
 from app.services.auth_service import AuthService
-from app.services.captcha_service import generate_captcha, verify_captcha
+from app.services.captcha_service import generate_captcha_async, verify_captcha_async
 
 router = APIRouter(prefix="/auth", tags=["认证管理"])
 
@@ -26,7 +27,7 @@ async def get_captcha():
     """获取验证码"""
     if not settings.ENABLE_CAPTCHA:
         return CaptchaResponse(captcha_id="disabled", captcha_image="")
-    captcha_id, code, img_bytes = generate_captcha()
+    captcha_id, code, img_bytes = await generate_captcha_async()
     img_base64 = base64.b64encode(img_bytes).decode("utf-8")
     return CaptchaResponse(captcha_id=captcha_id, captcha_image=f"data:image/png;base64,{img_base64}")
 
@@ -43,20 +44,25 @@ async def login(
     if settings.ENABLE_CAPTCHA:
         if not req.captcha_id or not req.captcha_code:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请输入验证码")
-        if not verify_captcha(req.captcha_id, req.captcha_code):
+        if not await verify_captcha_async(req.captcha_id, req.captcha_code):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="验证码错误")
 
     service = AuthService(db)
     try:
         ip_address = get_client_ip(request.headers.get("X-Forwarded-For"), request.headers.get("X-Real-IP"), request.client.host if request.client else None)
-        token, user = await service.login(
+        token, refresh_token, user = await service.login(
             req.username,
             req.password,
             ip_address,
             request_path=request.url.path[:256],
             user_agent=(request.headers.get("User-Agent") or "")[:512],
         )
-        return TokenResponse(access_token=token, token_type="bearer")
+        return TokenResponse(
+            access_token=token,
+            refresh_token=refresh_token,
+            token_type="bearer",
+            expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
 
@@ -104,8 +110,10 @@ async def logout(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """退出登录（JWT 无状态，仅记录审计日志）"""
+    """退出登录（登出即失效：递增 token_version 使已签发 JWT 立即作废）"""
     from app.services.audit_service import AuditService
+    # 跨进程共享数据库层作废：递增 token_version，使已签发的旧 token 立即失效。
+    current_user.token_version = (current_user.token_version or 0) + 1
     AuditService.log_request(
         db,
         request,
@@ -115,6 +123,47 @@ async def logout(
         detail=f"用户 {current_user.username} 退出登录",
     )
     return {"message": "已退出登录"}
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh_token(
+    req: RefreshTokenRequest,
+    db: AsyncSession = Depends(get_db),
+    _rate: None = Depends(rate_limit(settings.RATE_LIMIT_LOGIN_MAX, settings.RATE_LIMIT_WINDOW_SECONDS, "refresh")),
+):
+    """使用刷新令牌换取新的访问令牌（短寿命 JWT 自动续期）。"""
+    payload = decode_access_token(req.refresh_token)
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="刷新令牌无效或已过期")
+    if not is_refresh_token(payload):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="令牌类型不正确")
+    uid = payload.get("sub")
+    try:
+        user_id = int(uid)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="令牌无效")
+    from sqlalchemy import select
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在或已停用")
+    # 令牌版本校验：改密/登出后 token_version 递增，旧刷新令牌立即失效
+    if payload.get("ver") != (user.token_version or 0):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录已失效，请重新登录")
+    new_access = create_access_token(
+        data={"sub": str(user.id)},
+        token_version=user.token_version or 0,
+    )
+    new_refresh = create_refresh_token(
+        data={"sub": str(user.id)},
+        token_version=user.token_version or 0,
+    )
+    return TokenResponse(
+        access_token=new_access,
+        refresh_token=new_refresh,
+        token_type="bearer",
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
 
 
 

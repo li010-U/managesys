@@ -7,7 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.security import hash_password, verify_password, create_access_token
+from app.core.security import hash_password, verify_password, create_access_token, create_refresh_token
+from app.db.retry import write_lock
 from app.models.user import User
 from app.models.role import Role
 from app.models.login_log import LoginLog
@@ -144,28 +145,43 @@ class AuthService:
 
         # 验证密码
         if not verify_password(password, user.hashed_password):
-            user.login_attempts += 1
-            if user.login_attempts >= settings.LOGIN_MAX_ATTEMPTS:
-                user.locked_until = datetime.now() + timedelta(
-                    minutes=settings.LOGIN_LOCK_MINUTES
-                )
-            await self.db.flush()
+            # 并发安全：登录失败计数用 read-modify-write，需加锁
+            # 以数据库最新状态为准，避免读到过期/被并发覆盖的计数
+            async with write_lock():
+                result = await self.db.execute(select(User).where(User.id == user.id))
+                live = result.scalar_one_or_none()
+                if live is None:
+                    raise ValueError("用户名或密码错误")
+                live.login_attempts += 1
+                if live.login_attempts >= settings.LOGIN_MAX_ATTEMPTS:
+                    live.locked_until = datetime.now() + timedelta(
+                        minutes=settings.LOGIN_LOCK_MINUTES
+                    )
+                await self.db.flush()
             await self._record_login_log(username, ip_address, "fail", "密码错误", request_path=request_path, user_agent=user_agent)
             raise ValueError("用户名或密码错误")
 
         # 登录成功，重置失败次数
-        user.login_attempts = 0
-        user.locked_until = None
-        user.last_login = datetime.now()
-        await self.db.flush()
+        async with write_lock():
+            result = await self.db.execute(select(User).where(User.id == user.id))
+            live = result.scalar_one_or_none()
+            if live is not None:
+                live.login_attempts = 0
+                live.locked_until = None
+                live.last_login = datetime.now()
+                await self.db.flush()
 
-        # 生成JWT
+        # 生成访问令牌 + 刷新令牌（共用 token_version 绑定，改密/登出即失效）
         token = create_access_token(
             data={"sub": str(user.id)},
             token_version=user.token_version or 0,
         )
+        refresh_token = create_refresh_token(
+            data={"sub": str(user.id)},
+            token_version=user.token_version or 0,
+        )
         await self._record_login_log(username, ip_address, "success", request_path=request_path, user_agent=user_agent)
-        return token, user
+        return token, refresh_token, user
 
     async def change_password(self, user_id: int, old_password: str, new_password: str) -> None:
         """修改密码"""

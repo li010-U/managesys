@@ -16,6 +16,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "same-origin")
+        # HSTS（仅 HTTPS 生效）：强制浏览器走 HTTPS，并声明子域
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         # 宽松 CSP：允许自托管/第三方 LLM 资源；default-src 'self' 由前端静态托管决定，
         # 这里提供基础基线。生产可按需收紧（仅在前端提供 inline style 时保留 unsafe-inline）。
         response.headers.setdefault(

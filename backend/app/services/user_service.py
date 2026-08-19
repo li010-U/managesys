@@ -82,6 +82,41 @@ class UserService:
         if not user:
             return None
 
+        # ==== 保留至少一个超级管理员 ====
+        # 判断目标对象当前是否仍为超级管理员
+        target_super = bool(user.is_super_admin) or any(getattr(r, "code", None) == "super_admin" for r in user.roles)
+        if target_super:
+            # 若 roles 被替换且不再包含 super_admin，或停用，均视为“移除超管”
+            removing = bool(req.is_active is False)
+            if req.roles is not None:
+                new_role_ids = set(req.roles)
+                keep_super_role = any(
+                    getattr(r, "code", None) == "super_admin" and r.id in new_role_ids
+                    for r in user.roles
+                )
+                if not keep_super_role:
+                    removing = True
+            if removing:
+                # 超管自锁保护：禁止操作导致系统中无超级管理员
+                from sqlalchemy import or_
+                sa_roles = (await self.db.execute(
+                    select(Role).where(Role.code == "super_admin")
+                )).scalar_one_or_none()
+                others = 0
+                if sa_roles is not None:
+                    from app.models.user import user_roles
+                    other_ids = (await self.db.execute(
+                        select(user_roles.c.user_id).where(user_roles.c.role_id == sa_roles.id)
+                    )).scalars().all()
+                    for oid in set(other_ids):
+                        if oid == user_id:
+                            continue
+                        o = await self.get_user_by_id(oid)
+                        if o and o.is_active and (o.is_super_admin or any(getattr(r, "code", None) == "super_admin" for r in o.roles)):
+                            others += 1
+                if others == 0:
+                    raise ValueError("无法移除最后一个有效超级管理员，请先留下其他超管再操作")
+
         update_data = req.model_dump(exclude_unset=True, exclude={"roles"})
         old_values = {k: getattr(user, k) for k in update_data.keys()}
 
