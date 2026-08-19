@@ -160,7 +160,7 @@ class IpResourceService:
         return out
 
     async def conflicts(self) -> dict:
-        """??????????????? + ??????????????"""
+        """计算冲突：IP 归属 + 设备角色维度。"""
         result = await self.db.execute(
             select(
                 Device.id, Device.name, Device.asset_number,
@@ -267,10 +267,17 @@ class IpResourceService:
             raise ValueError("\u76ee\u6807 IP \u5df2\u88ab\u5176\u4ed6\u8bbe\u5907\u5360\u7528\uff0c\u65e0\u6cd5\u5206\u914d")
 
         setattr(device, role_field, new_ip)
-        # \u540c\u6b65 IP \u53f0\u8d26\uff08\u81ea\u52a8\uff09
+        # 同步 IP 台账（自动）
         from app.services.ip_registry_service import sync_device_ip_ledger as _sync
         await _sync(self.db, device, operator=operator_username)
-        await self.db.commit()
+        # 使用带退逊重试的统一提交（并发/SQLite 锁）；
+        # 若因全局唯一约束被其他并发写入抢占同 IP 而失败，则回滚并报“被占用”，避免返回 500。
+        try:
+            from app.db.retry import with_commit_retry
+            await with_commit_retry(self.db.commit)
+        except Exception:
+            await self.db.rollback()
+            raise ValueError("目标 IP 已被其他设备占用，无法分配")
 
         remaining = await self._count_conflicts_after(device_id, role, new_ip)
 
@@ -297,7 +304,7 @@ class IpResourceService:
         }
 
     async def _count_conflicts_after(self, device_id: int, role: str, new_ip: str) -> int:
-        """????????????????????????????"""
+        """计算修改后是否产生新的冲突。"""
         result = await self.db.execute(
             select(
                 Device.id, Device.name, Device.asset_number,

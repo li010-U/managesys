@@ -36,27 +36,56 @@ def _is_trusted(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
         return False
 
 
+def _parse_peer(raw: str | None):
+    """解析直连对端 host（可能带端口或 IPv6 括号），返回 ipaddress 对象或 None。"""
+    host = (raw or "").strip()
+    if not host:
+        return None
+    # 去掉 IPv6 的 [::1]:port 形式
+    if host.startswith("[") and "]" in host:
+        host = host[1:host.index("]")]
+    else:
+        # 去掉可能的 :port 后缀（IPv4/主机名）
+        host = host.split(":")[0] if host.count(":") == 1 else host
+    try:
+        return ipaddress.ip_address(host.split("%")[0])
+    except ValueError:
+        return None
+
+
 def get_client_ip(
     x_forwarded_for: str | None,
     x_real_ip: str | None,
     client_host: str | None,
 ) -> str:
-    """统一取客户端真实 IP。
+    """统一取客户端真实 IP（基于可信代理的防伪造）。
 
-    优先级：X-Forwarded-For 最左(用户端) -> X-Real-IP -> 直连对端。
-    当直连对端不是可信代理时才信任代理头，避免伪造；无法判断时保守回退直连 IP。
+    仅当直连对端（client_host，即 TCP 对端）属于 TRUSTED_PROXIES 时才信任转发头：
+    - 可信代理：优先取 X-Forwarded-For 最左(最接近访问者的)IP，其次 X-Real-IP；
+    - 不可信/未知：忽略转发头，直接返回直连 IP，杜绝客户端伪造头绕过限流或污染审计。
+    未配置 TRUSTED_PROXIES（默认空）时一律不信任代理头，使用直连 IP。
     """
     host = (client_host or "").strip()
-    # 若直连对端是可信代理（或我们不知道部署形态），才信任转发头最左 IP
-    if x_forwarded_for:
-        first = x_forwarded_for.split(",")[0].strip()
-        if first:
-            return first
-    if x_real_ip:
-        r = x_real_ip.strip()
-        if r:
-            return r
+    peer = _parse_peer(client_host)
+    if peer is not None and _is_trusted(peer):
+        if x_forwarded_for:
+            first = x_forwarded_for.split(",")[0].strip()
+            if first:
+                return first
+        if x_real_ip:
+            r = x_real_ip.strip()
+            if r:
+                return r
     return host or "unknown"
+
+
+def request_client_ip(request) -> str:
+    """便捷：从 FastAPI/Starlette Request 解析客户端真实 IP（委托 get_client_ip）。"""
+    return get_client_ip(
+        request.headers.get("X-Forwarded-For"),
+        request.headers.get("X-Real-IP"),
+        request.client.host if request.client else None,
+    )
 
 
 def normalize_ip(raw: str | None) -> str:

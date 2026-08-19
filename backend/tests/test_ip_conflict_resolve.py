@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""IP ???????conflicts ????? + ?? resolve ??? ?????"""
+"""IP 冲突检测 conflicts 与 resolve 解决的回归测试。"""
 import pytest
 import pytest_asyncio
 
@@ -60,16 +60,16 @@ async def test_resolve_conflict_changes_field_and_audits(db_session):
     assert res["new_ip"] == "10.0.0.99"
     assert res["old_ip"] == "10.0.0.5"
 
-    # ???????
+    # 校验数据库中更新结果
     got = (await db_session.execute(select(Device).where(Device.id == d1.id))).scalar_one()
-    # ???????????? IP
+    # 新 IP 应已写入管理网口
     assert "10.0.0.99" in (got.management_ip or "")
 
-    # ???????
+    # resolve 后应写入审计日志
     logs = await AuditService(db_session).get_audit_logs(action="ip_conflict_resolve")
     assert logs[1] >= 1
 
-    # ???????d1 ??? .99??? d2 ? .5 ?????
+    # 解决后 d1=.99、d2=.5 不应再有冲突
     after = await svc.conflicts()
     assert after["total"] < 2
 

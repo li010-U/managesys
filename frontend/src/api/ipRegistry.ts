@@ -8,6 +8,10 @@ export interface IpSubnet {
   cidr: string
   gateway?: string
   vlan?: string
+  vlan_id?: number
+  vlan_name?: string
+  room_id?: number
+  room_name?: string
   description?: string
   status: string
   capacity: number
@@ -15,6 +19,8 @@ export interface IpSubnet {
   reserved: number
   free: number
   usage: number
+  over_watermark?: boolean
+  watermark?: number
 }
 
 export interface IpRegistryAddress {
@@ -93,3 +99,57 @@ export function allocateIpApi(data: { subnet_id?: number; device_id?: number | n
 export function getIpHistoryApi(params: { address?: string; address_id?: number; page?: number; page_size?: number }) {
   return http.get<{ items: IpHistoryEntry[]; total: number; page: number; page_size: number }>("/ip-registry/history", { params })
 }
+
+
+export interface IpVlan {
+  id: number
+  vlan_id: number
+  name: string
+  description?: string
+  room_id?: number
+  room_name?: string
+  status: string
+  subnet_count: number
+  capacity: number
+  allocated: number
+  reserved: number
+  usage: number
+  over_watermark?: boolean
+  watermark?: number
+}
+
+export function listVlansApi() {
+  return http.get<IpVlan[]>("/ip-registry/vlans")
+}
+export function createVlanApi(data: any) {
+  return http.post("/ip-registry/vlans", data)
+}
+export function updateVlanApi(id: number, data: any) {
+  return http.put(`/ip-registry/vlans/${id}`, data)
+}
+export function deleteVlanApi(id: number) {
+  return http.delete(`/ip-registry/vlans/${id}`)
+}
+
+export function exportSubnetsApi() {
+  return http.get("/ip-registry/subnets/export", { responseType: "blob" })
+}
+export function exportAddressesApi(params?: any) {
+  return http.get("/ip-registry/addresses/export", { params, responseType: "blob" })
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+export function downloadCsvBlob(r: { data: Blob }, filename: string) {
+  downloadBlob(r.data, filename)
+}
+

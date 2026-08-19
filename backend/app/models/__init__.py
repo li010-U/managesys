@@ -15,7 +15,7 @@ from app.models.facility import DataCenter, Room, Rack
 # ===== 设备管理 (Week 2) =====
 from app.models.device_type import DeviceType
 from app.models.device import Device, DeviceLifecycle
-from app.models.sensor import Sensor, SensorData
+from app.models.sensor import Sensor, SensorData, SensorAnomalyGap
 
 # ===== 监控告警 (Week 3) =====
 from app.models.alert import AlertRule, Alert, AlertAction
@@ -33,6 +33,8 @@ from app.models.work_order import WorkOrderCategory, WorkOrder, WorkOrderComment
 from app.models.inspection import InspectionTemplate, InspectionPlan, InspectionTask, InspectionRecord, InspectionIssue
 from app.models.knowledge import KnowledgeArticle
 from app.models.ip_address import IpSubnet, IpAddress, IpAddressHistory
+from app.models.vlan import Vlan
+from app.models.env_weather import EnvWeatherRecord, TransientFailureEvent
 
 __all__ = [
     # Base
@@ -51,7 +53,7 @@ __all__ = [
     # 设备管理
     "DeviceType",
     "Device", "DeviceLifecycle",
-    "Sensor", "SensorData",
+    "Sensor", "SensorData", "SensorAnomalyGap",
 
     # 监控告警
     "AlertRule", "Alert", "AlertAction",
@@ -67,5 +69,7 @@ __all__ = [
 
     # 设备巡检
     "InspectionTemplate", "InspectionPlan", "InspectionTask", "InspectionRecord", "InspectionIssue", "KnowledgeArticle",
-    "IpSubnet", "IpAddress", "IpAddressHistory",
+    "IpSubnet", "IpAddress", "IpAddressHistory", "Vlan",
+    "EnvWeatherRecord", "TransientFailureEvent",
 ]
+

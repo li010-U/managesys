@@ -27,14 +27,35 @@ def test_location_label_helpers():
     assert location_label("") == "未知"
 
 
-def test_get_client_ip_forwarded():
-    # X-Forwarded-For 取最左（用户端）
-    assert get_client_ip("1.2.3.4, 10.0.0.1", "10.0.0.1", "10.0.0.1") == "1.2.3.4"
-    # X-Real-IP 回退
-    assert get_client_ip(None, "5.6.7.8", "10.0.0.1") == "5.6.7.8"
+def test_get_client_ip_untrusted_default():
+    """未配置可信代理（默认）时不信任转发头，直接返回直连 IP，杜绝伪造。"""
+    assert get_client_ip("1.2.3.4, 10.0.0.1", "10.0.0.1", "10.0.0.1") == "10.0.0.1"
+    # 即使伪造 X-Forwarded-For，仍取直连对端
+    assert get_client_ip("6.6.6.6", None, "192.168.0.7") == "192.168.0.7"
+    # X-Real-IP 同样不被信任
+    assert get_client_ip(None, "5.6.7.8", "10.0.0.1") == "10.0.0.1"
     # 直连对端回退
     assert get_client_ip(None, None, "10.0.0.9") == "10.0.0.9"
     assert get_client_ip(None, None, None) == "unknown"
+
+
+def test_get_client_ip_trusted_proxy(monkeypatch):
+    """直连对端为可信代理时，才采用 X-Forwarded-For 最左（用户端）IP。"""
+    import app.core.iputils as ipu
+    monkeypatch.setattr(ipu, "TRUSTED_PROXIES", ["10.0.0.0/8"])
+    # 直连在可信网段 -> 取转发头最左
+    assert ipu.get_client_ip("1.2.3.4, 10.0.0.1", "10.0.0.1", "10.0.0.5") == "1.2.3.4"
+    # 无 X-Forwarded-For 时回退 X-Real-IP
+    assert ipu.get_client_ip(None, "5.6.7.8", "10.0.0.5") == "5.6.7.8"
+    # 无转发头时回退直连对端
+    assert ipu.get_client_ip(None, None, "10.0.0.5") == "10.0.0.5"
+
+
+def test_get_client_ip_partial_trusted(monkeypatch):
+    """直连对端不在可信网段时，即使代理头存在也不采用。"""
+    import app.core.iputils as ipu
+    monkeypatch.setattr(ipu, "TRUSTED_PROXIES", ["10.0.0.0/8"])
+    assert ipu.get_client_ip("1.2.3.4", None, "192.168.5.9") == "192.168.5.9"
 
 
 # IP 资源概览服务的纯逻辑函数

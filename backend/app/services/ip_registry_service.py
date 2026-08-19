@@ -15,6 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ip_address import IpSubnet, IpAddress, IpAddressHistory
 from app.models.device import Device
+from app.models.vlan import Vlan
+from app.models.facility import Room
 
 
 IP_STATUS = {"free", "reserved", "allocated"}
@@ -67,9 +69,9 @@ class IpRegistryService:
         self.db = db
 
     async def list_subnets(self) -> list[dict]:
+        """\u7f51\u6bb5\u6e05\u5355\uff0c\u542b VLAN / \u673a\u623f\u5173\u8054\u4e0e\u4f7f\u7528\u7387\u6c34\u4f4d\u6807\u8bb0\u3002"""
         result = await self.db.execute(select(IpSubnet).order_by(IpSubnet.network, IpSubnet.prefix))
         subnets = result.scalars().all()
-        # 汇总各子网已用条目
         used_rows = (await self.db.execute(
             select(IpAddress.subnet_id, IpAddress.status, func.count(IpAddress.id).label("cnt"))
             .where(IpAddress.subnet_id.isnot(None))
@@ -81,6 +83,17 @@ class IpRegistryService:
             if status in used[subnet_id]:
                 used[subnet_id][status] += cnt
 
+        vlan_ids = [s.vlan_id for s in subnets if s.vlan_id]
+        vlan_map = {}
+        room_map = {}
+        if vlan_ids:
+            for v in (await self.db.execute(select(Vlan).where(Vlan.id.in_(vlan_ids)))).scalars().all():
+                vlan_map[v.id] = v
+            rids = [v.room_id for v in vlan_map.values() if v.room_id]
+            if rids:
+                for rm in (await self.db.execute(select(Room).where(Room.id.in_(rids)))).scalars().all():
+                    room_map[rm.id] = rm
+
         out = []
         for sub in subnets:
             capacity = _capacity(sub)
@@ -88,6 +101,8 @@ class IpRegistryService:
             resv = used.get(sub.id, {}).get("reserved", 0)
             free = max(capacity - alloc - resv, 0) if capacity else 0
             usage = (alloc + resv) / capacity * 100 if capacity else 0
+            vobj = vlan_map.get(sub.vlan_id) if sub.vlan_id else None
+            room = room_map.get(vobj.room_id) if vobj and vobj.room_id else None
             out.append({
                 "id": sub.id,
                 "name": sub.name,
@@ -96,6 +111,10 @@ class IpRegistryService:
                 "cidr": f"{sub.network}/{sub.prefix}",
                 "gateway": sub.gateway,
                 "vlan": sub.vlan,
+                "vlan_id": sub.vlan_id,
+                "vlan_name": (vobj.name or ("VLAN " + str(vobj.vlan_id))) if vobj else None,
+                "room_id": room.id if room else None,
+                "room_name": room.name if room else None,
                 "description": sub.description,
                 "status": sub.status,
                 "capacity": capacity,
@@ -103,10 +122,117 @@ class IpRegistryService:
                 "reserved": resv,
                 "free": free,
                 "usage": round(usage, 2),
+                "over_watermark": usage >= 80,
+                "watermark": 80,
             })
         return out
 
-    async def create_subnet(self, name, network, prefix, gateway=None, vlan=None, description=None, status="active") -> IpSubnet:
+    async def list_vlans(self) -> list[dict]:
+        """\u0056LAN \u6e05\u5355\uff0c\u5404 VLAN \u9601\u4e0b\u5b50\u7f51\u6570\u4e0e\u603b\u4f7f\u7528\u7387\u3002"""
+        vlans = (await self.db.execute(select(Vlan).order_by(Vlan.vlan_id))).scalars().all()
+        subnets = (await self.db.execute(select(IpSubnet))).scalars().all()
+        addr_rows = (await self.db.execute(
+            select(IpAddress.subnet_id, IpAddress.status, func.count(IpAddress.id).label("cnt"))
+            .where(IpAddress.subnet_id.isnot(None))
+            .group_by(IpAddress.subnet_id, IpAddress.status)
+        )).all()
+        sub_usage = {}
+        for sid, status, cnt in addr_rows:
+            sub_usage.setdefault(sid, {"allocated": 0, "reserved": 0})
+            if status in sub_usage[sid]:
+                sub_usage[sid][status] += cnt
+        room_ids = {v.room_id for v in vlans if v.room_id}
+        rooms = {}
+        if room_ids:
+            for rm in (await self.db.execute(select(Room).where(Room.id.in_(room_ids)))).scalars().all():
+                rooms[rm.id] = rm
+        out = []
+        for v in vlans:
+            vsubs = [s for s in subnets if s.vlan_id == v.id]
+            cap = sum(_capacity(s) for s in vsubs)
+            alloc = sum(sub_usage.get(s.id, {}).get("allocated", 0) for s in vsubs)
+            resv = sum(sub_usage.get(s.id, {}).get("reserved", 0) for s in vsubs)
+            usage = (alloc + resv) / cap * 100 if cap else 0
+            rm = rooms.get(v.room_id) if v.room_id else None
+            out.append({
+                "id": v.id, "vlan_id": v.vlan_id, "name": v.name,
+                "description": v.description, "status": v.status,
+                "room_id": v.room_id, "room_name": rm.name if rm else None,
+                "subnet_count": len(vsubs), "capacity": cap,
+                "allocated": alloc, "reserved": resv, "usage": round(usage, 2),
+                "over_watermark": usage >= 80, "watermark": 80,
+            })
+        return out
+
+    async def create_vlan(self, vlan_id: int, name: str = "", description: Optional[str] = None,
+                          room_id: Optional[int] = None, status: str = "active") -> Vlan:
+        if (await self.db.execute(select(Vlan).where(Vlan.vlan_id == vlan_id))).scalar_one_or_none():
+            raise ValueError("\u8be5 VLAN \u7f16\u53f7\u5df2\u5b58\u5728")
+        v = Vlan(vlan_id=vlan_id, name=name, description=description, room_id=room_id, status=status)
+        self.db.add(v)
+        await self.db.flush()
+        await self.db.refresh(v)
+        return v
+
+    async def update_vlan(self, vlan_pk: int, name=None, description=..., room_id=..., status=None) -> Optional[Vlan]:
+        v = (await self.db.execute(select(Vlan).where(Vlan.id == vlan_pk))).scalar_one_or_none()
+        if not v:
+            return None
+        if name is not None:
+            v.name = name
+        if description is not ...:
+            v.description = description
+        if room_id is not ...:
+            v.room_id = room_id
+        if status is not None:
+            v.status = status
+        await self.db.flush()
+        await self.db.refresh(v)
+        return v
+
+    async def delete_vlan(self, vlan_pk: int) -> bool:
+        v = (await self.db.execute(select(Vlan).where(Vlan.id == vlan_pk))).scalar_one_or_none()
+        if not v:
+            return False
+        # \u5c06\u5176\u4e0b\u5b50\u7f51\u7684 vlan_id \u6e05\u7a7a\uff0c\u907f\u514d\u60ac\u7a7a\u5f15\u7528
+        for s in (await self.db.execute(select(IpSubnet).where(IpSubnet.vlan_id == vlan_pk))).scalars().all():
+            s.vlan_id = None
+        await self.db.delete(v)
+        await self.db.flush()
+        return True
+
+    async def export_subnets_csv(self) -> str:
+        """\u5bfc\u51fa\u7f51\u6bb5\u53f0\u8d26 CSV\u3002"""
+        import csv, io
+        subs = await self.list_subnets()
+        buf = io.StringIO()
+        buf.write("\ufeff")
+        w = csv.writer(buf)
+        w.writerow(["\u540d\u79f0", "CIDR", "\u7f51\u5173", "VLAN", "\u673a\u623f",
+                    "\u603b\u5bb9\u91cf", "\u5df2\u5206\u914d", "\u9884\u7559", "\u7a7a\u95f2",
+                    "\u4f7f\u7528\u7387(%)", "\u72b6\u6001"])
+        for s in subs:
+            w.writerow([s["name"], s["cidr"], s["gateway"] or "", s["vlan_name"] or s["vlan"] or "",
+                        s["room_name"] or "", s["capacity"], s["allocated"], s["reserved"], s["free"],
+                        s["usage"], s["status"]])
+        return buf.getvalue()
+
+    async def export_addresses_csv(self, subnet_id: Optional[int] = None, status: Optional[str] = None) -> str:
+        """\u5bfc\u51fa IP \u53f0\u8d26 CSV\u3002"""
+        import csv, io
+        items, _ = await self.list_addresses(subnet_id, status, None, 1, 100000)
+        buf = io.StringIO()
+        buf.write("\ufeff")
+        w = csv.writer(buf)
+        w.writerow(["IP\u5730\u5740", "\u72b6\u6001", "\u6240\u5c5e\u7f51\u6bb5", "\u5360\u7528\u8bbe\u5907",
+                    "\u7528\u9014", "\u5907\u6ce8", "\u66f4\u65b0\u65f6\u95f4"])
+        for it in items:
+            w.writerow([it["address"], it["status"], it["subnet"] or "", it["device_name"] or "",
+                        it["used_as"] or "", it["remark"] or "",
+                        (it["updated_at"].strftime("%Y-%m-%d %H:%M") if it["updated_at"] else "")])
+        return buf.getvalue()
+
+    async def create_subnet(self, name, network, prefix, gateway=None, vlan=None, vlan_id=None, description=None, status="active") -> IpSubnet:
         # 校验 CIDR
         try:
             net = ipaddress.ip_network(f"{network}/{prefix}", strict=False)
@@ -116,19 +242,20 @@ class IpRegistryService:
         exists = (await self.db.execute(select(IpSubnet).where(IpSubnet.network == network, IpSubnet.prefix == prefix))).scalar_one_or_none()
         if exists:
             raise ValueError("该网段已存在")
-        sub = IpSubnet(name=name, network=network, prefix=prefix, gateway=gateway, vlan=vlan, description=description, status=status)
+        sub = IpSubnet(name=name, network=network, prefix=prefix, gateway=gateway, vlan=vlan, vlan_id=vlan_id, description=description, status=status)
         self.db.add(sub)
         await self.db.flush()
         await self.db.refresh(sub)
         return sub
 
-    async def update_subnet(self, subnet_id: int, name=None, gateway=None, vlan=None, description=None, status=None) -> Optional[IpSubnet]:
+    async def update_subnet(self, subnet_id: int, name=None, gateway=None, vlan=None, vlan_id=None, description=None, status=None) -> Optional[IpSubnet]:
         sub = (await self.db.execute(select(IpSubnet).where(IpSubnet.id == subnet_id))).scalar_one_or_none()
         if not sub:
             return None
         if name is not None: sub.name = name
         if gateway is not None: sub.gateway = gateway
         if vlan is not None: sub.vlan = vlan
+        if vlan_id is not None: sub.vlan_id = vlan_id
         if description is not None: sub.description = description
         if status is not None: sub.status = status
         await self.db.flush()

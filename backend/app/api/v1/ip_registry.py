@@ -17,6 +17,7 @@ class SubnetCreate(BaseModel):
     prefix: int = Field(8, ge=1, le=32, description="前缀长度")
     gateway: Optional[str] = Field(None, max_length=64)
     vlan: Optional[str] = Field(None, max_length=64)
+    vlan_id: Optional[int] = Field(None)
     description: Optional[str] = Field(None, max_length=256)
     status: str = Field("active", description="active/disabled")
 
@@ -25,6 +26,7 @@ class SubnetUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=128)
     gateway: Optional[str] = Field(None, max_length=64)
     vlan: Optional[str] = Field(None, max_length=64)
+    vlan_id: Optional[int] = Field(None)
     description: Optional[str] = Field(None, max_length=256)
     status: Optional[str] = None
 
@@ -42,7 +44,7 @@ class AddressSave(BaseModel):
 @router.get("/subnets")
 async def list_subnets(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission("device:view")),
+    current_user: User = Depends(require_permission("ip:view")),
 ):
     return await IpRegistryService(db).list_subnets()
 
@@ -52,11 +54,11 @@ async def create_subnet(
     req: SubnetCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission("device:edit")),
+    current_user: User = Depends(require_permission("ip:edit")),
 ):
     svc = IpRegistryService(db)
     try:
-        sub = await svc.create_subnet(req.name, req.network, req.prefix, req.gateway, req.vlan, req.description, req.status)
+        sub = await svc.create_subnet(req.name, req.network, req.prefix, req.gateway, req.vlan, req.vlan_id, req.description, req.status)
         from app.services.audit_service import AuditService
         AuditService.log_request(db, request, current_user=current_user, action="create", target_type="subnet", target_id=str(sub.id), detail=f"创建子网: {req.network}/{req.prefix}")
         return {"id": sub.id, "cidr": f"{sub.network}/{sub.prefix}"}
@@ -70,10 +72,10 @@ async def update_subnet(
     req: SubnetUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission("device:edit")),
+    current_user: User = Depends(require_permission("ip:edit")),
 ):
     svc = IpRegistryService(db)
-    sub = await svc.update_subnet(subnet_id, name=req.name, gateway=req.gateway, vlan=req.vlan, description=req.description, status=req.status)
+    sub = await svc.update_subnet(subnet_id, name=req.name, gateway=req.gateway, vlan=req.vlan, vlan_id=req.vlan_id, description=req.description, status=req.status)
     if not sub:
         raise HTTPException(status_code=404, detail="子网不存在")
     from app.services.audit_service import AuditService
@@ -86,7 +88,7 @@ async def delete_subnet(
     subnet_id: int,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission("device:delete")),
+    current_user: User = Depends(require_permission("ip:edit")),
 ):
     svc = IpRegistryService(db)
     if not await svc.delete_subnet(subnet_id):
@@ -104,7 +106,7 @@ async def list_addresses(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission("device:view")),
+    current_user: User = Depends(require_permission("ip:view")),
 ):
     items, total = await IpRegistryService(db).list_addresses(subnet_id, status, keyword, page, page_size)
     return {"items": items, "total": total, "page": page, "page_size": page_size}
@@ -115,7 +117,7 @@ async def save_address(
     req: AddressSave,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission("device:edit")),
+    current_user: User = Depends(require_permission("ip:allocate")),
 ):
     svc = IpRegistryService(db)
     try:
@@ -132,7 +134,7 @@ async def allocate_address(
     req: AddressSave,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission("device:edit")),
+    current_user: User = Depends(require_permission("ip:allocate")),
 ):
     """\u4ece\u6307\u5b9a\u5b50\u7f51\u81ea\u52a8\u5206\u914d\u4e00\u4e2a\u7a7a\u95f2 IP\uff08\u53ef\u4f20 preferred \u4f5c\u4e3a\u504f\u597d\uff09\u3002"""
     svc = IpRegistryService(db)
@@ -154,7 +156,7 @@ async def list_history(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission("device:view")),
+    current_user: User = Depends(require_permission("ip:view")),
 ):
     """\u67e5\u8be2 IP \u53f0\u8d26\u53d8\u66f4\u5386\u53f2\u3002"""
     items, total = await IpRegistryService(db).list_history(address, address_id, page, page_size)
@@ -166,7 +168,7 @@ async def delete_address(
     address_id: int,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission("device:edit")),
+    current_user: User = Depends(require_permission("ip:edit")),
 ):
     svc = IpRegistryService(db)
     if not await svc.delete_address(address_id):
@@ -180,9 +182,107 @@ async def delete_address(
 async def import_device_ips(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission("device:edit")),
+    current_user: User = Depends(require_permission("ip:edit")),
 ):
     result = await IpRegistryService(db).import_device_ips()
     from app.services.audit_service import AuditService
     AuditService.log_request(db, request, current_user=current_user, action="execute", target_type="ip_address", detail="从设备导入IP台账")
     return result
+
+# ==================== VLAN 管理 ====================
+
+@router.get("/vlans")
+async def list_vlans(
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(require_permission("ip:view")),
+):
+    return await IpRegistryService(db).list_vlans()
+
+
+class VlanCreate(BaseModel):
+    vlan_id: int = Field(..., description="\u0056LAN \u7f16\u53f7")
+    name: str = Field("", max_length=128)
+    description: Optional[str] = Field(None, max_length=256)
+    room_id: Optional[int] = None
+    status: str = Field("active")
+
+
+class VlanUpdate(BaseModel):
+    name: Optional[str] = Field(None, max_length=128)
+    description: Optional[str] = Field(None, max_length=256)
+    room_id: Optional[int] = None
+    status: Optional[str] = None
+
+
+@router.post("/vlans", status_code=201)
+async def create_vlan(
+    req: VlanCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("ip:edit")),
+):
+    try:
+        v = await IpRegistryService(db).create_vlan(req.vlan_id, req.name, req.description, req.room_id, req.status)
+        from app.services.audit_service import AuditService
+        AuditService.log_request(db, request, current_user=current_user, action="create", target_type="vlan", target_id=str(v.id), detail="\u521b\u5efa VLAN " + str(req.vlan_id))
+        return {"id": v.id, "vlan_id": v.vlan_id, "name": v.name}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/vlans/{vlan_pk}")
+async def update_vlan(
+    vlan_pk: int,
+    req: VlanUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("ip:edit")),
+):
+    v = await IpRegistryService(db).update_vlan(vlan_pk, req.name, req.description, req.room_id, req.status)
+    if not v:
+        raise HTTPException(status_code=404, detail="\u0056LAN \u4e0d\u5b58\u5728")
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="update", target_type="vlan", target_id=str(vlan_pk), detail="\u66f4\u65b0 VLAN " + str(v.vlan_id))
+    return {"message": "\u66f4\u65b0\u6210\u529f"}
+
+
+@router.delete("/vlans/{vlan_pk}")
+async def delete_vlan(
+    vlan_pk: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("ip:recycle")),
+):
+    if not await IpRegistryService(db).delete_vlan(vlan_pk):
+        raise HTTPException(status_code=404, detail="\u0056LAN \u4e0d\u5b58\u5728")
+    from app.services.audit_service import AuditService
+    AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="vlan", target_id=str(vlan_pk), detail="\u5220\u9664 VLAN")
+    return {"message": "\u5220\u9664\u6210\u529f"}
+
+
+# ==================== CSV 导出 ====================
+
+@router.get("/subnets/export")
+async def export_subnets(
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(require_permission("ip:view")),
+):
+    csv_text = await IpRegistryService(db).export_subnets_csv()
+    from fastapi.responses import Response
+    return Response(content=csv_text, media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": "attachment; filename=subnets.csv"})
+
+
+@router.get("/addresses/export")
+async def export_addresses(
+    subnet_id: Optional[int] = Query(None),
+    status: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(require_permission("ip:view")),
+):
+    csv_text = await IpRegistryService(db).export_addresses_csv(subnet_id, status)
+    from fastapi.responses import Response
+    return Response(content=csv_text, media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": "attachment; filename=addresses.csv"})
+
+

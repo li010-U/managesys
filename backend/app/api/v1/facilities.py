@@ -1,8 +1,9 @@
-﻿"""机房管理 API 路由"""
+"""机房管理 API 路由"""
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db, get_current_user, require_permission
+from app.core.iputils import request_client_ip
 from app.models.user import User
 from app.services.facility_service import DataCenterService, RoomService, RackService
 from app.schemas.facility import (
@@ -12,15 +13,6 @@ from app.schemas.facility import (
 )
 
 router = APIRouter(prefix="/facilities", tags=["机房管理"])
-
-
-def get_client_ip(request: Request) -> str:
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    if request.client:
-        return request.client.host
-    return None
 
 
 # ==================== DataCenter ====================
@@ -83,13 +75,13 @@ async def create_data_center(
 ):
     service = DataCenterService(db)
     try:
-        dc = await service.create(req, current_user.username, get_client_ip(request))
+        dc = await service.create(req, current_user.username, request_client_ip(request))
         from app.services.audit_service import AuditService
         AuditService.log_request(db, request, current_user=current_user, action="create", target_type="data_center", target_id=str(dc.id), detail=f"创建数据中心: {dc.name}")
         r = DataCenterResponse.model_validate(dc)
         r.room_count = 0
         return r
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
@@ -103,7 +95,7 @@ async def update_data_center(
     _ = Depends(require_permission("room:edit"))
 ):
     service = DataCenterService(db)
-    dc = await service.update(dc_id, req, current_user.username, get_client_ip(request))
+    dc = await service.update(dc_id, req, current_user.username, request_client_ip(request))
     if not dc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="数据中心不存在")
     r = DataCenterResponse.model_validate(dc)
@@ -120,7 +112,7 @@ async def delete_data_center(
     _ = Depends(require_permission("room:delete"))
 ):
     service = DataCenterService(db)
-    if not await service.delete(dc_id, current_user.username, get_client_ip(request)):
+    if not await service.delete(dc_id, current_user.username, request_client_ip(request)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="数据中心不存在")
     from app.services.audit_service import AuditService
     AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="data_center", target_id=str(dc_id), detail="删除数据中心")
@@ -192,7 +184,7 @@ async def create_room(
 ):
     service = RoomService(db)
     try:
-        room = await service.create(req, current_user.username, get_client_ip(request))
+        room = await service.create(req, current_user.username, request_client_ip(request))
         from app.services.audit_service import AuditService
         AuditService.log_request(db, request, current_user=current_user, action="create", target_type="room", target_id=str(room.id), detail=f"创建机房: {room.name}")
         r = RoomResponse.model_validate(room)
@@ -200,7 +192,7 @@ async def create_room(
         if room.data_center:
             r.data_center_name = room.data_center.name
         return r
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
@@ -214,7 +206,7 @@ async def update_room(
     _ = Depends(require_permission("room:edit"))
 ):
     service = RoomService(db)
-    room = await service.update(room_id, req, current_user.username, get_client_ip(request))
+    room = await service.update(room_id, req, current_user.username, request_client_ip(request))
     if not room:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="机房不存在")
     r = RoomResponse.model_validate(room)
@@ -232,7 +224,7 @@ async def delete_room(
     _ = Depends(require_permission("room:delete"))
 ):
     service = RoomService(db)
-    if not await service.delete(room_id, current_user.username, get_client_ip(request)):
+    if not await service.delete(room_id, current_user.username, request_client_ip(request)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="机房不存在")
     from app.services.audit_service import AuditService
     AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="room", target_id=str(room_id), detail="删除机房")
@@ -372,7 +364,6 @@ async def rack_environment(
         "active_alerts": int(active),
         "rack_alerts": rack_id_to_alerts,
     }
-
 
 @router.get("/rooms/{room_id}/rack3d")
 async def room_rack3d(
@@ -514,8 +505,6 @@ async def room_rack3d(
         "temperature": {"avg": temp_avg, "min": temp_min, "max": temp_max},
     }
 
-
-
 @router.get("/rooms/{room_id}/resources")
 async def room_resources(
     room_id: int,
@@ -607,7 +596,6 @@ async def room_resources(
         "cpu_distribution": cpu_dist,
     }
 
-
 @router.post("/racks", response_model=RackResponse, status_code=status.HTTP_201_CREATED)
 async def create_rack(
     req: RackCreate,
@@ -618,7 +606,7 @@ async def create_rack(
 ):
     service = RackService(db)
     try:
-        rack = await service.create(req, current_user.username, get_client_ip(request))
+        rack = await service.create(req, current_user.username, request_client_ip(request))
         from app.services.audit_service import AuditService
         AuditService.log_request(db, request, current_user=current_user, action="create", target_type="rack", target_id=str(rack.id), detail=f"创建机柜: {rack.name}")
         r = RackResponse.model_validate(rack)
@@ -626,7 +614,7 @@ async def create_rack(
         if rack.room:
             r.room_name = rack.room.name
         return r
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
@@ -640,7 +628,7 @@ async def update_rack(
     _ = Depends(require_permission("rack:edit"))
 ):
     service = RackService(db)
-    rack = await service.update(rack_id, req, current_user.username, get_client_ip(request))
+    rack = await service.update(rack_id, req, current_user.username, request_client_ip(request))
     if not rack:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="机柜不存在")
     r = RackResponse.model_validate(rack)
@@ -658,7 +646,7 @@ async def delete_rack(
     _ = Depends(require_permission("rack:delete"))
 ):
     service = RackService(db)
-    if not await service.delete(rack_id, current_user.username, get_client_ip(request)):
+    if not await service.delete(rack_id, current_user.username, request_client_ip(request)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="机柜不存在")
     from app.services.audit_service import AuditService
     AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="rack", target_id=str(rack_id), detail="删除机柜")

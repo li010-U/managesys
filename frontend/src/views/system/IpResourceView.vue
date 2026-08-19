@@ -162,7 +162,9 @@ import {
   getIpSubnetsApi, createIpSubnetApi, updateIpSubnetApi, deleteIpSubnetApi,
   getIpRegistryAddressesApi, saveIpRegistryAddressApi, deleteIpRegistryAddressApi, importDeviceIpsApi,
   allocateIpApi, getIpHistoryApi,
-  type IpSubnet, type IpRegistryAddress, type IpAllocateResult, type IpHistoryEntry,
+  listVlansApi, createVlanApi, updateVlanApi, deleteVlanApi,
+  exportSubnetsApi, exportAddressesApi, downloadCsvBlob,
+  type IpSubnet, type IpRegistryAddress, type IpAllocateResult, type IpHistoryEntry, type IpVlan,
 } from "@/api/ipRegistry"
 
 const router = useRouter()
