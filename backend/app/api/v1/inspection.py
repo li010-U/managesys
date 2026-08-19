@@ -216,7 +216,7 @@ async def get_task(
     """, (task_id,))
     task = result.fetchone()
     if not task:
-        raise HTTPException(404, "Task not found")
+        raise HTTPException(404, "巡检任务不存在")
     
     # Get records
     rec_result = await exec_sql(db, """
@@ -255,7 +255,7 @@ async def create_task(
     result = await exec_sql(db, "SELECT * FROM inspection_plans WHERE id = ?", (plan_id,))
     plan = result.fetchone()
     if not plan:
-        raise HTTPException(404, "Plan not found")
+        raise HTTPException(404, "巡检计划不存在")
     
     if not scheduled_date:
         scheduled_date = date.today().isoformat()
@@ -297,11 +297,11 @@ async def start_task(
 ):
     task_row = (await exec_sql(db, "SELECT assignee_id, status FROM inspection_tasks WHERE id = ?", (task_id,))).fetchone()
     if not task_row:
-        raise HTTPException(404, "Task not found")
+        raise HTTPException(404, "巡检任务不存在")
     if task_row.status != "pending":
-        raise HTTPException(400, "Cannot start task in status '{0}'".format(task_row.status))
+        raise HTTPException(400, "当前状态无法开始该巡检任务: 状态'{0}'".format(task_row.status))
     if task_row.assignee_id is not None and task_row.assignee_id != current_user.id and not current_user.is_super_admin:
-        raise HTTPException(403, "Only the assignee can manage this task")
+        raise HTTPException(403, "仅负责人可管理该巡检任务")
     await exec_sql(db, "UPDATE inspection_tasks SET status = 'in_progress', start_time = CURRENT_TIMESTAMP WHERE id = ?", (task_id,))
     from app.services.audit_service import AuditService
     AuditService.log_request(db, request, current_user=current_user, action="start", target_type="inspection_task", target_id=str(task_id), detail="开始巡检任务")
@@ -318,11 +318,11 @@ async def complete_task(
 ):
     task_row = (await exec_sql(db, "SELECT assignee_id, status FROM inspection_tasks WHERE id = ?", (task_id,))).fetchone()
     if not task_row:
-        raise HTTPException(404, "Task not found")
+        raise HTTPException(404, "巡检任务不存在")
     if task_row.status not in {"in_progress", "pending"}:
-        raise HTTPException(400, "Cannot complete task in status '{0}'".format(task_row.status))
+        raise HTTPException(400, "当前状态无法完成该巡检任务: 状态'{0}'".format(task_row.status))
     if task_row.assignee_id is not None and task_row.assignee_id != current_user.id and not current_user.is_super_admin:
-        raise HTTPException(403, "Only the assignee can manage this task")
+        raise HTTPException(403, "仅负责人可管理该巡检任务")
     result = await exec_sql(db, """
         SELECT 
             COUNT(*) as total,

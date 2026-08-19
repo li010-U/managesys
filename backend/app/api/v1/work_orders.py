@@ -41,15 +41,15 @@ async def _ensure_manageable(work_order_id: int, current_user: User, db: AsyncSe
     """
     row = (await exec_sql(db, "SELECT creator_id, assignee_id, status FROM work_orders WHERE id = ?", (work_order_id,))).fetchone()
     if not row:
-        raise HTTPException(404, "Work order not found")
+        raise HTTPException(404, "工单不存在")
     if current_user.is_super_admin:
         return row
     if need_creator:
         if row.creator_id != current_user.id:
-            raise HTTPException(403, "Only the creator or an admin can perform this action on the work order")
+            raise HTTPException(403, "仅创建人或管理员可执行该操作")
         return row
     if row.creator_id != current_user.id and row.assignee_id != current_user.id:
-        raise HTTPException(403, "Only the creator, assignee, or an admin can perform this action on the work order")
+        raise HTTPException(403, "仅创建人、负责人或管理员可执行该操作")
     return row
 
 
@@ -88,7 +88,7 @@ async def create_category(
 
     row = result.fetchone()
     if row is None:
-        raise HTTPException(status_code=fastapi_status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Category creation failed")
+        raise HTTPException(status_code=fastapi_status.HTTP_500_INTERNAL_SERVER_ERROR, detail="工单分类创建失败")
     data_dict = dict(row._mapping)
     data_dict["need_approval"] = bool(data_dict.get("need_approval"))
     return {"data": data_dict}
@@ -105,7 +105,7 @@ async def update_category(
 ):
     row = (await exec_sql(db, "SELECT id FROM work_order_categories WHERE id = ?", (category_id,))).fetchone()
     if not row:
-        raise HTTPException(404, "Category not found")
+        raise HTTPException(404, "工单分类不存在")
     update_fields = data.model_dump(exclude_unset=True)
     if update_fields:
         cols = ", ".join(f"{k} = ?" for k in update_fields)
@@ -259,7 +259,7 @@ async def get_work_order(
     """, (work_order_id,))
     order = result.fetchone()
     if not order:
-        raise HTTPException(404, "Work order not found")
+        raise HTTPException(404, "工单不存在")
 
     attach_result = await exec_sql(db, """
         SELECT wa.*, u.username as uploader_name
@@ -348,7 +348,7 @@ async def create_work_order(
     result = await exec_sql(db, "SELECT id FROM work_orders WHERE order_no = ?", (order_no,))
     row = result.fetchone()
     if row is None:
-        raise HTTPException(status_code=fastapi_status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Work order creation failed")
+        raise HTTPException(status_code=fastapi_status.HTTP_500_INTERNAL_SERVER_ERROR, detail="工单创建失败")
     order_id = row.id
 
     if applied_rule:
@@ -373,7 +373,7 @@ async def update_work_order(
 ):
     row = await _ensure_manageable(work_order_id, current_user, db)
     if row.status in ["completed", "closed"]:
-        raise HTTPException(400, "Cannot update completed or closed work order")
+        raise HTTPException(400, "已完成或已关闭的工单无法修改")
 
     updates = []
     params = []
@@ -402,7 +402,7 @@ async def assign_work_order(
 ):
     assignee_id = data.assignee_id
     if not assignee_id:
-        raise HTTPException(400, "Assignee is required")
+        raise HTTPException(400, "请指定负责人")
 
     await _ensure_manageable(work_order_id, current_user, db, need_creator=True)
 
@@ -430,11 +430,11 @@ async def start_work_order(
 ):
     row = (await exec_sql(db, "SELECT assignee_id, status FROM work_orders WHERE id = ?", (work_order_id,))).fetchone()
     if not row:
-        raise HTTPException(404, "Work order not found")
+        raise HTTPException(404, "工单不存在")
     if row.status not in {"assigned", "pending"}:
-        raise HTTPException(400, "Cannot start work order in status '{0}'".format(row.status))
+        raise HTTPException(400, "当前状态无法开始该工单: 状态'{0}'".format(row.status))
     if row.assignee_id is not None and row.assignee_id != current_user.id and not current_user.is_super_admin:
-        raise HTTPException(403, "Only the assignee can start this work order")
+        raise HTTPException(403, "仅负责人可开始该工单")
 
     await exec_sql(db,
         "UPDATE work_orders SET status = 'processing', start_time = CURRENT_TIMESTAMP WHERE id = ?",
@@ -464,11 +464,11 @@ async def complete_work_order(
 
     row = (await exec_sql(db, "SELECT assignee_id, status FROM work_orders WHERE id = ?", (work_order_id,))).fetchone()
     if not row:
-        raise HTTPException(404, "Work order not found")
+        raise HTTPException(404, "工单不存在")
     if row.status != "processing":
-        raise HTTPException(400, "Cannot complete work order in status '{0}'".format(row.status))
+        raise HTTPException(400, "当前状态无法完成该工单: 状态'{0}'".format(row.status))
     if row.assignee_id is not None and row.assignee_id != current_user.id and not current_user.is_super_admin:
-        raise HTTPException(403, "Only the assignee can complete this work order")
+        raise HTTPException(403, "仅负责人可完成该工单")
 
     await exec_sql(db, "UPDATE work_orders SET status = 'pending_verify', result = ?, end_time = CURRENT_TIMESTAMP, actual_hours = ? WHERE id = ?",
         (result, actual_hours or 0, work_order_id))
@@ -497,11 +497,11 @@ async def verify_work_order(
 
     row = (await exec_sql(db, "SELECT creator_id, status FROM work_orders WHERE id = ?", (work_order_id,))).fetchone()
     if not row:
-        raise HTTPException(404, "Work order not found")
+        raise HTTPException(404, "工单不存在")
     if row.status != "pending_verify":
-        raise HTTPException(400, "Cannot verify work order in status '{0}'".format(row.status))
+        raise HTTPException(400, "当前状态无法验收该工单: 状态'{0}'".format(row.status))
     if row.creator_id != current_user.id and not current_user.is_super_admin:
-        raise HTTPException(403, "Only the creator can verify this work order")
+        raise HTTPException(403, "仅创建人可验收该工单")
 
     new_status = "completed" if accept else "processing"
     await exec_sql(db, "UPDATE work_orders SET status = ?, satisfaction = ?, feedback = ? WHERE id = ?",
@@ -529,11 +529,11 @@ async def close_work_order(
 ):
     row = (await exec_sql(db, "SELECT creator_id, status FROM work_orders WHERE id = ?", (work_order_id,))).fetchone()
     if not row:
-        raise HTTPException(404, "Work order not found")
+        raise HTTPException(404, "工单不存在")
     if row.status != "completed":
-        raise HTTPException(400, "Cannot close work order in status '{0}'".format(row.status))
+        raise HTTPException(400, "当前状态无法关闭该工单: 状态'{0}'".format(row.status))
     if row.creator_id != current_user.id and not current_user.is_super_admin:
-        raise HTTPException(403, "Only the creator can close this work order")
+        raise HTTPException(403, "仅创建人可关闭该工单")
 
     remark = data.remark or ""
     await exec_sql(db, "UPDATE work_orders SET status = 'closed' WHERE id = ?", (work_order_id,))
@@ -571,7 +571,7 @@ async def add_comment(
 
     row = result.fetchone()
     if row is None:
-        raise HTTPException(status_code=fastapi_status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Comment save failed")
+        raise HTTPException(status_code=fastapi_status.HTTP_500_INTERNAL_SERVER_ERROR, detail="工单评论保存失败")
     return {"data": dict(row._mapping)}
 
 
@@ -612,10 +612,10 @@ async def download_attachment(
     from fastapi.responses import FileResponse
     row = (await exec_sql(db, "SELECT * FROM work_order_attachments WHERE id = ?", (attachment_id,))).fetchone()
     if not row:
-        raise HTTPException(404, "Attachment not found")
+        raise HTTPException(404, "附件不存在")
     file_path = file_service.get_file_path(row.file_path)
     if not file_path:
-        raise HTTPException(404, "File not found")
+        raise HTTPException(404, "文件不存在")
     return FileResponse(str(file_path), filename=row.file_name, media_type="application/octet-stream")
 
 
@@ -629,9 +629,9 @@ async def delete_attachment(
 ):
     row = (await exec_sql(db, "SELECT * FROM work_order_attachments WHERE id = ?", (attachment_id,))).fetchone()
     if not row:
-        raise HTTPException(404, "Attachment not found")
+        raise HTTPException(404, "附件不存在")
     if row.uploader_id != current_user.id and not current_user.is_super_admin:
-        raise HTTPException(403, "Only the uploader can delete this attachment")
+        raise HTTPException(403, "仅上传者可删除该附件")
     await exec_sql(db, "DELETE FROM work_order_attachments WHERE id = ?", (attachment_id,))
     file_service.delete_file(row.file_path)
     AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="work_order", target_id=str(attachment_id), detail='删除附件')
@@ -650,9 +650,9 @@ async def approve_work_order(
 ):
     row = (await exec_sql(db, "SELECT status, assignee_id, title FROM work_orders WHERE id = ?", (work_order_id,))).fetchone()
     if not row:
-        raise HTTPException(404, "Work order not found")
+        raise HTTPException(404, "工单不存在")
     if row.status != "awaiting_approval":
-        raise HTTPException(400, "Only work orders awaiting approval can be approved")
+        raise HTTPException(400, "仅待审批的工单可批准")
     new_status = "assigned" if row.assignee_id else "pending"
     await exec_sql(db, "UPDATE work_orders SET status = ?, approved_by = ?, approved_at = CURRENT_TIMESTAMP, reject_reason = NULL WHERE id = ?",
         (new_status, current_user.id, work_order_id))
@@ -675,9 +675,9 @@ async def reject_work_order(
     reason = (data or {}).get("reason") or ""
     row = (await exec_sql(db, "SELECT status FROM work_orders WHERE id = ?", (work_order_id,))).fetchone()
     if not row:
-        raise HTTPException(404, "Work order not found")
+        raise HTTPException(404, "工单不存在")
     if row.status != "awaiting_approval":
-        raise HTTPException(400, "Only work orders awaiting approval can be rejected")
+        raise HTTPException(400, "仅待审批的工单可驳回")
     await exec_sql(db, "UPDATE work_orders SET status = 'closed', approved_by = ?, approved_at = CURRENT_TIMESTAMP, reject_reason = ? WHERE id = ?",
         (current_user.id, reason, work_order_id))
     await exec_sql(db, "INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type, created_at) VALUES (?, ?, ?, ?, datetime('now','localtime'))",
@@ -732,11 +732,11 @@ async def delete_work_order(
     result = await exec_sql(db, "SELECT status, creator_id FROM work_orders WHERE id = ?", (work_order_id,))
     order = result.fetchone()
     if not order:
-        raise HTTPException(404, "Work order not found")
+        raise HTTPException(404, "工单不存在")
     if order.creator_id != current_user.id and not current_user.is_super_admin:
-        raise HTTPException(403, "Only creator can delete")
+        raise HTTPException(403, "仅创建人可删除")
     if order.status not in ["pending", "closed"]:
-        raise HTTPException(400, "Can only delete pending or closed work orders")
+        raise HTTPException(400, "仅待处理或已关闭的工单可删除")
 
     await exec_sql(db, "DELETE FROM work_order_comments WHERE work_order_id = ?", (work_order_id,))
     await exec_sql(db, "DELETE FROM work_orders WHERE id = ?", (work_order_id,))

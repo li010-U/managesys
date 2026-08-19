@@ -81,7 +81,7 @@ async def update_rule(
 ):
     row = (await exec_sql(db, "SELECT id FROM work_order_auto_rules WHERE id = ?", (rule_id,))).fetchone()
     if not row:
-        raise HTTPException(404, "Rule not found")
+        raise HTTPException(404, "自动规则不存在")
     # 可编辑字段白名单映射到数据库列，避免拼接任意 SQL
     # 仅白名单字段参与更新（defensive）
     FIELD_TO_COL = {
