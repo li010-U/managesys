@@ -56,7 +56,7 @@ async def list_all_sensors(
     return resp
 
 
-@router.get("/{sensor_id}", response_model=SensorResponse)
+@router.get("/{sensor_id:int}", response_model=SensorResponse)
 async def get_sensor(
     sensor_id: int,
     db: AsyncSession = Depends(get_db),
@@ -89,11 +89,11 @@ async def create_sensor(
         if hasattr(s, "room") and s.room:
             r.room_name = s.room.name
         return r
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.put("/{sensor_id}", response_model=SensorResponse)
+@router.put("/{sensor_id:int}", response_model=SensorResponse)
 async def update_sensor(
     sensor_id: int,
     req: SensorUpdate,
@@ -114,7 +114,7 @@ async def update_sensor(
     return r
 
 
-@router.delete("/{sensor_id}")
+@router.delete("/{sensor_id:int}")
 async def delete_sensor(
     sensor_id: int,
     request: Request,
@@ -130,19 +130,25 @@ async def delete_sensor(
     return {"message": "传感器已删除"}
 
 
-@router.get("/{sensor_id}/data", response_model=list[SensorDataResponse])
+@router.get("/{sensor_id:int}/data", response_model=list[SensorDataResponse])
 async def get_sensor_data(
     sensor_id: int,
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=1000),
+    hours: float = Query(None, ge=0.1, le=24 * 30),
     db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(require_permission("device:view")),
 ):
+    """获取传感器历史数据。
+    - limit: 返回点数上限（默认 20）。
+    - hours: 可选，指定回溯时间窗口（小时）。设置后返回该窗口内完整数据，
+      并对海量采样点自动降采样，供半天/一天等长周期趋势图展示。
+    """
     service = SensorService(db)
-    data = await service.get_recent_data(sensor_id, limit)
+    data = await service.get_recent_data(sensor_id, limit, hours=hours)
     return [SensorDataResponse.model_validate(d) for d in data]
 
 
-@router.post("/{sensor_id}/data", response_model=SensorDataResponse)
+@router.post("/{sensor_id:int}/data", response_model=SensorDataResponse)
 async def record_sensor_data(
     request: Request,
     sensor_id: int,
@@ -153,6 +159,8 @@ async def record_sensor_data(
 ):
     service = SensorService(db)
     sd = await service.record_data(sensor_id, value)
+    if sd is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="传感器不存在")
     from app.services.audit_service import AuditService
     AuditService.log_request(db, request, current_user=current_user, action="execute", target_type="sensor", target_id=str(sensor_id), detail="录入传感器数据")
     return SensorDataResponse.model_validate(sd)

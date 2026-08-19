@@ -7,7 +7,8 @@ import pytest
 from app.models.sensor import Sensor, SensorData, SensorAnomalyGap
 from app.models.alert import Alert
 from app.models.facility import DataCenter, Room
-from app.services.sensor_service import SensorService
+from app.schemas.sensor import SensorDataResponse
+from app.services.sensor_service import SensorService, MAX_TREND_POINTS
 from app.services.sensor_anomaly_service import SensorAnomalyService
 
 
@@ -134,3 +135,70 @@ async def test_reconcile_detects_between_points_breach(db_session, sensor_with_d
     # 幂等：再次运行不重复
     added2 = await svc.reconcile_from_alerts(since=now - timedelta(days=1))
     assert added2 == 0
+
+
+@pytest.mark.asyncio
+async def test_get_recent_data_downsample_validates_as_sensor_data_response(db_session, sensor_with_data):
+    """???????hours??????? _PointSample ???? SensorDataResponse ???
+    ?? route ? model_validate ? ValidationError -> 500????????????????
+    ??????????????????????? N ?????????"""
+    now = datetime.now()
+    total = 2000  # ???? limit(1000) ? MAX_TREND_POINTS(240)????????????
+    step_seconds = (24 * 3600) / total
+    for i in range(total):
+        db_session.add(SensorData(
+            sensor_id=sensor_with_data.id,
+            value=float(i),
+            recorded_at=now - timedelta(hours=24) + timedelta(seconds=i * step_seconds),
+        ))
+    await db_session.commit()
+
+    svc = SensorService(db_session)
+    data = await svc.get_recent_data(sensor_with_data.id, limit=1000, hours=24)
+
+    assert len(data) > 0
+    assert len(data) <= MAX_TREND_POINTS
+    validated = [SensorDataResponse.model_validate(d) for d in data]
+    assert len(validated) == len(data)
+    assert all(v.sensor_id == sensor_with_data.id for v in validated)
+
+    earliest = min(validated, key=lambda v: v.recorded_at).recorded_at
+    latest = max(validated, key=lambda v: v.recorded_at).recorded_at
+    assert (now - earliest).total_seconds() <= 25 * 3600, f"earliest ??: {earliest}"
+    assert (latest - now).total_seconds() < 3600, f"latest ??: {latest}"
+    span_hours = (latest - earliest).total_seconds() / 3600
+    assert span_hours >= 20, f"???????????? {span_hours:.1f}h"
+
+
+# get_all ??????? N+1 ????
+from sqlalchemy import event as _sa_event
+
+_QUERY_COUNT = {"n": 0}
+
+
+def _count_sql(conn, cursor, statement, parameters, context, executemany):
+    _QUERY_COUNT["n"] += 1
+
+
+@pytest.mark.asyncio
+async def test_get_all_is_single_query_no_nplus1(db_session):
+    """???/sensors/all ? get_all ???? 1 ? SQL?
+    ?? data_records/anomaly_gaps ? selectin ?????? Sensor ? eager ???????
+    ?? /sensors/all ?? ~7.4s??? lazy='noload' ??? 0.085s?
+    ???????? eager ??? N+1 ???"""
+    room = await _make_room(db_session)
+    for i in range(20):
+        db_session.add(Sensor(room_id=room.id, name=f"s{i}", code=f"code-{i}",
+                              sensor_type="temperature", threshold_min=10.0, threshold_max=30.0))
+    await db_session.flush()
+
+    _QUERY_COUNT["n"] = 0
+    _sa_event.listen(db_session.get_bind(), "before_cursor_execute", _count_sql, named=True)
+    try:
+        svc = SensorService(db_session)
+        result = await svc.get_all(room_id=room.id)
+        assert len(result) == 20
+    finally:
+        _sa_event.remove(db_session.get_bind(), "before_cursor_execute", _count_sql)
+
+    assert _QUERY_COUNT["n"] == 1, f"get_all ?? 1 ? SQL??? {_QUERY_COUNT['n']} ??N+1 ???"

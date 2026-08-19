@@ -2,7 +2,7 @@
 """传感器与传感器数据模型"""
 from datetime import datetime
 from typing import Optional, List
-from sqlalchemy import String, Integer, DateTime, Float, Text, ForeignKey, JSON
+from sqlalchemy import String, Integer, DateTime, Float, Text, ForeignKey, JSON, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 from app.core.timeutil import now_local
@@ -26,8 +26,11 @@ class Sensor(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, comment="创建时间")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_local, onupdate=now_local, comment="更新时间")
 
-    data_records: Mapped[List["SensorData"]] = relationship("SensorData", back_populates="sensor", lazy="selectin", cascade="all, delete-orphan")
-    anomaly_gaps: Mapped[List["SensorAnomalyGap"]] = relationship("SensorAnomalyGap", back_populates="sensor", lazy="selectin", cascade="all, delete-orphan")
+    # 列表/数据接口绝不希望在每次加载 Sensor 时把全量历史数据与异常留痕都 eager 加载进来
+    # （selectin 会一次载入全部 sensor_data / sensor_anomaly_gap，导致 /sensors/all 等接口慢到数秒）。
+    # 删除由数据库外键 ondelete=CASCADE 兜底，无需 ORM 预加载子集合。
+    data_records: Mapped[List["SensorData"]] = relationship("SensorData", back_populates="sensor", lazy="noload", cascade="all, delete-orphan")
+    anomaly_gaps: Mapped[List["SensorAnomalyGap"]] = relationship("SensorAnomalyGap", back_populates="sensor", lazy="noload", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Sensor {self.name}>"
@@ -35,6 +38,9 @@ class Sensor(Base):
 
 class SensorData(Base):
     __tablename__ = "sensor_data"
+    __table_args__ = (
+        Index("ix_sensor_data_sensor_id_recorded_at", "sensor_id", "recorded_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     sensor_id: Mapped[int] = mapped_column(Integer, ForeignKey("sensors.id", ondelete="CASCADE"), nullable=False, comment="传感器ID")
