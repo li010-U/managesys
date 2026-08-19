@@ -3,7 +3,7 @@
     <div ref="mountRef" class="rack3d-canvas"></div>
     <div class="rack3d-box" v-if="boxSelecting" ref="boxEl" :style="boxStyle"></div>
     <div v-if="!ready" class="rack3d-loading"><span>正在加载 3D 场景…</span></div>
-    <div class="rack3d-hint" v-if="!cleanMode">左键旋转 · 右键平移 · 滚轮缩放 · 点击机柜选中 · Shift+点击多选 · B 进入框选</div>
+    <div class="rack3d-hint" v-if="!cleanMode">左键旋转 · 右键平移 · 滚轮缩放 · 点击选中 · Shift 多选 · B 框选 · G 鸟瞰 · O 环绕 · R 复位</div>
     <button v-if="cleanMode" class="rack3d-exit" @click.stop="toggleClean">退出干净模式</button>
     <div class="rack3d-status" v-if="deviceCount">
       <span>{{ racks }} 个机柜 · {{ deviceCount }} 台设备 · {{ sensorCount }} 个传感器</span>
@@ -17,6 +17,8 @@
       <button class="lb-btn" :class="{active: layer==='temp'}" @click.stop="setLayer('temp')">温度热力</button>
       <button class="lb-btn" :class="{active: showLabels}" @click.stop="toggleLabels">代号</button>
       <button class="lb-btn" @click.stop="nextAlert">告警聚焦</button>
+      <button class="lb-btn" @click.stop="birdView">鸟瞰</button>
+      <button class="lb-btn" :class="{active: autoOrbit}" @click.stop="toggleOrbit">环绕</button>
       <button class="lb-btn" :class="{active: boxSelectMode}" @click.stop="toggleBoxSelect">框选</button>
       <button class="lb-btn" :class="{active: showRoomHeat}" @click.stop="toggleRoomHeat">房间热力</button>
       <button class="lb-btn" :class="{active: cleanMode}" @click.stop="toggleClean">干净</button>
@@ -49,6 +51,7 @@ const emit = defineEmits<{
   (e: 'select-rack', rack: any): void
   (e: 'selection-change', count: number): void
   (e: 'box-select', rackIds: number[]): void
+  (e: 'select-device', device: any): void
 }>()
 
 const wrapRef = ref<HTMLDivElement | null>(null)
@@ -117,6 +120,8 @@ let resizeObs: ResizeObserver | null = null
 let floorHeat: THREE.Mesh | null = null
 let heatBounds = { cx: 0, cz: 0, w: 20, d: 20 }
 let needsRender = true
+// 自动环绕漫游开关（演示/汇报增强）
+let autoOrbit = false
 
 // 对象注册表
 const rackObjs = new Map<number, {
@@ -132,8 +137,8 @@ const rackObjs = new Map<number, {
 const selectedSet = new Set<number>()
 
 // 共享材质
-const sharedMats: Record<string, THREE.MeshPhongMaterial> = {}
-const sharedDoorMats: Record<string, THREE.MeshPhongMaterial> = {}
+const sharedMats: Record<string, THREE.MeshStandardMaterial> = {}
+const sharedDoorMats: Record<string, THREE.MeshStandardMaterial> = {}
 
 // 框选起点（屏幕坐标）
 let boxStartX = 0
@@ -160,12 +165,12 @@ function heatColor(t?: number): number {
   if (t >= 25) return 0x66bb6a
   return 0x26a69a
 }
-function sharedMat(opacity: number, key: string, color: number): THREE.MeshPhongMaterial {
-  if (!sharedMats[key]) sharedMats[key] = new THREE.MeshPhongMaterial({ color, transparent: true, opacity })
+function sharedMat(opacity: number, key: string, color: number): THREE.MeshStandardMaterial {
+  if (!sharedMats[key]) sharedMats[key] = new THREE.MeshStandardMaterial({ color, transparent: true, opacity, metalness: 0.08, roughness: 0.6 })
   return sharedMats[key]
 }
-function sharedDoorMat(opacity: number, key: string, color: number): THREE.MeshPhongMaterial {
-  if (!sharedDoorMats[key]) sharedDoorMats[key] = new THREE.MeshPhongMaterial({ color, transparent: true, opacity, side: THREE.DoubleSide })
+function sharedDoorMat(opacity: number, key: string, color: number): THREE.MeshStandardMaterial {
+  if (!sharedDoorMats[key]) sharedDoorMats[key] = new THREE.MeshStandardMaterial({ color, transparent: true, opacity, side: THREE.DoubleSide, metalness: 0.2, roughness: 0.35 })
   return sharedDoorMats[key]
 }
 
@@ -206,13 +211,20 @@ function init() {
   const h = el.clientHeight || 600
 
   scene = new THREE.Scene()
-  scene.background = new THREE.Color(0xf5f7fa)
+  // 浅色科技风背景 + 线性雾：明亮通透，同时保留空间纵深
+  scene.background = new THREE.Color(0xe9f0fb)
+  scene.fog = new THREE.Fog(0xe9f0fb, 30, 130)
 
   camera = new THREE.PerspectiveCamera(55, w / h, 0.1, 1000)
 
   renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
   renderer.setSize(w, h)
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  // ACES 电影化色调映射：让质感和光照更自然（避免灰扑扑的纯色方块感）
+  renderer.toneMapping = THREE.ACESFilmicToneMapping
+  renderer.toneMappingExposure = 1.15
+  renderer.shadowMap.enabled = true
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap
   renderer.domElement.style.touchAction = 'none'
   el.appendChild(renderer.domElement)
 
@@ -229,16 +241,28 @@ function init() {
   controls.dampingFactor = 0.1
   controls.target.set(0, 1.5, 0)
 
-  const ambient = new THREE.AmbientLight(0xffffff, 0.65)
+  // 灯光：低强度环境光 + 蓝紫环境光 + 主光源（带投影）+ 暖色轮廓光 + 冷色补光
+  const ambient = new THREE.AmbientLight(0xffffff, 0.7)
   scene.add(ambient)
-  const hemi = new THREE.HemisphereLight(0xffffff, 0x8899aa, 0.35)
+  const hemi = new THREE.HemisphereLight(0xdcebff, 0xb9cbe0, 0.7)
   scene.add(hemi)
-  const dir = new THREE.DirectionalLight(0xffffff, 0.85)
-  dir.position.set(10, 20, 10)
+  const dir = new THREE.DirectionalLight(0xffffff, 1.5)
+  dir.position.set(12, 24, 14)
+  dir.castShadow = true
+  dir.shadow.mapSize.set(2048, 2048)
+  dir.shadow.camera.near = 0.5
+  dir.shadow.camera.far = 120
+  dir.shadow.camera.left = -40
+  dir.shadow.camera.right = 40
+  dir.shadow.camera.top = 40
+  dir.shadow.camera.bottom = -40
   scene.add(dir)
-  const dir2 = new THREE.DirectionalLight(0xffffff, 0.3)
-  dir2.position.set(-10, 10, -10)
-  scene.add(dir2)
+  const rim = new THREE.DirectionalLight(0x4f8fe3, 0.7)
+  rim.position.set(-14, 8, -12)
+  scene.add(rim)
+  const fill = new THREE.PointLight(0xffffff, 0.35, 100)
+  fill.position.set(0, 6, 0)
+  scene.add(fill)
 
   el.addEventListener('click', onClick)
   el.addEventListener('pointerdown', onPointerDown)
@@ -250,6 +274,13 @@ function init() {
   let lastFrame = 0
   const renderLoop = (ts: number = 0) => {
     rafId = requestAnimationFrame(renderLoop)
+    if (autoOrbit) {
+      const radius = camera.position.distanceTo(controls.target)
+      const angle = controls.getAzimuthalAngle() + 0.002
+      const sph = new THREE.Spherical(radius, controls.getPolarAngle(), angle)
+      camera.position.setFromSpherical(sph).add(controls.target)
+      needsRender = true
+    }
     controls.update()
     updateLod()
     updateWarnFlash(ts)
@@ -297,20 +328,31 @@ function buildFloor(placements: any) {
   const pad = 2.0
   const floorW = Math.max(maxX - minX, 2) + pad * 2
   const floorD = Math.max(maxZ - minZ, 2) + pad * 2
+  // 雾效随场景尺寸自适应：远景柔和淡出
+  if (scene.fog && scene.fog instanceof THREE.Fog) {
+    scene.fog.near = size * 1.4
+    scene.fog.far = size * 4
+  }
   const floorGeo = new THREE.PlaneGeometry(floorW, floorD)
-  const floorMat = new THREE.MeshStandardMaterial({ color: 0xdfe6ee, side: THREE.DoubleSide })
+  // 浅色地坪：明亮通透，带微弱粗糙质感，承接机柜投影
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0xdfe8f6, metalness: 0.05, roughness: 0.9, side: THREE.DoubleSide })
   const floor = new THREE.Mesh(floorGeo, floorMat)
   floor.rotation.x = -Math.PI / 2
   floor.position.set(cx, 0, cz)
+  floor.receiveShadow = true
   scene.add(floor)
 
-  const grid = new THREE.GridHelper(Math.max(floorW, floorD), Math.max(8, Math.round(Math.max(floorW, floorD) / 1.0)), 0x94a3b8, 0xcdd5e0)
-  grid.position.set(cx, 0.01, cz)
+  // 科技感网格：亮色细线、半透明，替代灰白大地网格
+  const grid = new THREE.GridHelper(Math.max(floorW, floorD), Math.max(8, Math.round(Math.max(floorW, floorD) / 1.0)), 0x9db8dd, 0xc6d5ea)
+  grid.position.set(cx, 0.012, cz)
+  const gridMat = grid.material as THREE.LineBasicMaterial
+  gridMat.transparent = true
+  gridMat.opacity = 0.6
   scene.add(grid)
 
   // 米制刻度：沿 X 轴（下）与 Z 轴（左）
   const rulerLen = Math.max(floorW, floorD, 2)
-  const rulerMat = new THREE.LineBasicMaterial({ color: 0x78909c })
+  const rulerMat = new THREE.LineBasicMaterial({ color: 0x7a93b8 })
   const ruler = new THREE.Group()
   const pts = [new THREE.Vector3(cx - rulerLen / 2, 0.012, minZ - pad * 0.4), new THREE.Vector3(cx + rulerLen / 2, 0.012, minZ - pad * 0.4)]
   ruler.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), rulerMat))
@@ -667,54 +709,61 @@ function build2DUCanvas(racks: any[]) {
     }
 
     // 右侧设备名明细列：每台设备完整名称 + U 段 + 类型/功率/状态，绝不截断
+    // 布局策略：信息块顶部严格对齐该设备所占 U 位的上缘（与左侧网格视觉对齐）；
+    // 当上方设备的文字高度超过其 U 带时，为避免覆盖，下方设备顺延到上方文字块的底部之下。
+    // 这样既保留“设备与其 U 位对齐”的观感，又保证文字完整、绝不重叠截断。
     const colX = ox + padX + gridW + nameGap
     const colTopY = oy + cardHeadH
     const colBottomY = colTopY + gridH
     const sorted = devices.slice().sort((a: any, b: any) => (b.start_u || 0) - (a.start_u || 0))
+    let prevBottom = colTopY
     sorted.forEach((d: any, di: number) => {
       const s = Math.min(Math.max(d.start_u || 1, 1), totalU)
       const e = Math.min(Math.max(d.end_u || d.start_u || 1, 1), totalU)
       const span = (e - s) + 1
       const topU = s
-      const rowY = colTopY + (totalU - topU) * cellH
-      // 该设备竖向信息条
-      const bandY = rowY
-      const bandH = span * cellH
+      const bandTop = colTopY + (totalU - topU) * cellH
       // 名称（完整，自动换行）
       g.font = 'bold ' + (13 * S) + 'px sans-serif'
       const nameLines = wrapExportText(d.name || d.device_type_name || '', nameW - 10, g, g.font)
       const typeLine = (d.device_type_name ? d.device_type_name + ' · ' : '') + catName(d.device_type_category)
       const extraLine = 'U' + s + '-' + e + ' · ' + (d.power_rating ?? '') + 'kW' + (d.status ? ' · ' + d.status : '')
-      // 计算这组文本需要的高度
+      // 计算这组文本需要的高度（以文本为主，保证信息完整显示）
       g.font = bodyFont
       const typeW = g.measureText(typeLine).width
       const extraW = g.measureText(extraLine).width
       const subLines = Math.max(typeW, extraW) > (nameW - 10) ? 2 : 1
       const needH = nameLines.length * lineH + (2 + subLines) * lineH
+      const bandH = span * cellH
       const useH = Math.max(bandH, needH, lineH)
+      // 信息块顶部：优先对齐自己 U 带顶；若被上方文字覆盖则顺延到其底部之下
+      const blockTop = Math.max(bandTop, prevBottom)
       // 分隔线背景（轻微淡色块标识占用）
       g.fillStyle = '#ffffff'
-      g.fillRect(colX, bandY, nameW, Math.min(useH, colBottomY - bandY))
+      g.fillRect(colX, blockTop, nameW, Math.min(useH, colBottomY - blockTop))
       if (di < sorted.length - 1) {
         g.strokeStyle = '#e2e7ec'; g.lineWidth = 1
-        g.beginPath(); g.moveTo(colX, bandY + Math.min(useH - 1, colBottomY - bandY - 2)); g.lineTo(colX + nameW, bandY + Math.min(useH - 1, colBottomY - bandY - 2)); g.stroke()
+        g.beginPath(); g.moveTo(colX, blockTop + Math.min(useH - 1, colBottomY - blockTop - 2)); g.lineTo(colX + nameW, blockTop + Math.min(useH - 1, colBottomY - blockTop - 2)); g.stroke()
       }
-      // 设备名（完整）
-      g.fillStyle = '#1f2937'
-      g.font = 'bold ' + (13 * S) + 'px sans-serif'
-      g.textAlign = 'left'; g.textBaseline = 'middle'
-      nameLines.forEach((ln: string, li: number) => {
-        g.fillText(ln, colX + 4, bandY + 10 * S + li * lineH)
-      })
-      const textBaseY = bandY + 10 * S + nameLines.length * lineH + 2
-      // 类型
-      g.fillStyle = '#5c7cfa'
-      g.font = bodyFont
-      g.fillText(typeLine, colX + 4, textBaseY)
-      // 状态 / U 段 / 功率
-      g.fillStyle = '#6b7280'
-      g.font = bodyFont
-      g.fillText(extraLine, colX + 4, textBaseY + lineH)
+      if (blockTop < colBottomY) {
+        // 设备名（完整）
+        g.fillStyle = '#1f2937'
+        g.font = 'bold ' + (13 * S) + 'px sans-serif'
+        g.textAlign = 'left'; g.textBaseline = 'middle'
+        nameLines.forEach((ln: string, li: number) => {
+          g.fillText(ln, colX + 4, blockTop + 10 * S + li * lineH)
+        })
+        const textBaseY = blockTop + 10 * S + nameLines.length * lineH + 2
+        // 类型
+        g.fillStyle = '#5c7cfa'
+        g.font = bodyFont
+        g.fillText(typeLine, colX + 4, textBaseY)
+        // 状态 / U 段 / 功率
+        g.fillStyle = '#6b7280'
+        g.font = bodyFont
+        g.fillText(extraLine, colX + 4, textBaseY + lineH)
+      }
+      prevBottom = blockTop + useH
     })
 
     // 列分隔线（网格与明细列之间）
@@ -807,23 +856,27 @@ function buildRackMesh(pl: any, applyLabel = true) {
   const bodyGeo = new THREE.BoxGeometry(width, height, depth)
   const body = new THREE.Mesh(bodyGeo, sharedMat(0.92, 'b' + color, color))
   body.position.y = height / 2
+  body.castShadow = true
+  body.receiveShadow = true
   body.userData.rack = rack
   group.add(body)
 
   const edgeGeo = new THREE.EdgesGeometry(bodyGeo)
-  const edge = new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0x37474f }))
+  const edge = new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0x1f3350 }))
   edge.position.y = height / 2
   edge.userData.rack = rack
   group.add(edge)
 
   const door = new THREE.Mesh(new THREE.PlaneGeometry(width, height), sharedDoorMat(0.18, 'd' + color, color))
   door.position.set(0, height / 2, depth / 2 + 0.005)
+  door.castShadow = true
   door.userData.rack = rack
   group.add(door)
 
-  const aisleMat = new THREE.MeshBasicMaterial({ color: 0x81c784, transparent: true, opacity: 0.22, side: THREE.DoubleSide })
+  const aisleMat = new THREE.MeshBasicMaterial({ color: 0x4aa8ef, transparent: true, opacity: 0.1, side: THREE.DoubleSide })
   const aisle = new THREE.Mesh(new THREE.PlaneGeometry(width, depth * 0.6), aisleMat)
   aisle.position.set(0, 0.03, depth / 2 + depth * 0.3)
+  aisle.receiveShadow = true
   aisle.userData.rack = rack
   group.add(aisle)
 
@@ -912,6 +965,21 @@ function rebuildDeviceViews() {
   })
 }
 
+// 设备资产状态分层配色（以真实数据取值为准）
+// 在线 online/running 用类别色高亮；mounted 正常；maintenance 橙；offline 灰；in_stock 半透规划灰；scrapped 红
+function deviceStatusStyle(d: any): { color: number; opacity: number; emissive: number } {
+  const base = catColors[d.device_type_category] || 0x4f7fb3
+  const st = (d.status || 'mounted') as string
+  const online = st === 'online' || st === 'running'
+  if (online) return { color: base, opacity: 0.95, emissive: 0x000000 }
+  if (st === 'mounted') return { color: base, opacity: 0.82, emissive: 0x000000 }
+  if (st === 'maintenance') return { color: 0xf59f00, opacity: 0.9, emissive: 0x3a2100 }
+  if (st === 'scrapped') return { color: 0xdc2626, opacity: 0.45, emissive: 0x000000 }
+  if (st === 'offline') return { color: 0x8091ab, opacity: 0.72, emissive: 0x000000 }
+  // in_stock / 未知 -> 半透灰，表示规划/未上架
+  return { color: 0x8091ab, opacity: 0.35, emissive: 0x000000 }
+}
+
 function buildDeviceGroup(rec: any) {
   const rack = rec.rack
   const width = rec.body.geometry.parameters.width as number
@@ -923,15 +991,25 @@ function buildDeviceGroup(rec: any) {
     const uh = us * U_H
     const yBottom = (d.start_u ?? 1) - 1
     const centerY = yBottom * U_H + uh / 2
-    const color = catColors[d.device_type_category] || 0x607D8B
+    const ds = deviceStatusStyle(d)
+    // 设备盒：标准材质 + 状态辉光 + 投影
+    const boxGeo = new THREE.BoxGeometry(width * 0.82, uh, depth * 0.5)
     const box = new THREE.Mesh(
-      new THREE.BoxGeometry(width * 0.82, uh, depth * 0.5),
-      new THREE.MeshPhongMaterial({ color, transparent: true, opacity: 0.92 })
+      boxGeo,
+      new THREE.MeshStandardMaterial({ color: ds.color, transparent: true, opacity: ds.opacity, emissive: ds.emissive, emissiveIntensity: 0.5, metalness: 0.25, roughness: 0.45 })
     )
     box.position.set(0, centerY, depth * 0.05)
+    box.castShadow = true
+    box.receiveShadow = true
     box.userData.rack = rack
     box.userData.device = d
     devGroup.add(box)
+    // 设备面板描边：强化“设备细节”观感
+    const devEdge = new THREE.LineSegments(new THREE.EdgesGeometry(boxGeo), new THREE.LineBasicMaterial({ color: 0x0a1424, transparent: true, opacity: 0.7 }))
+    devEdge.position.copy(box.position)
+    devEdge.userData.rack = rack
+    devEdge.userData.device = d
+    devGroup.add(devEdge)
   }
   rec.deviceGroup = devGroup
   rec.group.add(devGroup)
@@ -978,7 +1056,7 @@ function applyColor(rack: any) {
 function updateHighlight() {
   rackObjs.forEach((rec, id) => {
     const isSel = selectedSet.has(id)
-    const bodyMat = rec.body.material as THREE.MeshPhongMaterial
+    const bodyMat = rec.body.material as THREE.MeshStandardMaterial
     if (isSel) bodyMat.emissive.setHex(0x263238)
     else bodyMat.emissive.setHex(0x000000)
     bodyMat.needsUpdate = true
@@ -1021,8 +1099,36 @@ function rackAtPointer(e: MouseEvent): any {
   return hits.length ? hits[0].object.userData.rack : null
 }
 
+function deviceAtPointer(e: MouseEvent): any {
+  const el = mountRef.value!
+  const rect = el.getBoundingClientRect()
+  pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+  pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
+  raycaster.setFromCamera(pointer, camera)
+  const deviceMeshes: THREE.Object3D[] = []
+  for (const rec of rackObjs.values()) {
+    if (rec.deviceGroup && rec.deviceGroup.visible) {
+      rec.deviceGroup.children.forEach((c) => deviceMeshes.push(c))
+    }
+  }
+  if (!deviceMeshes.length) return null
+  const hits = raycaster.intersectObjects(deviceMeshes, false)
+  if (!hits.length) return null
+  const dev = hits[0].object.userData.device
+  const rack = hits[0].object.userData.rack
+  if (dev) { if (rack) dev.rack_id = rack.id; return dev }
+  return null
+}
+
 function onClick(e: MouseEvent) {
   if (boxSelectMode.value) return
+  const device = deviceAtPointer(e)
+  if (device && !e.shiftKey) {
+    const rec = device.rack_id ? rackObjs.get(device.rack_id) : null
+    if (rec) { selectedSet.clear(); selectedSet.add(device.rack_id); updateHighlight() }
+    emit('select-device', device)
+    return
+  }
   const rack = rackAtPointer(e)
   if (rack) {
     if (e.shiftKey) {
@@ -1111,6 +1217,8 @@ function onKey(e: KeyboardEvent) {
   if (!ready.value) return
   if (e.key === 'r' || e.key === 'R') resetView()
   else if (e.key === 't' || e.key === 'T') topView()
+  else if (e.key === 'g' || e.key === 'G') birdView()
+  else if (e.key === 'o' || e.key === 'O') toggleOrbit()
   else if (e.key === 'b' || e.key === 'B') toggleBoxSelect()
   else if (e.key === 'c' || e.key === 'C') toggleClean()
   else if (e.key === ' ') { e.preventDefault(); togglePlay() }
@@ -1138,6 +1246,25 @@ function topView() {
   const cx = controls.target.x, cz = controls.target.z
   camera.position.set(cx, 60, cz)
   controls.update()
+  needsRender = true
+}
+
+// 鸟瞰视角：从高处斜向俯视整个场景，适合演示/汇报
+function birdView() {
+  if (!camera || !controls) return
+  const racksList = props.data?.racks || []
+  const maxX = racksList.length ? (Math.max(...racksList.map((r: any) => r.pos_x_m ?? ((r.col_pos || 1) - 1) * COL_SPACING), 1)) : 1
+  const size = Math.max(maxX, 6)
+  const cx = maxX / 2, cz = (props.data?.racks?.length ? 0 : 0)
+  camera.position.set(cx, size * 1.7, cz - size * 1.7)
+  controls.target.set(cx, 1.0, cz)
+  controls.update()
+  needsRender = true
+}
+
+// 自动环绕漫游：缓慢绕目标旋转，用于大屏演示
+function toggleOrbit() {
+  autoOrbit = !autoOrbit
   needsRender = true
 }
 
@@ -1229,11 +1356,40 @@ watch(() => props.data, (val) => { if (val) applyDiff(val.racks || []) })
 watch(() => props.history, applyHistoryProp)
 watch(boxSelectMode, (m) => { if (!m) { controls.enabled = true; boxSelecting.value = false } })
 
+function focusRack(rackId: number) {
+  if (!camera || !controls) return
+  const rec = rackObjs.get(rackId)
+  const rack = (props.data?.racks || []).find((r: any) => r.id === rackId)
+  if (!rec) return
+  controls.target.set(rec.group.position.x, 1.5, rec.group.position.z)
+  camera.position.set(rec.group.position.x + 8, 8, rec.group.position.z + 8)
+  selectedSet.clear(); selectedSet.add(rackId)
+  updateHighlight()
+  if (rack) emit('select-rack', rack)
+  controls.update(); rebuildDeviceViews(); needsRender = true
+}
+
+function focusDevice(deviceId: number) {
+  if (!camera || !controls) return
+  for (const rec of rackObjs.values()) {
+    const dev = (rec.rack.devices || []).find((d: any) => d.id === deviceId)
+    if (!dev) continue
+    controls.target.set(rec.group.position.x, 1.5, rec.group.position.z)
+    camera.position.set(rec.group.position.x + 5, 5, rec.group.position.z + 5)
+    selectedSet.clear(); selectedSet.add(rec.rack.id)
+    updateHighlight(); rebuildDeviceViews(); controls.update(); needsRender = true
+    return true
+  }
+  return false
+}
+
 defineExpose({
   resetView, topView, nextAlert, setLayer, toggleLabels, toggleBoxSelect, toggleRoomHeat, toggleClean, exportImage,
   roomHeatOn: () => showRoomHeat.value,
   setBoxSelect: (m: boolean) => { boxSelectMode.value = m },
   clearSelection: () => { selectedSet.clear(); updateHighlight() },
+  focusRack,
+  focusDevice,
   selectIds: (ids: number[]) => {
     selectedSet.clear(); ids.forEach(id => selectedSet.add(id)); updateHighlight(); rebuildDeviceViews()
   },
@@ -1241,32 +1397,32 @@ defineExpose({
 </script>
 
 <style scoped>
-.rack3d-scene { position: relative; width: 100%; height: 100%; min-height: 60vh; overflow: hidden; border-radius: 12px; }
+.rack3d-scene { position: relative; width: 100%; height: 100%; min-height: 60vh; overflow: hidden; border-radius: 12px; background: #e9f0fb; }
 .rack3d-canvas { width: 100%; height: 100%; min-height: 60vh; touch-action: none; }
-.rack3d-box { position: absolute; border: 1px dashed #e67e22; background: rgba(230,126,34,0.08); z-index: 6; pointer-events: none; }
-.rack3d-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.7); color: #606266; z-index: 5; }
-.rack3d-hint { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); background: rgba(0,0,0,0.6); color: #fff; padding: 4px 10px; border-radius: 14px; font-size: 12px; pointer-events: none; z-index: 4; }
-.rb-temp { color: #e67e22; font-weight: 600; }
-.rb-selected { color: #ff9800; font-weight: 600; }
-.rb-alert { color: #e53935; font-weight: 600; }
-.rack3d-status { position: absolute; top: 12px; left: 12px; background: #fff; border: 1px solid var(--app-border,#e5e7eb); padding: 6px 12px; border-radius: 8px; font-size: 12px; color: #374151; z-index: 4; }
-.rack3d-layerbar { position: absolute; top: 12px; right: 12px; background: #fff; border: 1px solid var(--app-border,#e5e7eb); border-radius: 8px; padding: 4px; display: flex; gap: 4px; flex-wrap: wrap; max-width: 60%; justify-content: flex-end; z-index: 4; }
-.rack3d-legend { position: absolute; top: 12px; right: 12px; transform: translateY(56px); background: rgba(255,255,255,0.92); border: 1px solid var(--app-border,#e5e7eb); border-radius: 8px; padding: 8px 10px; z-index: 4; min-width: 120px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-.lg-title { font-size: 11px; font-weight: 700; color: #374151; margin-bottom: 6px; }
+.rack3d-box { position: absolute; border: 1px dashed #38bdf8; background: rgba(56,189,248,0.1); z-index: 6; pointer-events: none; }
+.rack3d-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(233,240,251,0.85); color: #5a7ba8; z-index: 5; }
+.rack3d-hint { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); background: rgba(255,255,255,0.7); border: 1px solid rgba(90,130,200,0.35); color: #4a658a; padding: 4px 12px; border-radius: 14px; font-size: 12px; pointer-events: none; z-index: 4; backdrop-filter: blur(6px); box-shadow: 0 2px 8px rgba(30,60,110,0.12); }
+.rb-temp { color: #ffb74d; font-weight: 600; }
+.rb-selected { color: #ffd54f; font-weight: 600; }
+.rb-alert { color: #ff6e6e; font-weight: 600; }
+.rack3d-status { position: absolute; top: 12px; left: 12px; background: rgba(255,255,255,0.72); border: 1px solid rgba(90,130,200,0.3); padding: 6px 12px; border-radius: 8px; font-size: 12px; color: #33475f; z-index: 4; backdrop-filter: blur(8px); box-shadow: 0 2px 12px rgba(30,60,110,0.12); }
+.rack3d-layerbar { position: absolute; top: 12px; right: 12px; background: rgba(255,255,255,0.72); border: 1px solid rgba(90,130,200,0.3); border-radius: 8px; padding: 4px; display: flex; gap: 4px; flex-wrap: wrap; max-width: 60%; justify-content: flex-end; z-index: 4; backdrop-filter: blur(8px); box-shadow: 0 2px 12px rgba(30,60,110,0.12); }
+.rack3d-legend { position: absolute; top: 12px; right: 12px; transform: translateY(56px); background: rgba(255,255,255,0.8); border: 1px solid rgba(90,130,200,0.3); border-radius: 8px; padding: 8px 10px; z-index: 4; min-width: 120px; backdrop-filter: blur(8px); box-shadow: 0 2px 12px rgba(30,60,110,0.12); }
+.lg-title { font-size: 11px; font-weight: 700; color: #3b6fb0; margin-bottom: 6px; }
 .lg-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
-.lg-swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.12); flex-shrink: 0; }
-.lg-text { font-size: 11px; color: #4b5563; white-space: nowrap; }
-.rack3d-playbar { position: absolute; bottom: 44px; left: 50%; transform: translateX(-50%); background: #fff; border: 1px solid var(--app-border,#e5e7eb); padding: 4px 10px; border-radius: 8px; display: flex; align-items: center; gap: 8px; z-index: 4; }
+.lg-swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.15); flex-shrink: 0; }
+.lg-text { font-size: 11px; color: #4a658a; white-space: nowrap; }
+.rack3d-playbar { position: absolute; bottom: 44px; left: 50%; transform: translateX(-50%); background: rgba(255,255,255,0.72); border: 1px solid rgba(90,130,200,0.3); padding: 4px 10px; border-radius: 8px; display: flex; align-items: center; gap: 8px; z-index: 4; backdrop-filter: blur(8px); box-shadow: 0 2px 12px rgba(30,60,110,0.12); }
 .play-range { width: 160px; }
-.play-idx { font-size: 11px; color: #374151; }
-.lb-btn { border: 1px solid var(--app-border,#e5e7eb); background: #fff; color: #374151; font-size: 12px; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
-.lb-btn:hover { border-color: var(--app-primary); color: var(--app-primary); }
-.lb-btn.active { background: var(--app-primary); border-color: var(--app-primary); color: #fff; }
-:deep(.rack3d-label) { color: #374151; background: rgba(255,255,255,0.85); font-size: 11px; padding: 1px 5px; border-radius: 4px; border: 1px solid #d1d5db; white-space: pre-line; max-width: 220px; pointer-events: none; }
-.rack3d-export { position: absolute; bottom: 12px; right: 12px; border: 1px solid var(--app-primary,#409eff); background: #fff; color: var(--app-primary,#409eff); font-size: 12px; padding: 6px 12px; border-radius: 8px; cursor: pointer; z-index: 7; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-.rack3d-export:hover { background: var(--app-primary,#409eff); color: #fff; }
-.rack3d-exit { position: absolute; top: 12px; right: 12px; border: 1px solid rgba(255,255,255,0.6); background: rgba(0,0,0,0.55); color: #fff; font-size: 12px; padding: 6px 12px; border-radius: 8px; cursor: pointer; z-index: 7; }
-.rack3d-exit:hover { background: rgba(0,0,0,0.7); }
+.play-idx { font-size: 11px; color: #4a658a; }
+.lb-btn { border: 1px solid rgba(110,155,225,0.5); background: rgba(240,246,255,0.6); color: #3d5a80; font-size: 12px; padding: 4px 10px; border-radius: 6px; cursor: pointer; transition: all .15s ease; }
+.lb-btn:hover { border-color: #2b6fd0; color: #2456a0; }
+.lb-btn.active { background: linear-gradient(135deg,#2b6fd0,#38bdf8); border-color: #3ea8f5; color: #fff; }
+:deep(.rack3d-label) { color: #33475f; background: rgba(255,255,255,0.85); font-size: 11px; padding: 1px 6px; border-radius: 4px; border: 1px solid rgba(90,130,200,0.4); white-space: pre-line; max-width: 220px; pointer-events: none; backdrop-filter: blur(4px); box-shadow: 0 1px 4px rgba(30,60,110,0.1); }
+.rack3d-export { position: absolute; bottom: 12px; right: 12px; border: 1px solid #2b6fd0; background: rgba(43,111,208,0.1); color: #2456a0; font-size: 12px; padding: 6px 12px; border-radius: 8px; cursor: pointer; z-index: 7; backdrop-filter: blur(6px); box-shadow: 0 2px 10px rgba(30,60,110,0.18); }
+.rack3d-export:hover { background: linear-gradient(135deg,#2b6fd0,#38bdf8); color: #fff; }
+.rack3d-exit { position: absolute; top: 12px; right: 12px; border: 1px solid rgba(90,130,200,0.4); background: rgba(255,255,255,0.7); color: #33475f; font-size: 12px; padding: 6px 12px; border-radius: 8px; cursor: pointer; z-index: 7; backdrop-filter: blur(6px); }
+.rack3d-exit:hover { background: rgba(255,255,255,0.95); }
 .rack3d-scene.clean .rack3d-status,
 .rack3d-scene.clean .rack3d-layerbar,
 .rack3d-scene.clean .rack3d-legend,

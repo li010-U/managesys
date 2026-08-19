@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="env-page">
     <div class="page-header">
       <div>
@@ -98,7 +98,7 @@
       </div>
 
       <div v-else class="sensor-grid">
-        <div v-for="s in filteredSensors" :key="s.id" class="sensor-card" :class="sensorCardClass(s)">
+        <div v-for="s in filteredSensors" :key="s.id" class="sensor-card" :class="[sensorCardClass(s), { 'hl-sensor-card': highlightSensorId === s.id }]">
           <!-- Card header -->
           <div class="sc-header">
             <div class="sc-type-icon" :style="{ background: sensorTypeColor(s.sensor_type) + '15' }">
@@ -219,9 +219,10 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'Environment' })
-import { ref, computed, onMounted } from "vue"
+import { ref, computed, onMounted, nextTick } from "vue"
 import { ElMessage, ElMessageBox } from "element-plus"
 import type { FormInstance } from "element-plus"
+import { useRoute } from "vue-router"
 import { Plus, Edit, Delete, Refresh, DataLine, Upload, Warning, DataAnalysis } from "@element-plus/icons-vue"
 import { getSensorsApi, createSensorApi, updateSensorApi, deleteSensorApi, getSensorDataApi, recordSensorDataApi, getRetentionStatusApi, getAnomalyGapsApi } from "../../api/sensor"
 import { getRoomsApi } from "../../api/facility"
@@ -252,6 +253,8 @@ const retentionDialog = ref({ visible: false })
 const retention = ref<any>(null)
 const anomalyDialog = ref({ visible: false })
 const anomalyGaps = ref<any[]>([])
+const route = useRoute()
+const highlightSensorId = ref<number | null>(null)
 
 // Computed
 const onlineCount = computed(() => sensors.value.filter(s => s.status === "online").length)
@@ -324,6 +327,20 @@ async function openAnomalyDialog() {
 function severityLabel(s: string) { const m: Record<string,string> = { info:"一般", warning:"警告", emergency:"紧急" }; return m[s] || s }
 function severityType(s: string) { const m: Record<string,string> = { info:"info", warning:"warning", emergency:"danger" }; return m[s] || "info" }
 
+
+function scrollToHighlightSensor() {
+  if (!highlightSensorId.value) return
+  nextTick(() => {
+    const el = document.querySelector('.hl-sensor-card') as HTMLElement | null
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" })
+    // ??????
+    if (el) {
+      el.classList.add("hl-flash")
+      window.setTimeout(() => el.classList.remove("hl-flash"), 2000)
+    }
+  })
+}
+
 function formatTime(t: string | null): string {
   if (!t) return "--"
   try {
@@ -332,7 +349,16 @@ function formatTime(t: string | null): string {
   } catch { return "--" }
 }
 
-onMounted(() => { Promise.all([fetchRooms(), fetchData()]) })
+onMounted(async () => {
+  const qSensor = Number(route.query.sensor_id || 0)
+  const qRoom = Number(route.query.room_id || 0)
+  if (qRoom && route.query.room_id !== undefined) filterRoom.value = qRoom
+  await Promise.all([fetchRooms(), fetchData()])
+  if (qSensor) {
+    highlightSensorId.value = qSensor
+    scrollToHighlightSensor()
+  }
+})
 
 async function fetchRooms() {
   try { const r = await getRoomsApi({ page: 1, page_size: 100 }); roomList.value = r.data.items } catch {}
@@ -440,4 +466,9 @@ html.dark .sensor-card { background: var(--app-bg-secondary); }
 .history-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--app-border); font-size: 13px; }
 .hi-value { font-weight: 600; font-family: "SFMono-Regular", Consolas, monospace; }
 .hi-time { color: var(--app-text-muted); }
+
+.hl-sensor-card { outline: 2px solid #409eff; outline-offset: -2px; box-shadow: 0 0 0 3px rgba(64,158,255,0.25) !important; }
+.hl-flash { animation: hl-flash 1.2s ease-in-out 2; }
+@keyframes hl-flash { 0%,100% { background: transparent } 50% { background: rgba(64,158,255,0.18) } }
+
 </style>

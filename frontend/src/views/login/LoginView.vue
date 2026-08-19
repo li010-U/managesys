@@ -75,7 +75,7 @@
               <div class="captcha-row">
                 <el-input
                   v-model="captchaCode"
-                  maxlength="4"
+                  maxlength="6"
                   placeholder="请输入验证码"
                   class="custom-input captcha-input"
                   @keyup.enter="handleLogin"
@@ -178,6 +178,7 @@ onMounted(() => {
 })
 
 async function handleLogin() {
+  if (loading.value) return
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
 
@@ -189,8 +190,9 @@ async function handleLogin() {
 
   loading.value = true
   try {
-    if (captchaImage.value && captchaCode.value.length !== 4) {
+    if (captchaImage.value && captchaCode.value.length !== 6) {
       ElMessage.warning('请输入验证码')
+      loadCaptcha()
       return
     }
 
@@ -199,7 +201,9 @@ async function handleLogin() {
     router.push('/dashboard')
   } catch (err: any) {
     loadCaptcha()
-    ElMessage.error(err.response?.data?.detail || '登录失败，请检查用户名和密码')
+    if (!err?.response) {
+      ElMessage.error('网络错误，请检查连接')
+    }
   } finally {
     loading.value = false
   }
@@ -324,7 +328,7 @@ async function handleLogin() {
 .captcha-form-item { margin-bottom: 16px; }
 .captcha-row { display: flex; align-items: center; gap: 10px; width: 100%; }
 .captcha-input { flex: 1; }
-.captcha-img { width: 110px; height: 40px; border-radius: 8px; cursor: pointer; border: 1px solid #e4e7ed; object-fit: cover; background: #f5f7fa; flex-shrink: 0; }
+.captcha-img { width: 138px; height: 38px; border-radius: 8px; cursor: pointer; border: 1px solid #e4e7ed; object-fit: contain; background: #f5f7fa; flex-shrink: 0; }
 .captcha-img:hover { border-color: #1a5276; }
 
 .form-options {

@@ -1,7 +1,7 @@
-﻿<template>
+<template>
   <div
     class="pet-assistant"
-    :class="{ collapsed: collapsed, 'drag-active': dragging }"
+    :class="{ collapsed: collapsed, 'drag-active': dragging, docked: docked }"
     :style="{ left: pos.x + 'px', top: pos.y + 'px' }"
     @mousedown="startDrag"
   >
@@ -247,10 +247,14 @@ const collapsed = ref(true)
 const dragging = ref(false)
 const liveEnabled = ref(true)
 const data = ref<AssistantPayload | null>(null)
-// ??????? 200px????? X ?????????????????????
-const PET_SAFE_MIN_X = 208
+// 允许把桌宠拖到最左（贴近屏幕左边缘），仅保留极小边距避免完全拖出屏外
+const PET_SAFE_MIN_X = 4
+// 停靠左边缘阈值：桌宠左边缘小于该值即视为“停靠”，自动折叠隐藏以避免遮挡
+const AUTO_COLLAPSE_THRESHOLD = 90
 const pos = ref({ x: PET_SAFE_MIN_X, y: 24 })
 const dragOffset = ref({ x: 0, y: 0 })
+// 停靠状态：拖到左边缘附近时折叠隐藏（缩小为小圆点，避免遮挡左侧导航/内容）
+const docked = computed(() => pos.value.x < AUTO_COLLAPSE_THRESHOLD)
 const currentBubble = ref<Reminder | null>(null)
 const seenTitles = ref<Set<string>>(new Set())
 const showAll = ref(false)
@@ -512,11 +516,22 @@ function endDrag() {
   if (!dragging.value) return
   dragging.value = false
   persistPosition()
+  // 停靠到左边缘时自动折叠隐藏，避免面板/气泡遮挡左侧导航
+  if (docked.value) {
+    panelOpen.value = false
+    collapsed.value = true
+    currentBubble.value = null
+  }
   window.removeEventListener("mousemove", onDrag)
   window.removeEventListener("mouseup", endDrag)
 }
 
 function onBodyClick() {
+  // 停靠状态点击：先向右侧移出靠左停靠区，让面板能正常展开，再继续原有行为
+  if (docked.value) {
+    pos.value.x = AUTO_COLLAPSE_THRESHOLD + 20
+    persistPosition()
+  }
   // 点击挤压反馈（squash & stretch）
   if (squash.value) return
   squash.value = true
@@ -583,18 +598,49 @@ function goDetail(wo: any) {
   router.push(`/workorder/detail/${wo.id}`)
 }
 
-function goTo(r: Reminder) {
+function jumpTo(r: Reminder) {
+  panelOpen.value = false
+  collapsed.value = true
+  currentBubble.value = null
+  const loc = r.locate
+  if (loc?.kind === "sensor" && loc.room_id) {
+    router.push({ path: "/environment", query: { room_id: loc.room_id, sensor_id: loc.sensor_id } })
+    return
+  }
+  if (loc?.kind === "rack") {
+    if (loc.rack_id) {
+      router.push({ path: "/room/racks", query: { room_id: loc.room_id, rack: loc.rack_id } })
+    } else {
+      router.push("/room/racks")
+    }
+    return
+  }
+  if (loc?.kind === "work_order") {
+    if (loc.order_id) router.push(`/workorder/detail/${loc.order_id}`)
+    else router.push("/workorder/list")
+    return
+  }
+  if (loc?.kind === "alert") { router.push("/monitor/alerts"); return }
+  if (r.target) { router.push(r.target); return }
+  currentBubble.value = r
+}
+
+async function goTo(r: Reminder) {
   if (!canAccess(r)) {
     ElMessage.warning("你没有权限访问该页面")
     return
   }
-  panelOpen.value = false
-  collapsed.value = true
-  currentBubble.value = null
-  if (r.target) {
-    router.push(r.target)
-  } else {
-    currentBubble.value = r
+  try {
+    await ElMessageBox.confirm(r.content, r.title, {
+      confirmButtonText: "跳转到相关位置",
+      cancelButtonText: "仅查看全文",
+      type: r.level === "danger" ? "error" : r.level === "warning" ? "warning" : "info",
+      distinguishCancelAndClose: true,
+    })
+    jumpTo(r)
+  } catch (reason) {
+    // cancel / close : 全文已在弹窗展示，不跳转
+    if (reason !== "cancel" && reason !== "close") return
   }
 }
 
@@ -693,8 +739,11 @@ function maybeBubble() {
 }
 
 function startStreaming() {
-  const base = (import.meta.env.VITE_API_BASE_URL || "/api/v1").replace(/\/$/, "")
+  // 无有效 token 时不建立 SSE 长连接，避免 token 失效后无限重连刷 401，
+  // 既拖累页面渲染，也让数据请求被挤占。
   const token = localStorage.getItem("access_token")
+  if (!token) return
+  const base = (import.meta.env.VITE_API_BASE_URL || "/api/v1").replace(/\/$/, "")
   const url = base + "/assistant/stream"
   // 原生 EventSource 不支持自定义 header，改用 fetch + ReadableStream 兼容鉴权
   connectSSE(url, token)
@@ -825,6 +874,12 @@ onBeforeUnmount(() => {
 .pet-assistant { position: fixed; z-index: 3000; user-select: none; }
 .pet-body { position: absolute; left: 0; top: 0; width: 150px; height: 162px; cursor: pointer; transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }
 .pet-body:hover { transform: translateY(-4px) scale(1.06); }
+/* 停靠左边缘：收缩为小圆点，让出左侧导航/内容区 */
+.pet-assistant.docked .pet-body { transform: translateY(0) scale(0.28); transform-origin: center left; opacity: 0.95; }
+.pet-assistant.docked .pet-body:hover { transform: translateY(0) scale(0.34); }
+.pet-assistant.docked .pet-badge { font-size: 9px; min-width: 14px; height: 14px; line-height: 14px; top: 0; right: 0; }
+.pet-assistant.docked .reminder-bubble,
+.pet-assistant.docked .pet-panel { display: none; }
 .pet-char {
   display: block; width: 134px; height: 146px; margin: 0;
   overflow: visible;

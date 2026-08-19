@@ -103,7 +103,23 @@ import {
 } from "../../api/chat"
 import { getAssistantPromptsApi } from "../../api/assistant"
 
+// 安全配置：禁止 html、过滤违禁协议链接（javascript:/data:/vbscript: 等），防止存储型 XSS
+// html:false 只转义 HTML 标签，但不拦截 Markdown 显式链接；
+// 若不限制协议，LLM 回复可包含 [x](javascript:alert(1)) 导致执行代码。
+const SAFE_LINK_SCHEMES = new Set(["http:", "https:", "mailto:"])
+function safeLinkValidator(link: string): boolean {
+  // 允许相对链接（本网站/程序内部）
+  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(link)) return true
+  try {
+    const url = new URL(link)
+    return SAFE_LINK_SCHEMES.has(url.protocol)
+  } catch {
+    return false
+  }
+}
 const md = new MarkdownIt({ html: false, linkify: true, typographer: true })
+// 设置链接协议白名单：拦截 javascript:/data:/vbscript: 等危险协议，防止存储型 XSS
+md.validateLink = safeLinkValidator
 
 function renderMarkdown(content: string): string {
   if (!content) return ""

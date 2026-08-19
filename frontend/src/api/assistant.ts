@@ -14,6 +14,16 @@ export interface Reminder {
   title: string
   content: string
   target?: string
+  locate?: {
+    kind: "alert" | "sensor" | "rack" | "work_order"
+    sensor_id?: number
+    rack_id?: number
+    room_id?: number
+    order_id?: number
+    order_no?: string
+    code?: string
+    name?: string
+  }
   actions?: Array<{ type: string; label?: string; priority?: string }>
 }
 

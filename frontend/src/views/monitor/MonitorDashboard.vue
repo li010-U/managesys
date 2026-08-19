@@ -7,6 +7,13 @@
         <p class="page-desc">数据中心环境监控数据可视化大屏，实时掌握机房运行状态</p>
       </div>
       <div class="header-actions">
+        <span style="display:inline-flex;align-items:center;gap:8px;margin-right:12px;color:var(--app-text-muted);font-size:13px;">
+          <span>{{ autoRefresh ? '自动刷新' : '手动刷新' }}</span>
+          <el-switch v-model="autoRefresh" />
+          <el-select v-model="pollInterval" size="small" style="width:92px">
+            <el-option v-for="ms in POLL_OPTIONS" :key="ms" :label="(ms/1000)+'秒'" :value="ms" />
+          </el-select>
+        </span>
         <el-button :icon="Refresh" @click="refreshAll" :loading="loading">刷新数据</el-button>
       </div>
     </div>
@@ -84,8 +91,14 @@
               <span class="chart-title">传感器数据趋势</span>
               <el-select v-model="trendSensorId" placeholder="选择传感器" size="small" style="width:200px" @change="loadTrendData">
                 <el-option v-for="s in sensors" :key="s.id" :label="s.name" :value="s.id" />
-              </el-select>
-            </div>
+                            </el-select>
+              <el-select v-model="trendHours" size="small" style="width:120px" @change="loadTrendData">
+                <el-option label="近1小时" :value="1" />
+                <el-option label="近6小时" :value="6" />
+                <el-option label="近12小时" :value="12" />
+                <el-option label="近24小时" :value="24" />
+                <el-option label="近3天" :value="72" />
+              </el-select></div>
           </template>
           <div ref="lineChartRef" class="chart-container" style="height:320px"></div>
         </el-card>
@@ -153,6 +166,29 @@ const loading = ref(false)
 const sensors = ref<SensorInfo[]>([])
 const rooms = ref<any[]>([])
 const trendSensorId = ref<number | null>(null)
+const trendHours = ref<number>(24)
+const autoRefresh = ref(true)
+const pollInterval = ref(5000)
+const POLL_OPTIONS = [3000, 5000, 10000]
+let pollTimer: number | null = null
+
+function startPolling() {
+  stopPolling()
+  pollTimer = window.setInterval(async () => {
+    if (!autoRefresh.value) return
+    try {
+      const r = await getAllSensorsApi()
+      if (r.data) sensors.value = r.data
+      updatePieChart()
+      updateBarChart()
+      if (trendSensorId.value) loadTrendData()
+    } catch { /* silent: keep last data */ }
+  }, pollInterval.value)
+}
+function stopPolling() {
+  if (pollTimer !== null) { window.clearInterval(pollTimer); pollTimer = null }
+}
+
 const searchKeyword = ref("")
 const page = ref(1)
 const pageSize = ref(10)
@@ -238,7 +274,7 @@ async function fetchRooms() {
 async function loadTrendData() {
   if (!trendSensorId.value) { updateLineChart([]); return }
   try {
-    const r = await getSensorDataApi(trendSensorId.value, 30)
+    const r = await getSensorDataApi(trendSensorId.value, 1000, trendHours.value)
     updateLineChart(r.data || [])
   } catch { updateLineChart([]) }
 }
@@ -302,16 +338,18 @@ function updateBarChart() {
 function updateLineChart(data: any[]) {
   if (!lineChart) return
   const values = (data || []).reverse()
+  const showDate = trendHours.value >= 12
   const times = values.map((d: any) => {
     const t = new Date(d.recorded_at)
-    return t.getHours().toString().padStart(2,"0")+":"+t.getMinutes().toString().padStart(2,"0")
+    const hm = t.getHours().toString().padStart(2,"0")+":"+t.getMinutes().toString().padStart(2,"0")
+    return showDate ? (t.getMonth()+1)+"/"+t.getDate()+" "+hm : hm
   })
   const nums = values.map((d: any) => d.value)
 
   lineChart.setOption({
     tooltip: { trigger: "axis" },
     grid: { left: 50, right: 20, top: 20, bottom: 40 },
-    xAxis: { type: "category", data: times.length ? times : ["暂无数据"], axisLabel: { fontSize: 11 } },
+    xAxis: { type: "category", data: times.length ? times : ["暂无数据"], axisLabel: { fontSize: 11, interval: Math.max(0, Math.ceil((times.length || 1) / 12) - 1), rotate: trendHours.value >= 72 ? 40 : 0 } },
     yAxis: { type: "value" },
     series: [{
       type: "line", data: nums.length ? nums : [0],
@@ -345,15 +383,18 @@ function handleResize() {
 onMounted(async () => {
   await refreshAll()
   nextTick(() => initCharts())
+  startPolling()
 })
 
 onUnmounted(() => {
+  stopPolling()
   pieChart?.dispose()
   barChart?.dispose()
   lineChart?.dispose()
   window.removeEventListener("resize", handleResize)
 })
 
+watch(() => pollInterval.value, () => { if (autoRefresh.value) startPolling() })
 watch(() => trendSensorId.value, () => loadTrendData())
 </script>
 

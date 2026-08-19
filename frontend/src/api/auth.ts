@@ -9,7 +9,9 @@ export interface LoginRequest {
 
 export interface TokenResponse {
   access_token: string
+  refresh_token?: string
   token_type: string
+  expires_in?: number
 }
 
 export interface RegisterRequest {
@@ -55,6 +57,11 @@ export function changePasswordApi(data: { old_password: string; new_password: st
 /** 退出登录 */
 export function logoutApi() {
   return http.post('/auth/logout')
+}
+
+/** 刷新令牌 */
+export function refreshApi(refresh_token: string) {
+  return http.post<TokenResponse>('/auth/refresh', { refresh_token })
 }
 
 /** 获取当前用户信息 */

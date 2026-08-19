@@ -35,8 +35,10 @@ export function updateSensorApi(id: number, data: any) {
 export function deleteSensorApi(id: number) {
   return http.delete("/sensors/" + id)
 }
-export function getSensorDataApi(id: number, limit?: number) {
-  return http.get<SensorDataInfo[]>("/sensors/" + id + "/data", { params: { limit: limit || 20 } })
+export function getSensorDataApi(id: number, limit?: number, hours?: number) {
+  const params: Record<string, number> = { limit: limit || 20 }
+  if (hours) params.hours = hours
+  return http.get<SensorDataInfo[]>("/sensors/" + id + "/data", { params })
 }
 export function recordSensorDataApi(id: number, value: number) {
   return http.post<SensorDataInfo>("/sensors/" + id + "/data?value=" + value)

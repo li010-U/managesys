@@ -57,13 +57,13 @@ const routes: RouteRecordRaw[] = [
         path: 'system/ip-resources',
         name: 'IpResources',
         component: () => import('../views/system/IpResourceView.vue'),
-        meta: { title: 'IP资源', icon: 'Connection', permission: 'device:view' },
+        meta: { title: 'IP资源', icon: 'Connection', permission: 'ip:view' },
       },
       {
         path: 'system/ip-conflict-center',
         name: 'IpConflictCenter',
         component: () => import('../views/system/IpConflictCenter.vue'),
-        meta: { title: 'IP冲突处理', icon: 'Warning', permission: 'device:view', parentTitle: 'IP资源', parentPath: '/system/ip-resources' },
+        meta: { title: 'IP冲突处理', icon: 'Warning', permission: 'ip:view', parentTitle: 'IP资源', parentPath: '/system/ip-resources' },
       },
       {
         path: 'workorder/list',
@@ -111,7 +111,7 @@ const routes: RouteRecordRaw[] = [
         path: 'device/ip-edit/:id',
         name: 'DeviceIpEdit',
         component: () => import('../views/device/DeviceIpEditView.vue'),
-        meta: { title: '编辑IP资源', icon: 'Edit', permission: 'device:edit', parentTitle: '设备台账', parentPath: '/device/list' },
+        meta: { title: '编辑IP资源', icon: 'Edit', permission: 'ip:edit', parentTitle: '设备台账', parentPath: '/device/list' },
       },
       {
         path: 'device/types',
@@ -136,6 +136,12 @@ const routes: RouteRecordRaw[] = [
         name: 'AlertManagement',
         component: () => import('../views/monitor/AlertView.vue'),
         meta: { title: '告警管理', icon: 'Bell', permission: 'monitor:view_alerts' },
+      },
+      {
+        path: 'monitor/alert-lifecycle',
+        name: 'AlertLifecycle',
+        component: () => import('../views/monitor/AlertLifecycleView.vue'),
+        meta: { title: '告警生命周期', icon: 'RefreshLeft', permission: 'monitor:view_alerts' },
       },
       {
         path: 'system/business',

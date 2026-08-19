@@ -450,6 +450,7 @@ import { getRoomsApi, getRacksApi, getAllRacksApi, createRackApi, updateRackApi,
 import { getDevicesApi, updateDeviceApi, getDeviceLifecyclesApi } from '../../api/device'
 import type { RackInfo } from '../../api/facility'
 import type { DeviceInfo } from '../../api/device'
+import { deviceStatusType, deviceStatusLabel, toChineseOrdinal, rackUtilPercent, rackUtilColor, powerLoadColor, getRackUnitText, lifecycleActionLabel, lcTagType, utilClass, fmtTime, utilColorFor } from '../../composables/useRackUi'
 
 const selectedRoomId = ref<number>(0)
 const roomList = ref<any[]>([])
@@ -511,16 +512,6 @@ const deviceCategories = [
 function deviceColor(d: DeviceInfo): string {
   return categoryColors[(d as any).device_type_category || d.device_type_name] || '#607D8B'
 }
-function deviceStatusType(s: string): string {
-  if (s === 'running') return 'success'
-  if (s === 'mounted' || s === 'in_stock') return 'info'
-  return 'danger'
-}
-function deviceStatusLabel(s: string): string {
-  const map: Record<string, string> = { running: '运行中', mounted: '已上架', in_stock: '在库', offline: '离线', scrapped: '已报废' }
-  return map[s] || s
-}
-
 const slotHeight = 36
 const uSlots = computed(() => {
   const rack = viewRack.value
@@ -562,14 +553,6 @@ const avgUtilColor = computed(() => { const v = avgUtilization.value; return v >
 const totalRatedPower = computed(() => rackList.value.reduce((a, r) => a + (r.rated_power || 0), 0).toFixed(1))
 const highUtilCount = computed(() => rackList.value.filter(r => { const u = r.total_units > 0 ? (r.total_units - r.available_units) / r.total_units * 100 : 0; return u >= 80 }).length)
 
-function rackUtilPercent(rack: RackInfo): number {
-  if (!rack.total_units) return 0
-  return Math.round((rack.total_units - rack.available_units) / rack.total_units * 100)
-}
-function rackUtilColor(rack: RackInfo): string { const u = rackUtilPercent(rack); return u >= 80 ? '#e74c3c' : u >= 50 ? '#e67e22' : '#27ae60' }
-function utilClass(rack: RackInfo): string { const u = rackUtilPercent(rack); return u >= 80 ? 'rack-util-high' : u >= 50 ? 'rack-util-mid' : 'rack-util-low' }
-function getRackUnitText(rack: RackInfo): string { return (rack.total_units - rack.available_units) + '/' + rack.total_units + 'U' }
-
 const filteredDevices = computed(() => {
   if (!deviceSearch.value) return rackDevices.value
   const q = deviceSearch.value.toLowerCase()
@@ -594,8 +577,6 @@ const rackPowerPercent = computed(() => {
   if (!rated || rated <= 0) return 0
   return Math.min(100, Math.round(rackPowerLoad.value / rated * 100))
 })
-function powerLoadColor(pct: number): string { return pct >= 90 ? '#e74c3c' : pct >= 70 ? '#e67e22' : '#27ae60' }
-
 // ===== 2: 连续空闲U块计算 =====
 function computeFreeBlocks() {
   const rack = viewRack.value
@@ -688,17 +669,7 @@ async function openLifecycle(device: DeviceInfo) {
   } catch { lifecycleDialog.value.items = [] }
   finally { lifecycleLoading.value = false }
 }
-function lifecycleActionLabel(a: string): string {
-  const map: Record<string, string> = { create: '创建', mount: '上架', unmount: '下架', move: '挪位', change: '状态变更', delete: '删除' }
-  return map[a] || a
-}
 const devicesInfoTitle = computed(() => '设备变更留痕' + (lifecycleDialog.value.device ? ' — ' + lifecycleDialog.value.device.name : ''))
-function lcTagType(a: string): string {
-  const map: Record<string, string> = { create: 'success', mount: 'primary', unmount: 'warning', move: 'info', change: 'warning', delete: 'danger' }
-  return map[a] || 'info'
-}
-function fmtTime(ts: string): string { if (!ts) return '--'; return new Date(ts).toLocaleString('zh-CN') }
-
 // ===== 4: 拖拽上架/挪位 =====
 function onDragStart(device: DeviceInfo, ev?: DragEvent) {
   dragDevice.value = device
@@ -833,11 +804,6 @@ function applyGridSize() {
   // just let user control it
 }
 
-function toChineseOrdinal(n: number): string {
-  const cn = ['〇','一','二','三','四','五','六','七','八','九','十','十一','十二','十三','十四','十五','十六','十七','十八','十九','二十']
-  return cn[n] || String(n)
-}
-
 const route = useRoute()
 const router = useRouter()
 
@@ -965,7 +931,6 @@ async function fetchRackDevices(rackId: number) {
 }
 
 function backToFloorplan() { viewRack.value = null; rackDevices.value = []; rackEnv.value = null }
-function utilColorFor(v: number): string { return v >= 80 ? '#e74c3c' : v >= 50 ? '#e67e22' : '#27ae60' }
 function enterOverview() { overviewMode.value = true; loadRoomOverview() }
 function go3d() { if (!selectedRoomId.value) { ElMessage.warning('请先选择机房'); return } router.push({ name: 'Rack3D', query: { room_id: selectedRoomId.value } }) }
 function exitOverview() { overviewMode.value = false }
