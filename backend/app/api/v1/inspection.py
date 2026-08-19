@@ -178,14 +178,19 @@ async def get_tasks(
         LEFT JOIN users u ON t.assignee_id = u.id
         LEFT JOIN rooms f ON t.facility_id = f.id
     """
+    count_sql = "SELECT COUNT(*) FROM inspection_tasks t"
     if status:
         sql += " WHERE t.status = ?"
-        result = await exec_sql(db, sql + " ORDER BY t.scheduled_date DESC LIMIT ? OFFSET ?", (status, page_size, offset))
+        count_sql += " WHERE t.status = ?"
+        total = (await exec_sql(db, count_sql, (status,))).scalar() or 0
+        result = await exec_sql(db, sql + " ORDER BY t.scheduled_date DESC, t.id DESC LIMIT ? OFFSET ?", (status, page_size, offset))
     else:
-        result = await exec_sql(db, sql + " ORDER BY t.scheduled_date DESC LIMIT ? OFFSET ?", (page_size, offset))
+        total = (await exec_sql(db, count_sql)).scalar() or 0
+        result = await exec_sql(db, sql + " ORDER BY t.scheduled_date DESC, t.id DESC LIMIT ? OFFSET ?", (page_size, offset))
     
     rows = result.fetchall()
     return {
+        "total": total,
         "data": [
             {
                 "id": r.id, "plan_id": r.plan_id, "plan_name": r.plan_name,

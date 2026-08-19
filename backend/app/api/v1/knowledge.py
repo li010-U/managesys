@@ -44,7 +44,7 @@ async def list_articles(
         SELECT k.*, u.username as creator_name
         FROM kb_articles k LEFT JOIN users u ON k.created_by = u.id
         WHERE {}
-        ORDER BY k.created_at DESC
+        ORDER BY k.created_at DESC, k.id DESC
         LIMIT ?
     """.format(where)
     rows = (await exec_sql(db, sql, tuple(params) + (limit,))).fetchall()

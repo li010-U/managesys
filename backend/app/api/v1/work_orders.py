@@ -180,7 +180,7 @@ async def get_work_orders(
         LEFT JOIN devices d ON w.device_id = d.id
         LEFT JOIN rooms f ON w.facility_id = f.id
         WHERE {}
-        ORDER BY w.created_at DESC
+        ORDER BY w.created_at DESC, w.id DESC
         LIMIT ? OFFSET ?
     """.format(where_clause)
     
