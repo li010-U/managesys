@@ -6,6 +6,7 @@ from app.core.deps import get_db, get_current_user, require_permission, require_
 from app.core.iputils import request_client_ip
 from app.models.user import User
 from app.services.device_service import DeviceTypeService, DeviceService
+from app.services.audit_service import AuditService
 from app.schemas.device import (
     DeviceTypeCreate, DeviceTypeUpdate, DeviceTypeResponse, DeviceTypePageResponse,
     DeviceCreate, DeviceUpdate, DeviceResponse, DevicePageResponse,
@@ -74,6 +75,7 @@ async def create_device_type(
             operator_username=current_user.username,
             operator_ip=request_client_ip(request),
         )
+        AuditService.log_request(db, request, current_user=current_user, action="create", target_type="device_type", target_id=str(dt.id), detail=f"创建设备类型: {dt.name}")
         return DeviceTypeResponse.model_validate(dt)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -96,6 +98,7 @@ async def update_device_type(
     )
     if not dt:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="设备类型不存在")
+    AuditService.log_request(db, request, current_user=current_user, action="update", target_type="device_type", target_id=str(dt.id), detail=f"更新设备类型: {dt.name}")
     r = DeviceTypeResponse.model_validate(dt)
     r.device_count = len(dt.devices or [])
     return r
@@ -119,6 +122,7 @@ async def update_device_type_thresholds(
     )
     if not dt:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="设备类型不存在")
+    AuditService.log_request(db, request, current_user=current_user, action="update", target_type="device_type", target_id=str(dt.id), detail=f"更新设备类型传感器阈值: {dt.name}")
     r = DeviceTypeResponse.model_validate(dt)
     r.device_count = len(dt.devices or [])
     return r
@@ -140,6 +144,7 @@ async def delete_device_type(
             operator_ip=request_client_ip(request),
         ):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="设备类型不存在")
+        AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="device_type", target_id=str(dt_id), detail="删除设备类型")
         return {"message": "设备类型已删除"}
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -204,6 +209,7 @@ async def create_device(
             operator_username=current_user.username,
             operator_ip=request_client_ip(request),
         )
+        AuditService.log_request(db, request, current_user=current_user, action="create", target_type="device", target_id=str(d.id), detail=f"创建设备: {d.name}")
         r = DeviceResponse.model_validate(d)
         r.device_type_name = d.device_type.name if d.device_type else ""
         r.device_type_category = d.device_type.category if d.device_type else ""
@@ -231,6 +237,7 @@ async def update_device(
     )
     if not d:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="设备不存在")
+    AuditService.log_request(db, request, current_user=current_user, action="update", target_type="device", target_id=str(d.id), detail=f"更新设备: {d.name}")
     r = DeviceResponse.model_validate(d)
     r.device_type_name = d.device_type.name if d.device_type else ""
     r.device_type_category = d.device_type.category if d.device_type else ""
@@ -254,6 +261,7 @@ async def delete_device(
         operator_ip=request_client_ip(request),
     ):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="设备不存在")
+    AuditService.log_request(db, request, current_user=current_user, action="delete", target_type="device", target_id=str(device_id), detail="删除设备")
     return {"message": "设备已删除"}
 
 
@@ -277,6 +285,7 @@ async def change_device_status(
     )
     if not d:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="设备不存在")
+    AuditService.log_request(db, request, current_user=current_user, action="change_status", target_type="device", target_id=str(d.id), detail=f"设备 {d.name} 状态变更 -> {d.status}")
     return {"message": "状态已更新", "status": d.status}
 
 
