@@ -130,11 +130,18 @@ http.interceptors.response.use(
         ElMessage.error(data?.detail || '权限不足')
       } else if (status === 404) {
         ElMessage.error(data?.detail || '资源不存在')
+      } else if (status >= 500) {
+        ElMessage.error(data?.detail || '服务器繁忙，请稍后重试')
       } else {
         ElMessage.error(data?.detail || '请求失败')
       }
     } else {
-      ElMessage.error('网络错误，请检查连接')
+      // 无响应：区分请求超时与真正的网络不可达，避免误报"网络错误"
+      if (error.code === 'ECONNABORTED' || (error as AxiosError<unknown, unknown>).message?.includes('timeout')) {
+        ElMessage.error('请求超时，请稍后重试')
+      } else {
+        ElMessage.error('网络错误，请检查连接')
+      }
     }
     return Promise.reject(error)
   },
