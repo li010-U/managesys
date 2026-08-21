@@ -91,7 +91,10 @@ class AlertService:
         return result.scalar_one_or_none()
 
     async def create(self, data: dict):
-        obj = Alert(**data)
+        # 仅接受显式白名单字段，避免未预期键注入模型属性
+        allowed = {"alert_rule_id", "device_id", "target_type", "target_id", "title",
+                   "description", "level", "status", "source", "dedupe_key"}
+        obj = Alert(**{k: v for k, v in data.items() if k in allowed and v is not None})
         self.db.add(obj)
         await with_commit_retry(self.db.commit)
         await self.db.refresh(obj)

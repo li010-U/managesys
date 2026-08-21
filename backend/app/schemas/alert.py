@@ -1,7 +1,7 @@
 ﻿"""告警 Schema"""
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Literal
 
 class AlertRuleCreate(BaseModel):
     name: str = Field(..., max_length=128)
@@ -85,17 +85,17 @@ class AlertPageResponse(BaseModel):
     page_size: int
 
 class AlertHandleRequest(BaseModel):
-    action_type: str = Field(..., description="acknowledge/resolve/ignore")
+    action_type: Literal["acknowledge", "resolve", "ignore"] = Field(..., description="acknowledge/resolve/ignore")
     operator: Optional[str] = None
     remark: Optional[str] = None
     root_cause: Optional[str] = None
 
 class AlertCreateRequest(BaseModel):
-    target_type: str
-    target_id: str
-    title: str
-    description: Optional[str] = None
-    level: str = "general"
-    source: str = "system"
+    target_type: Literal["device", "sensor", "system", "rack", "room"] = Field(..., max_length=32, description="告警对象类型")
+    target_id: str = Field(..., max_length=64, description="告警对象ID")
+    title: str = Field(..., max_length=256, description="告警标题")
+    description: Optional[str] = Field(None, max_length=2000, description="告警描述")
+    level: Literal["general", "serious", "emergency"] = "general"
+    source: Literal["sensor", "monitor", "system", "manual"] = "system"
     device_id: Optional[int] = None
 

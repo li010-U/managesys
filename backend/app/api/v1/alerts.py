@@ -12,7 +12,7 @@ from app.services.assistant_service import get_cached_snapshot, AssistantService
 from sqlalchemy import select
 from app.schemas.alert import (
     AlertRuleCreate, AlertRuleUpdate, AlertRuleResponse, AlertRulePageResponse,
-    AlertResponse, AlertPageResponse, AlertHandleRequest,
+    AlertResponse, AlertPageResponse, AlertHandleRequest, AlertCreateRequest,
 )
 
 router = APIRouter(prefix="/alerts", tags=["告警管理"])
@@ -216,14 +216,14 @@ async def alert_attribution(
 
 @router.post("", response_model=AlertResponse, status_code=status.HTTP_201_CREATED)
 async def create_alert(
-    req: dict,
+    req: AlertCreateRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _ = Depends(require_permission("monitor:handle_alert"))
 ):
     service = AlertService(db)
-    obj = await service.create(req)
+    obj = await service.create(req.model_dump())
     # 告警智能收敛：同 dedupe_key 的开放告警归并，叠加 occurrences
     try:
         from app.services.alert_intelligence_service import AlertIntelligenceService

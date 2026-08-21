@@ -101,7 +101,7 @@ class WorkOrderAssign(BaseModel):
 
 class WorkOrderProcess(BaseModel):
     result: str = Field(..., description="处理结果")
-    actual_hours: Optional[float] = Field(None, description="实际工时")
+    actual_hours: Optional[float] = Field(None, ge=0, description="实际工时")
 
 
 class WorkOrderVerify(BaseModel):
