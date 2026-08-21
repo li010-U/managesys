@@ -100,13 +100,13 @@ class WorkOrderAssign(BaseModel):
 
 
 class WorkOrderProcess(BaseModel):
-    result: str = Field(..., description="处理结果")
+    result: str = Field(..., max_length=2000, description="处理结果")
     actual_hours: Optional[float] = Field(None, ge=0, description="实际工时")
 
 
 class WorkOrderVerify(BaseModel):
     satisfaction: int = Field(..., ge=1, le=5, description="满意度评分")
-    feedback: Optional[str] = Field(None, description="用户反馈")
+    feedback: Optional[str] = Field(None, max_length=2000, description="用户反馈")
     accept: bool = Field(..., description="是否验收通过")
 
 

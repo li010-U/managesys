@@ -230,7 +230,6 @@ def get_mock_response(user_msg: str) -> str:
 
 
     return MOCK_RESPONSES[idx]
-    return MOCK_RESPONSES[idx]
 
 
 def _llm_service_error(exc) -> str:

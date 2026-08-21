@@ -118,8 +118,8 @@ class AuthService:
     async def login(
         self, username: str, password: str, ip_address: Optional[str] = None,
         request_path: Optional[str] = None, user_agent: Optional[str] = None,
-    ) -> tuple[str, User]:
-        """用户登录，返回 (token, user)"""
+    ) -> tuple[str, str, User]:
+        """用户登录，返回 (token, refresh_token, user)"""
         result = await self.db.execute(select(User).where(User.username == username))
         user = result.scalar_one_or_none()
 
