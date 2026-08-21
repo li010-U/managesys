@@ -23,7 +23,7 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
     # WAL 模式：支持并发读写
     cursor.execute("PRAGMA journal_mode=WAL")
     # 忙等待超时：避免并发时立即报错
-    cursor.execute("PRAGMA busy_timeout=10000")
+    cursor.execute("PRAGMA busy_timeout=30000")
     # 同步模式 NORMAL：兼顾性能与安全
     cursor.execute("PRAGMA synchronous=NORMAL")
     # 外键约束

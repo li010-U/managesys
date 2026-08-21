@@ -87,12 +87,12 @@ class Settings(BaseSettings):
     ALLOWED_EXTENSIONS: str = ".doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.md,.csv,.jpg,.jpeg,.png,.gif,.bmp,.zip,.rar,.7z,.json,.xml"
 
     # ===== 数据库连接池 =====
-    DB_POOL_SIZE: int = 10
-    DB_MAX_OVERFLOW: int = 20
+    DB_POOL_SIZE: int = 30
+    DB_MAX_OVERFLOW: int = 50
     DB_POOL_PRE_PING: bool = True
     DB_POOL_RECYCLE: int = 3600
     # 连接池等待超时（秒）：防止请求在池空时无限排队导致“点快了加载不出来”
-    DB_POOL_TIMEOUT: int = 10
+    DB_POOL_TIMEOUT: int = 5
     # 单条 SQL 执行超时（秒）：避免查询悬置拖死请求（SQLite 靠 busy_timeout，PostgreSQL 用 command_timeout）
     DB_QUERY_TIMEOUT: int = 30
     # 全局并发请求上限（同时在飞）：超出后迅速返回 503，而非无限排队
