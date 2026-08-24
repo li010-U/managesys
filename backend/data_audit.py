@@ -197,7 +197,7 @@ async def _audit_rack_layout(conn, report):
 
 async def _audit_ip_ledger(conn, report):
     sec = "ip_ledger"
-    dups = await _rows(conn, "SELECT address, COUNT(*) AS c FROM ip_addresses GROUP BY address HAVING c>1")
+    dups = await _rows(conn, "SELECT address, COUNT(*) AS c FROM ip_addresses GROUP BY address HAVING COUNT(*) > 1")
     for dd in dups:
         _add(report, sec, "error", "IP %s 重复登记 %s 条" % (dd["address"], dd["c"]))
     orphan_ip = await _rows(

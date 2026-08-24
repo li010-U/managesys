@@ -241,3 +241,74 @@ async def test_run_retention_batches_in_chunks(db_session):
     )).scalars().all()
     assert len(remaining) == 2
     assert all(r.recorded_at > now - timedelta(days=30) for r in remaining)
+
+
+@pytest.mark.asyncio
+async def test_run_retention_layered_normal_vs_abnormal(db_session):
+    """分层留存：正常点按 DATA_RETENTION_NORMAL_DAYS(30) 短留，异常点按 180 天长留。
+
+    同一写入时间（60 天前）：
+      - source_mark="normal"   -> 被删除（60d > 30d）
+      - source_mark="abnormal" -> 被保留（60d < 180d）
+    """
+    now = datetime.now()
+    svc = SensorAnomalyService(db_session)
+
+    room = await _make_room(db_session)
+    sensor = Sensor(room_id=room.id, name="r", code="rlayered", sensor_type="temperature")
+    db_session.add(sensor)
+    await db_session.flush()
+
+    age60 = now - timedelta(days=60)
+    db_session.add_all([
+        SensorData(sensor_id=sensor.id, value=1.0, recorded_at=age60, source_mark="normal"),
+        SensorData(sensor_id=sensor.id, value=1.0, recorded_at=age60, source_mark="abnormal"),
+        SensorData(sensor_id=sensor.id, value=1.0, recorded_at=now - timedelta(days=5), source_mark="normal"),
+    ])
+    await db_session.commit()
+
+    res = await svc.run_retention(days=180)
+    assert res["sensor_data_normal_deleted"] == 1
+    assert res["sensor_data_abnormal_deleted"] == 0
+    assert res["sensor_data_deleted"] == 1
+
+    remaining = list((await db_session.execute(
+        __import__("sqlalchemy").select(SensorData).where(SensorData.sensor_id == sensor.id)
+    )).scalars())
+    assert len(remaining) == 2
+    marks = {r.source_mark for r in remaining}
+    assert marks == {"normal", "abnormal"}, f"保留集合应为 normal+abnormal, got {marks}"
+    retained_abnormal = [r for r in remaining if r.source_mark == "abnormal"][0]
+    assert retained_abnormal.recorded_at == age60
+
+
+@pytest.mark.asyncio
+async def test_run_retention_normal_short_cutoff_respected(db_session):
+    """验证正常点确实使用 DATA_RETENTION_NORMAL_DAYS，而非统一天数。"""
+    now = datetime.now()
+    from app.core.config import settings as _settings
+    _orig = _settings.DATA_RETENTION_NORMAL_DAYS
+    _settings.DATA_RETENTION_NORMAL_DAYS = 10
+    try:
+        svc = SensorAnomalyService(db_session)
+        room = await _make_room(db_session)
+        sensor = Sensor(room_id=room.id, name="r", code="rcutoff", sensor_type="temperature")
+        db_session.add(sensor)
+        await db_session.flush()
+
+        db_session.add_all([
+            SensorData(sensor_id=sensor.id, value=1.0, recorded_at=now - timedelta(days=15), source_mark="normal"),
+            SensorData(sensor_id=sensor.id, value=1.0, recorded_at=now - timedelta(days=15), source_mark="abnormal"),
+        ])
+        await db_session.commit()
+
+        res = await svc.run_retention(days=180)
+        # 15 天 > 正常 10 天(+3 缓冲=13) -> normal 删；15 天 < 异常 180 天 -> abnormal 留
+        assert res["sensor_data_deleted"] == 1
+        remaining = list((await db_session.execute(
+            __import__("sqlalchemy").select(SensorData).where(SensorData.sensor_id == sensor.id)
+        )).scalars())
+        assert len(remaining) == 1
+        assert remaining[0].source_mark == "abnormal"
+    finally:
+        _settings.DATA_RETENTION_NORMAL_DAYS = _orig

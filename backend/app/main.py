@@ -1,6 +1,7 @@
 ﻿"""FastAPI 应用入口"""
 import asyncio
 import logging
+import logging.handlers
 import sys
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -31,7 +32,13 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler(str(APP_LOG_PATH), encoding="utf-8"),
+        logging.handlers.TimedRotatingFileHandler(
+            str(APP_LOG_PATH),
+            when="D",
+            interval=1,
+            backupCount=30,
+            encoding="utf-8",
+        ),
     ],
 )
 logger = logging.getLogger("managesys")

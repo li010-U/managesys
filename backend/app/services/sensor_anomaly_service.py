@@ -131,26 +131,52 @@ class SensorAnomalyService:
     async def run_retention(self, days: Optional[int] = None) -> dict:
         """滚动清理超期数据。
 
-        实际保留时长 = days + BUFFER，避免时区/边界误删刚满保留期的记录。
+        实际保留时长 = 目标天数 + BUFFER，避免时区/边界误删刚满保留期的记录。
         删除按 DATA_RETENTION_BATCH_SIZE 分批滚动执行并逐批提交，
         避免对超大表一次性执行大 DELETE 造成长时间锁库/长事务。
+
+        sensor_data 做分层留存：
+          - source_mark == "normal"  按 DATA_RETENTION_NORMAL_DAYS（默认 30 天，短留）
+          - 其余（abnormal 等）      按 DATA_RETENTION_DAYS（默认 180 天，长留）
+        满足"正常点短留、异常点长留"，异常数据可追溯 180 天。
+        返回字典兼顾既有 ResponseSchema 字段（days/buffer_days/cutoff/sensor_data_deleted），
+        并新增 normal/abnormal 明细字段；多余字段在 response 序列化时被忽略，接口不破坏。
         """
-        days = days or settings.DATA_RETENTION_DAYS
         buffer_days = settings.DATA_RETENTION_BUFFER_DAYS
-        cutoff = datetime.now() - timedelta(days=days + buffer_days)
         batch = settings.DATA_RETENTION_BATCH_SIZE
 
-        sd_deleted = await self._delete_expired_batches(
-            SensorData, SensorData.id, SensorData.recorded_at < cutoff, batch
+        # 传入 days 时视为覆盖"异常长留"口径；正常点始终用独立配置（短留）
+        abnormal_days = days or settings.DATA_RETENTION_DAYS
+        normal_days = settings.DATA_RETENTION_NORMAL_DAYS
+
+        cutoff_normal = datetime.now() - timedelta(days=normal_days + buffer_days)
+        cutoff_abnormal = datetime.now() - timedelta(days=abnormal_days + buffer_days)
+
+        sd_normal_deleted = await self._delete_expired_batches(
+            SensorData, SensorData.id,
+            (SensorData.source_mark == "normal")
+            & (SensorData.recorded_at < cutoff_normal),
+            batch,
+        )
+        sd_abnormal_deleted = await self._delete_expired_batches(
+            SensorData, SensorData.id,
+            (SensorData.source_mark != "normal")
+            & (SensorData.recorded_at < cutoff_abnormal),
+            batch,
         )
         ag_deleted = await self._delete_expired_batches(
-            SensorAnomalyGap, SensorAnomalyGap.id, SensorAnomalyGap.detected_at < cutoff, batch
+            SensorAnomalyGap, SensorAnomalyGap.id, SensorAnomalyGap.detected_at < cutoff_abnormal, batch
         )
         return {
-            "days": days,
+            "days": abnormal_days,
+            "normal_days": normal_days,
             "buffer_days": buffer_days,
-            "cutoff": cutoff.isoformat(),
-            "sensor_data_deleted": sd_deleted,
+            "cutoff": cutoff_abnormal.isoformat(),
+            "cutoff_normal": cutoff_normal.isoformat(),
+            "cutoff_abnormal": cutoff_abnormal.isoformat(),
+            "sensor_data_normal_deleted": sd_normal_deleted,
+            "sensor_data_abnormal_deleted": sd_abnormal_deleted,
+            "sensor_data_deleted": sd_normal_deleted + sd_abnormal_deleted,
             "anomaly_gap_deleted": ag_deleted,
         }
 

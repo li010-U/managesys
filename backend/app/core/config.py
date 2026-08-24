@@ -110,6 +110,8 @@ class Settings(BaseSettings):
     DATA_RETENTION_BUFFER_DAYS: int = 3
     # 单批删除行数上限：分批滚动清理，避免一次性大 DELETE 长时间锁库/长事务
     DATA_RETENTION_BATCH_SIZE: int = 5000
+    # 正常数据点最短保留天数（用于 sensor_data 分层：正常点短留、异常点长留）
+    DATA_RETENTION_NORMAL_DAYS: int = 30
     # 期望的采集间隔（秒）：默认每小时一条
     SENSOR_EXPECTED_INTERVAL_SECONDS: int = 3600
     # 缺失/异常窗口判定容差倍数：间隔 > 期望*c 视为"不在采集点"的异常窗口

@@ -118,3 +118,9 @@ _pytest_enc*
 # 环境配置文件备份（含敏感信息，不入库）
 .env.bak
 *.env.bak
+
+# 本地 PostgreSQL 实例（含凭据，不入库）
+/_pg/
+/pgdata/
+/_migration/_pg_*.py
+/_migration/pg_smoke.py
