@@ -6,6 +6,7 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.sensor import Sensor, SensorData
+from app.schemas.sensor import SensorCreate, SensorUpdate
 
 
 MAX_TREND_POINTS = 240  # 传感器趋势图最多返回点数（长周期降采样上限）
@@ -55,7 +56,6 @@ def _downsample(rows, max_points: int) -> list:
         sampled.append(_summarize_bucket(bucket))
     return list(reversed(sampled))
 
-from app.schemas.sensor import SensorCreate, SensorUpdate
 
 
 class SensorService:

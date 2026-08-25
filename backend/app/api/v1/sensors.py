@@ -161,8 +161,6 @@ async def record_sensor_data(
     sd = await service.record_data(sensor_id, value)
     if sd is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="传感器不存在")
-    from app.services.audit_service import AuditService
-    AuditService.log_request(db, request, current_user=current_user, action="execute", target_type="sensor", target_id=str(sensor_id), detail="录入传感器数据")
     return SensorDataResponse.model_validate(sd)
 
 
