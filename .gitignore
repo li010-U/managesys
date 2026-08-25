@@ -124,3 +124,10 @@ _pytest_enc*
 /pgdata/
 /_migration/_pg_*.py
 /_migration/pg_smoke.py
+
+# 鍘嬫祴 / 宸℃煡 / 澶囦唤浜х墿锛堜笉鍏ュ簱锛?
+/_loadtest/
+/scripts/.dev/
+/scripts/data_backup_*.sql
+/backend/backups/
+*.env.pre-*.bak
