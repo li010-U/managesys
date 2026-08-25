@@ -1,5 +1,5 @@
-﻿# Windows ??????/???????????????????
-# ??: powershell -ExecutionPolicy Bypass -File scripts\install_tasks.ps1 [-Remove]
+﻿# Windows 计划任务安装：每日备份 / 数据巡检 / 开机自启动守护
+# 用法：powershell -ExecutionPolicy Bypass -File scripts\install_tasks.ps1 [-Remove]
 param([switch]$Remove)
 
 $ErrorActionPreference = "Continue"
@@ -16,23 +16,23 @@ if ($Remove) {
     schtasks /Delete /TN $bakTask /F 2>$null
     schtasks /Delete /TN $bootTask /F 2>$null
     schtasks /Delete /TN $checkTask /F 2>$null
-    Write-Host "???????: $bakTask, $bootTask, $checkTask"
+    Write-Host "已删除计划任务: $bakTask, $bootTask, $checkTask"
     exit 0
 }
 
-# 1) ?? 03:00 ????
+# 1) 每日 03:00 备份数据库
 $bakCmd = "`"$Python`" `"$BackendDir\scripts\auto_backup.py`" --keep 30 --log `"$BackendDir\backups\auto_backup.log`""
 schtasks /Create /TN $bakTask /TR $bakCmd /SC DAILY /ST 03:00 /F
-Write-Host "???????: $bakTask (?? 03:00)"
+Write-Host "已安装备份任务: $bakTask (每日 03:00)"
 
-# 2) ?? 03:30 ?????????????
+# 2) 每日 03:30 数据异常巡检并修复
 $checkCmd = "`"$Python`" `"$BackendDir\scripts\auto_check_data.py`" --fix --log `"$BackendDir\data\auto_check_data.log`""
 schtasks /Create /TN $checkTask /TR $checkCmd /SC DAILY /ST 03:30 /F
-Write-Host "?????????: $checkTask (?? 03:30)"
+Write-Host "已安装巡检任务: $checkTask (每日 03:30)"
 
-# 3) ???????????
+# 3) 开机自启动后端守护
 $bootCmd = "powershell -ExecutionPolicy Bypass -File `"$BackendDir\scripts\start_backend.ps1`""
 schtasks /Create /TN $bootTask /TR $bootCmd /SC ONLOGON /RL HIGHEST /F
-Write-Host "?????????: $bootTask"
+Write-Host "已安装自启动任务: $bootTask"
 
-Write-Host "?????? schtasks /Query /TN $bakTask,$checkTask,$bootTask ??"
+Write-Host "可用 schtasks /Query /TN $bakTask,$checkTask,$bootTask 检查"
