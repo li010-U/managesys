@@ -218,3 +218,37 @@ class TestDeviceServiceChangeStatus:
         assert len(lifecycles) >= 1
         assert lifecycles[0].from_status == "mounted"
         assert lifecycles[0].to_status == "offline"
+
+
+class TestDeleteGuardsDeviceType:
+    """删除防护：设备类型下还有设备时返回 409提示先移除"""
+
+    @pytest.mark.asyncio
+    async def test_device_type_delete_blocks_when_in_use(self, db_session):
+        device_type = DeviceType(name="\u670d\u52a1\u5668", code="SERVER", category="compute")
+        db_session.add(device_type)
+        await db_session.flush()
+        device = Device(
+            device_type_id=device_type.id,
+            name="\u9700\u79fb\u9664\u8bbe\u5907",
+            asset_number="ASSET-DT-01",
+            status="mounted"
+        )
+        db_session.add(device)
+        await db_session.commit()
+
+        service = DeviceTypeService(db_session)
+        with pytest.raises(Exception) as exc:
+            await service.delete(device_type.id, operator_username="admin", operator_ip="127.0.0.1")
+        assert getattr(exc.value, "status_code", None) == 409
+
+    @pytest.mark.asyncio
+    async def test_device_type_delete_succeeds_when_unused(self, db_session):
+        device_type = DeviceType(name="\u7f51\u7edc\u8bbe\u5907", code="NETWORK", category="network")
+        db_session.add(device_type)
+        await db_session.commit()
+
+        service = DeviceTypeService(db_session)
+        result = await service.delete(device_type.id, operator_username="admin", operator_ip="127.0.0.1")
+        await db_session.commit()
+        assert result is True

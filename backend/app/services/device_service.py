@@ -1,5 +1,6 @@
 """设备管理服务"""
 from sqlalchemy import select, func
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.device_type import DeviceType
@@ -124,6 +125,11 @@ class DeviceTypeService:
             return False
         
         dt_name = dt.name
+        dev_cnt = (await self.db.execute(
+            select(func.count()).select_from(Device).where(Device.device_type_id == dt_id)
+        )).scalar() or 0
+        if dev_cnt:
+            raise HTTPException(status_code=409, detail=f"该设备类型下仍有 {dev_cnt} 台设备，请先移除设备后再删除")
         await self.db.delete(dt)
         await self.db.flush()
 
