@@ -5,7 +5,15 @@ inspection/work_order 等接口使用原始 SQL，其写法（? 占位符、date
   - q(sql, *params) : 把 SQLite 风格的 ? 占位符转换为 SQLAlchemy 命名绑定，
                       由 SQLAlchemy 按方言翻译为 ?（SQLite）或 $1（PostgreSQL）。
   - exec_sql(session, sql, params=()) : 便捷执行，参数为空则直接执行原始 SQL。
-  同时约定时间使用标准 SQL 的 CURRENT_TIMESTAMP（SQLite 与 PostgreSQL 均支持）。
+  说明：本模块的所有 exec_sql 写操作均在调用者传入的
+  会话（AsyncSession）当前事务内执行，不自带提交也不自带回滚。
+  构建多步写流程（如工单创建、巡检完成）时，
+  原子性依赖于外层依赖注入的写方法统一提交 /
+  异常回滚（见 app.core.deps.get_db ）。因此在多步写流程
+  内部不得手动 commit 或 rollback，否则会打破原子性。
+  在方法内故意主动提交的例外（如登录失败留痕、
+  IP 冲突处理）将在具体代码处以注释标注。
+同时约定时间使用标准 SQL 的 CURRENT_TIMESTAMP（SQLite 与 PostgreSQL 均支持）。
 """
 import asyncio
 import re
