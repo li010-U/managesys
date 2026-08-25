@@ -20,7 +20,7 @@ from app.core.middleware import ConcurrencyLimitMiddleware
 from app.core.request_id import RequestIDMiddleware, RequestIDFilter
 from app.api.v1 import router as api_router
 from app.db.base import Base
-from app.db.session import engine, async_session_factory
+from app.db.session import engine, async_session_factory, IS_SQLITE
 
 # ===== 日志配置 =====
 # 日志目录固定在后端根目录下的 logs/，避免随启动目录变化在异地写入日志
@@ -228,6 +228,48 @@ async def _init_builtin_data():
 
 
 # ===== 后台保留清理任务（每日滚动删除超期数据）=====
+
+_periodic_leader = True
+_periodic_leader_conn = None
+_PERIODIC_LEADER_LOCK_KEY = 20260825
+
+
+async def _acquire_periodic_leader() -> bool:
+    """多 worker 下选出唯一 leader 运行定时任务。
+    使用 PostgreSQL 会话级 advisory lock：leader 进程退出后锁随连接释放，
+    重启的 worker 可重新拿回 leadership。SQLite 单进程终为 leader。
+    失败时默认放行（fail-open）以不停止定时任务。"""
+    global _periodic_leader, _periodic_leader_conn
+    if IS_SQLITE:
+        _periodic_leader = True
+        return True
+    try:
+        from sqlalchemy import text
+        conn = await engine.connect()
+        row = (await conn.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": _PERIODIC_LEADER_LOCK_KEY})).scalar()
+        if row:
+            _periodic_leader = True
+            _periodic_leader_conn = conn  #持有连接以保持锁
+            logger.info("本进程获得周期任务 leader 权限")
+            return True
+        await conn.close()
+        _periodic_leader = False
+        logger.info("其他 worker 已持有周期任务，本进程跳过")
+        return False
+    except Exception as e:
+        _periodic_leader = True
+        logger.warning("周期任务选主失败默认放行: %s", e)
+        return True
+
+
+async def _release_periodic_leader():
+    global _periodic_leader_conn
+    if _periodic_leader_conn is not None:
+        try:
+            await _periodic_leader_conn.close()
+        except Exception:
+            pass
+        _periodic_leader_conn = None
 
 _retention_task: Optional[asyncio.Task] = None
 
@@ -629,13 +671,17 @@ async def lifespan(app: FastAPI):
         logger.info("邮件服务未启用（SMTP_ENABLED=false 或 SMTP_HOST 未配置）")
 
     # 启动进程内每日数据保留清理任务（含启动即跑一次作为兜底）
-    try:
-        _start_retention_task()
-        _start_alert_intel_task()
-        _start_alert_lifecycle_task()
-        _start_env_poll_task()
-    except Exception as e:
-        logger.warning("启动保留清理任务失败: %s", str(e))
+    await _acquire_periodic_leader()
+    if _periodic_leader:
+        try:
+            _start_retention_task()
+            _start_alert_intel_task()
+            _start_alert_lifecycle_task()
+            _start_env_poll_task()
+        except Exception as e:
+            logger.warning("启动周期任务失败: %s", str(e))
+    else:
+        logger.info("非 leader 进程跳过周期任务")
 
     yield
 
@@ -644,6 +690,7 @@ async def lifespan(app: FastAPI):
     await _stop_alert_lifecycle_task()
     await _stop_env_poll_task()
     await _stop_retention_task()
+    await _release_periodic_leader()
     await engine.dispose()
     logger.info("应用已关闭，数据库连接已释放")
 
