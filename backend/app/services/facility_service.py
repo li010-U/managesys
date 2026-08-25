@@ -80,6 +80,11 @@ class DataCenterService:
             return False
 
         dc_name = dc.name
+        room_cnt = (await self.db.execute(
+            select(func.count()).select_from(Room).where(Room.data_center_id == dc_id)
+        )).scalar() or 0
+        if room_cnt:
+            raise HTTPException(status_code=409, detail=f"数据中心下还有 {room_cnt} 个机房，请先删除机房后再删除")
         dev_cnt = (await self.db.execute(
             select(func.count()).select_from(Device).where(
                 Device.rack_id.in_(

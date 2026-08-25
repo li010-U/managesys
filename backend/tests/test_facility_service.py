@@ -341,3 +341,53 @@ class TestDeleteGuardsMountedDevices:
         result = await service.delete(rack.id, operator_username="admin", operator_ip="127.0.0.1")
         await db_session.commit()
         assert result is True
+
+
+class TestDeleteCascadeEmptyStructure:
+    """\u9a8c\u8bc1\u5220\u9664\u4fdd\u62a4\u4e0d\u589e\u52a0\u56de\u9000\uff1a\u4ec5\u6709\u7a7a\u673a\u67dc/\u7a7a\u673a\u623f\u65f6\u4ecd\u53ef\u6b63\u5e38\u5220\u9664\uff08\u7a7a\u5b50\u7ed3\u6784\u7ea7\u8054\u5220\u9664\uff09"""
+
+    @pytest.mark.asyncio
+    async def test_room_delete_succeeds_with_only_empty_racks(self, db_session):
+        dc = DataCenter(name="\u6d4b\u8bd5DC", code="DC-CASC-ROOM")
+        db_session.add(dc)
+        await db_session.flush()
+        room = Room(data_center_id=dc.id, name="\u6d4b\u8bd5\u673a\u623f", code="RM-CASC")
+        db_session.add(room)
+        await db_session.flush()
+        rack = Rack(room_id=room.id, name="\u7a7a\u673a\u67dc", code="RK-CASC", total_units=42, available_units=42)
+        db_session.add(rack)
+        await db_session.commit()
+
+        service = RoomService(db_session)
+        result = await service.delete(room.id, operator_username="admin", operator_ip="127.0.0.1")
+        await db_session.commit()
+        assert result is True
+
+        # \u7a7a\u673a\u67dc\u968f\u673a\u623f\u7ea7\u8054\u5220\u9664\uff0c\u4e0d\u6b8b\u7559
+        left = (await db_session.execute(select(Rack).where(Rack.code == "RK-CASC"))).scalar_one_or_none()
+        assert left is None
+
+    @pytest.mark.asyncio
+    async def test_data_center_delete_blocks_when_has_rooms(self, db_session):
+        dc = DataCenter(name="\u6d4b\u8bd5DC", code="DC-CASC-DC")
+        db_session.add(dc)
+        await db_session.flush()
+        room = Room(data_center_id=dc.id, name="\u6d4b\u8bd5\u673a\u623f", code="RM-CASC-DC")
+        db_session.add(room)
+        await db_session.commit()
+
+        service = DataCenterService(db_session)
+        with pytest.raises(Exception) as exc:
+            await service.delete(dc.id, operator_username="admin", operator_ip="127.0.0.1")
+        assert getattr(exc.value, "status_code", None) == 409
+
+    @pytest.mark.asyncio
+    async def test_data_center_delete_succeeds_when_fully_empty(self, db_session):
+        dc = DataCenter(name="\u6d4b\u8bd5DC", code="DC-ONLY")
+        db_session.add(dc)
+        await db_session.commit()
+
+        service = DataCenterService(db_session)
+        result = await service.delete(dc.id, operator_username="admin", operator_ip="127.0.0.1")
+        await db_session.commit()
+        assert result is True
