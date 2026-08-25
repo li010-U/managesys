@@ -49,3 +49,27 @@ def test_register_endpoint_429s_after_limit(monkeypatch):
             )
             codes.append(r.status_code)
         assert codes[5] == 429
+
+
+
+def test_build_limiter_prefers_redis_when_configured(monkeypatch):
+    """配置 REDIS_URL 时，全局限流应优先采用 Redis 后端（多 worker 共享计数）。"""
+    import sys, types
+    class _FakeRedisClient:
+        async def pipeline(self):
+            return self
+        async def execute(self):
+            return [0, 0, None]
+    fake_mod = types.ModuleType("redis")
+    fake_async = types.ModuleType("redis.asyncio")
+    fake_async.from_url = lambda url, **kw: _FakeRedisClient()
+    fake_mod.asyncio = fake_async
+    monkeypatch.setitem(sys.modules, "redis", fake_mod)
+    monkeypatch.setitem(sys.modules, "redis.asyncio", fake_async)
+    from app.core import ratelimit as rl
+    from app.core.config import settings as _cfg
+    monkeypatch.setattr(_cfg, "REDIS_URL", "redis://127.0.0.1:6379/0")
+    from app.core.ratelimit import build_limiter
+    lim = build_limiter()
+    from app.core.ratelimit import RedisSlidingWindowLimiter
+    assert isinstance(lim, RedisSlidingWindowLimiter)

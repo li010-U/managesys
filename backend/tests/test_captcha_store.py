@@ -120,3 +120,41 @@ async def test_redis_store_shared_atomic_consume_and_fallback():
         assert await store2.consume(cid) == ccode
     finally:
         _restore_redis()
+
+
+@pytest.mark.asyncio
+async def test_get_store_selects_redis_when_redis_url_configured():
+    """配置 REDIS_URL 后，全局验证码存储应自动切换到 Redis 后端。"""
+    from app.core.config import settings
+    from app.services.captcha_service import get_captcha_store, reset_captcha_store_for_tests, RedisCaptchaStore
+    fake = _FakeRedis()
+    await _install_fake_redis(fake)
+    reset_captcha_store_for_tests()
+    try:
+        with patch.object(settings, "REDIS_URL", "redis://fake:6379/0"):
+            store = get_captcha_store()
+        assert isinstance(store, RedisCaptchaStore)
+    finally:
+        reset_captcha_store_for_tests()
+        _restore_redis()
+
+
+@pytest.mark.asyncio
+async def test_get_store_falls_back_to_memory_when_redis_init_fails():
+    """REDIS_URL 配置了但 Redis 初始化异常时，应回退内存（fail-open）。"""
+    from app.core.config import settings
+    from app.services.captcha_service import get_captcha_store, reset_captcha_store_for_tests, MemoryCaptchaStore
+    fake = _FakeRedis()
+    # 让 from_url 报错，模拟服务不可用
+    def _boom(url, **kw):
+        raise ConnectionError("redis down")
+    fake_mod = await _install_fake_redis(fake)
+    fake_mod.asyncio.from_url = _boom
+    reset_captcha_store_for_tests()
+    try:
+        with patch.object(settings, "REDIS_URL", "redis://fake:6379/0"):
+            store = get_captcha_store()
+        assert isinstance(store, MemoryCaptchaStore)
+    finally:
+        reset_captcha_store_for_tests()
+        _restore_redis()
