@@ -3,7 +3,7 @@
 面向数据中心/机房运维场景的资源智能管理系统，涵盖设备与机房管理、实时监控、告警生命周期、AI 智能助手、工单与巡检、IP/VLAN 资源、审计与权限等能力。
 
 ## 技术栈
-- **后端**：FastAPI + SQLAlchemy (asyncio) + SQLite（可迁移 PostgreSQL）
+- **后端**：FastAPI + SQLAlchemy (asyncio) + PostgreSQL（生产，默认） / SQLite（本地开发，可选）
 - **前端**：Vue 3 + TypeScript + Vite + Element Plus + ECharts + Three.js
 - **数据库迁移**：Alembic
 
@@ -39,4 +39,4 @@ npm run dev
 
 ## 部署与运维
 - 部署、升级、安全加固、PostgreSQL 迁移、内网访问配置详见根目录 `DEPLOY.md`。
-- 生产以 `scripts\start_prod.bat` 启动，默认端口 `8000`，SQLite 单进程、PostgreSQL 自动多 worker。
+- 生产以 `scripts\start_prod.bat` 启动，默认端口 `8000`，PostgreSQL（支持多 worker）；本地开发可回退 SQLite 单进程。
