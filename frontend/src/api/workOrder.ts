@@ -123,7 +123,7 @@ export const deleteAutoRule = (id: number) => {
   return http.delete(`/work-order-rules/${id}`)
 }
 
-// ============ ?? ============
+// ============ 高级操作 ============
 export const approveWorkOrder = (id: number) => {
   return http.post(`/work-orders/${id}/approve`)
 }

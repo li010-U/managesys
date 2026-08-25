@@ -333,7 +333,7 @@ function scrollToHighlightSensor() {
   nextTick(() => {
     const el = document.querySelector('.hl-sensor-card') as HTMLElement | null
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" })
-    // ??????
+    // 高亮闪烁提示
     if (el) {
       el.classList.add("hl-flash")
       window.setTimeout(() => el.classList.remove("hl-flash"), 2000)

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""IP ?? API?"""
+"""IP 资源 API。"""
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession

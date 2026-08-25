@@ -35,8 +35,8 @@ async def test_conflicts_detects_explicit_and_potential(db_session):
 
     svc = IpResourceService(db_session)
     data = await svc.conflicts()
-    # 10.0.0.1 ? management ???? = ????
-    # 10.0.0.1 ??? management ? business = ????
+    # 10.0.0.1 仅 management 占用 = 无冲突
+    # 10.0.0.1 同时占 management 和 business = 显式冲突
     assert data["total"] >= 2
     explicit_ips = {c["ip"] for c in data["explicit"]}
     assert "10.0.0.1" in explicit_ips

@@ -4,7 +4,7 @@ from sqlalchemy import select, func, desc, or_, case
 from app.models.alert import AlertRule, Alert, AlertAction
 from app.db.retry import with_commit_retry
 
-# ?????????????????????????????????
+# 排序字段白名单（防任意列排序注入）
 ALERT_SORT_WHITELIST = {
     "id": Alert.id, "title": Alert.title, "level": Alert.level, "status": Alert.status,
     "target_type": Alert.target_type, "source": Alert.source, "occurrences": Alert.occurrences,

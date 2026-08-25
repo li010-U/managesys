@@ -8,7 +8,7 @@ from app.models.device import Device, DeviceLifecycle
 from app.schemas.device import DeviceTypeCreate, DeviceTypeUpdate, DeviceCreate, DeviceUpdate, ThresholdConfigUpdate
 from app.services.ip_registry_service import sync_device_ip_ledger, release_device_ip_ledger
 
-# ?????????????????????????????????
+# 排序字段白名单（防任意列排序注入）
 DEVICE_SORT_WHITELIST = {
     "id": Device.id, "name": Device.name, "asset_number": Device.asset_number,
     "status": Device.status, "brand": Device.brand, "model": Device.model,

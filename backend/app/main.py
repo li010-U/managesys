@@ -42,7 +42,7 @@ logging.basicConfig(
         ),
     ],
 )
-# ???????? request-id ???????????????? req_id
+# 为每个日志 handler 注入 request-id Filter，使日志带 req_id
 for _h in logging.getLogger().handlers:
     if not any(isinstance(_f, RequestIDFilter) for _f in _h.filters):
         _h.addFilter(RequestIDFilter())

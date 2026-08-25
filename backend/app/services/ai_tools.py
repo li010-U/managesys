@@ -84,23 +84,23 @@ def _detect_action_type(text: str) -> Optional[str]:
         return "ignore"
     return None
 GONGDAN = "\u5de5\u5355"
-ASSIGN = "\u5206\u914d"  # ??
-PAIPAI = "\u6307\u6d3e"  # ??
-CLOSE = "\u5173\u95ed"  # ??
-VERIFY = "\u9a8c\u6536"  # ??
-MOUNT = "\u6302\u8f7d"  # ??
-SHANGJIA = "\u4e0a\u67b6"  # ??
-UNMOUNT = "\u5378\u8f7d"  # ??
-XIAJIA = "\u4e0b\u67b6"  # ??
-RULE = "\u89c4\u5219"  # ??
-RULE2 = "\u544a\u8b66\u89c4\u5219"  # ????
-ADD = "\u6dfb\u52a0"  # ??
-XINZENG = "\u65b0\u589e"  # ??
-GIVE = "\u7ed9"  # ?
-TOU = "\u5934"  # ?(??)
-PASS = "\u901a\u8fc7"  # ??(??)
-REJ = "\u9a73\u56de"  # ??(??)
-INTO = "\u5230"  # ? (?????)
+ASSIGN = "\u5206\u914d"
+PAIPAI = "\u6307\u6d3e"
+CLOSE = "\u5173\u95ed"
+VERIFY = "\u9a8c\u6536"
+MOUNT = "\u6302\u8f7d"
+SHANGJIA = "\u4e0a\u67b6"
+UNMOUNT = "\u5378\u8f7d"
+XIAJIA = "\u4e0b\u67b6"
+RULE = "\u89c4\u5219"
+RULE2 = "\u544a\u8b66\u89c4\u5219"
+ADD = "\u6dfb\u52a0"
+XINZENG = "\u65b0\u589e"
+GIVE = "\u7ed9"
+TOU = "\u5934"
+PASS = "\u901a\u8fc7"
+REJ = "\u9a73\u56de"
+INTO = "\u5230"
 
 def _find_order_id(text: str) -> Optional[int]:
     m = re.search(r"(?:#|id\s*[:=]?)\s*(\d+)", text or "", flags=re.IGNORECASE)

@@ -124,7 +124,7 @@ class IpResourceService:
         }
 
     def _collect(self, rows):
-        """???? IP ???????? overview/conflicts ???"""
+        """收集各角色 IP，供 overview/conflicts 使用。"""
         from collections import defaultdict
         by_role = defaultdict(lambda: defaultdict(list))  # role -> ip -> [device]
         global_ip = defaultdict(set)                      # ip -> roles
@@ -148,7 +148,7 @@ class IpResourceService:
 
 
     async def _rack_room_map(self) -> dict:
-        """?? {rack_id: (rack_name, room_id)} ??????????"""
+        """构建 {rack_id: (rack_name, room_id)} 机房映射。"""
         from app.models.facility import Rack
         out = {}
         try:

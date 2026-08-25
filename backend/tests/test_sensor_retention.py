@@ -139,11 +139,11 @@ async def test_reconcile_detects_between_points_breach(db_session, sensor_with_d
 
 @pytest.mark.asyncio
 async def test_get_recent_data_downsample_validates_as_sensor_data_response(db_session, sensor_with_data):
-    """???????hours??????? _PointSample ???? SensorDataResponse ???
-    ?? route ? model_validate ? ValidationError -> 500????????????????
-    ??????????????????????? N ?????????"""
+    """校验近 hours 数据若能降采样为 _PointSample 并映射为 SensorDataResponse。
+    若 route 的 model_validate 招 ValidationError -> 500，回归将被拘获（此测试可发现该回归）。
+    同时验证降采样结果的时间跨度满足近 N 小时的要求。"""
     now = datetime.now()
-    total = 2000  # ???? limit(1000) ? MAX_TREND_POINTS(240)????????????
+    total = 2000  # 超过 limit(1000) 与 MAX_TREND_POINTS(240)，触发并验证降采样
     step_seconds = (24 * 3600) / total
     for i in range(total):
         db_session.add(SensorData(
@@ -164,13 +164,13 @@ async def test_get_recent_data_downsample_validates_as_sensor_data_response(db_s
 
     earliest = min(validated, key=lambda v: v.recorded_at).recorded_at
     latest = max(validated, key=lambda v: v.recorded_at).recorded_at
-    assert (now - earliest).total_seconds() <= 25 * 3600, f"earliest ??: {earliest}"
-    assert (latest - now).total_seconds() < 3600, f"latest ??: {latest}"
+    assert (now - earliest).total_seconds() <= 25 * 3600, f"earliest 超出范围: {earliest}"
+    assert (latest - now).total_seconds() < 3600, f"latest 超出范围: {latest}"
     span_hours = (latest - earliest).total_seconds() / 3600
-    assert span_hours >= 20, f"???????????? {span_hours:.1f}h"
+    assert span_hours >= 20, f"降采样后跨度不足: {span_hours:.1f}h"
 
 
-# get_all ??????? N+1 ????
+# get_all 需保证单次 SQL，避免 N+1 回归
 from sqlalchemy import event as _sa_event
 
 _QUERY_COUNT = {"n": 0}
@@ -182,10 +182,10 @@ def _count_sql(conn, cursor, statement, parameters, context, executemany):
 
 @pytest.mark.asyncio
 async def test_get_all_is_single_query_no_nplus1(db_session):
-    """???/sensors/all ? get_all ???? 1 ? SQL?
-    ?? data_records/anomaly_gaps ? selectin ?????? Sensor ? eager ???????
-    ?? /sensors/all ?? ~7.4s??? lazy='noload' ??? 0.085s?
-    ???????? eager ??? N+1 ???"""
+    """校验 /sensors/all 即 get_all 只发 1 条 SQL。
+    采用 data_records/anomaly_gaps 用 selectin 加载并与 Sensor 做 eager 关联。
+    此前 /sensors/all 需 ~7.4s，采用 lazy='noload' 后降至 0.085s。
+    通过校验确保 eager 不退化回 N+1。"""
     room = await _make_room(db_session)
     for i in range(20):
         db_session.add(Sensor(room_id=room.id, name=f"s{i}", code=f"code-{i}",
@@ -201,7 +201,7 @@ async def test_get_all_is_single_query_no_nplus1(db_session):
     finally:
         _sa_event.remove(db_session.get_bind(), "before_cursor_execute", _count_sql)
 
-    assert _QUERY_COUNT["n"] == 1, f"get_all ?? 1 ? SQL??? {_QUERY_COUNT['n']} ??N+1 ???"
+    assert _QUERY_COUNT["n"] == 1, f"get_all 应只发 1 条 SQL，实际 {_QUERY_COUNT['n']} 条，疑似 N+1 回归"
 
 
 @pytest.mark.asyncio

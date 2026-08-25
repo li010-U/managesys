@@ -159,12 +159,12 @@ async def test_execute_mount_capacity_exceeded(db_session):
 async def test_create_work_order_acknowledges_new_alerts(db_session):
     """创建工单会确认并处理相关的新告警(new)，防止重复处理(acknowledged)。"""
     from app.models import Alert
-    db_session.add(Alert(target_type="sensor", target_id="s1", title="????", level="serious", status="new", source="sensor"))
+    db_session.add(Alert(target_type="sensor", target_id="s1", title="测试告警", level="serious", status="new", source="sensor"))
     await db_session.flush()
 
     admin = _super()
     db_session.add(admin); await db_session.flush()
-    res = await ai_tools.execute(db_session, "create_work_order", {"title": "??????", "priority": "high"}, admin)
+    res = await ai_tools.execute(db_session, "create_work_order", {"title": "测试工单", "priority": "high"}, admin)
     assert res["result"] == "created"
     assert res["handled_alerts"] == 1
 
@@ -180,7 +180,7 @@ def test_missing_params_required():
     from app.services import ai_tools
     # create_work_order requires title
     assert ai_tools.missing_params("create_work_order", {"priority": "high"}) == ["title"]
-    assert ai_tools.missing_params("create_work_order", {"title": "?????"}) == []
+    assert ai_tools.missing_params("create_work_order", {"title": "测试"}) == []
     # assign_work_order requires order_id + assignee_username
     m = ai_tools.missing_params("assign_work_order", {"order_id": 5})
     assert m == ["assignee_username"]

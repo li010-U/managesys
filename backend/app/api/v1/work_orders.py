@@ -32,7 +32,7 @@ from app.schemas.work_order import (
 
 router = APIRouter(prefix="/work-orders", tags=["Work Order"])
 
-# ?????????????????????????????????
+# 工单列表排序白名单（防任意列排序注入）
 WORK_ORDER_SORT_WHITELIST = {
     "id": "w.id", "order_no": "w.order_no", "title": "w.title",
     "priority": "w.priority", "status": "w.status",

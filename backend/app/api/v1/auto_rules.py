@@ -121,10 +121,10 @@ async def delete_rule(
     return {"message": "Rule deleted"}
 
 
-# ============ ??????? ============
+# ============ 自动规则匹配 ============
 async def apply_auto_rules(db, title: str, description: Optional[str], category_id: Optional[int],
                            priority: str, assignee_id: Optional[int]):
-    """?????????????/?????? (priority, assignee_id, applied_name)"""
+    """根据工单信息匹配自动规则，返回 (priority, assignee_id, applied_name)。"""
     if assignee_id:
         return priority, assignee_id, None
     rows = (await exec_sql(db, """

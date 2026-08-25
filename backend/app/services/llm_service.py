@@ -1,12 +1,11 @@
 ﻿
-"""AI LLM ?? - ???? DeepSeek / OpenAI?OpenAI ????????
+"""AI LLM 服务——支持 DeepSeek / OpenAI 兼容接口。
 
-???
-- ??? chat() ??? chat_stream()
-- ? LLM_PROVIDER ?? deepseek / openai
-- ??? API Key ?? LLMNotConfiguredError????????
-- ????????????????
-"""
+特点
+- 提供 chat() 与 chat_stream()
+- 按 LLM_PROVIDER 切换 deepseek / openai / internal
+- 未配置 API Key 时抛 LLMNotConfiguredError 便于上层友好提示
+- 多 provider 独立配置模型，切换时自动跟随"""
 from __future__ import annotations
 
 import json
@@ -63,7 +62,7 @@ def _headers(key: str) -> Dict[str, str]:
 
 
 class LLMService:
-    """AI LLM ???"""
+    """AI LLM 服务。"""
 
     async def chat(
         self,

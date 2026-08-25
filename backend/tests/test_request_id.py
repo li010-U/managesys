@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Request-ID ???????????
+"""Request-ID 中间件与过滤器测试。
 
-???
-- ??? X-Request-ID ????? request-id ???????
-- ???? X-Request-ID ???/??????
-- contextvars ?? request-id ?? handler ???????????
-- RequestIDFilter ?? request-id ???????
-"""
+要点
+- 传入 X-Request-ID 时沿用它作为 request-id
+- 缺失 X-Request-ID 时自动生成随机值
+- contextvars 让 request-id 在 handler 内可访问
+- RequestIDFilter 为每条日志注入 request-id"""
 import logging
 
 from fastapi import FastAPI, Request
@@ -52,10 +51,10 @@ class TestRequestIDFilter:
             lineno=1, msg="msg", args=None, exc_info=None,
         )
         f = RequestIDFilter()
-        # ?????? -> ?? "-"
+        # 未设置上下文 -> 取默认 "-"
         assert f.filter(record) is True
         assert record.req_id == "-"
-        # ?????? -> ??
+        # 已设置上下文 -> 取自定义值
         import app.core.request_id as rid_mod
         token = rid_mod.request_id_var.set("ctx-abc")
         try:
@@ -66,7 +65,7 @@ class TestRequestIDFilter:
 
 
 class TestRealAppRequestID:
-    """???????/health ????? X-Request-ID?????????"""
+    """真实应用请求中携带 X-Request-ID 且响应头回写。"""
 
     def test_real_app_health_has_request_id(self):
         from starlette.testclient import TestClient

@@ -62,7 +62,7 @@ async def test_sensor_anomaly_gap_registered(db_session):
     assert "sensor_anomaly_gap" in Base.metadata.tables
 
 
-# ???????/???????? __table_args__ ? alembic ???????
+# 校验关键复合索引主要由 __table_args__ 定义且能被 alembic 识别
 EXPECTED_INDEXES = {
     "ix_sensor_data_sensor_id_recorded_at",
     "ix_alerts_status_created_at",
@@ -73,11 +73,11 @@ EXPECTED_INDEXES = {
 
 @pytest.mark.asyncio
 async def test_hotpath_composite_indexes_present(db_session):
-    """????????????/????????? create_all ??? schema?
-    ???? __table_args__ ????/??/???????"""
+    """校验关键热点复合索引在 create_all 生成的 schema 中存在。"""
+
     from sqlalchemy import text
     created = set((await db_session.execute(
         text("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'ix_%'")
     )).scalars().all())
     missing = EXPECTED_INDEXES - created
-    assert not missing, f"???????: {missing}"
+    assert not missing, f"缺少关键索引: {missing}"

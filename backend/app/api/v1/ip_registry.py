@@ -42,7 +42,7 @@ class AddressSave(BaseModel):
     remark: Optional[str] = Field(None, max_length=256)
 
 
-# ===== ?????? =====
+# ===== 基础模型 =====
 class IpAddressItem(BaseModel):
     id: int
     address: str
