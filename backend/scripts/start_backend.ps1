@@ -20,6 +20,18 @@ $OutLog = Join-Path $PSScriptRoot "backend.out.log"
 $ErrLog = Join-Path $PSScriptRoot "backend.err.log"
 $PidFile = Join-Path $PSScriptRoot "backend.pid"
 
+# ---- ??/???? ----
+# ? Windows ????????????User ? env ???????????????????
+# ??? uvicorn ?????????????????? .env ????? Shell ??????
+$keyFromUser = [Environment]::GetEnvironmentVariable("DEEPSEEK_API_KEY", "User")
+if (-not [string]::IsNullOrEmpty($keyFromUser) -and -not $env:DEEPSEEK_API_KEY) {
+    $env:DEEPSEEK_API_KEY = $keyFromUser
+}
+if (-not $env:DATABASE_URL) {
+    $dbFromUser = [Environment]::GetEnvironmentVariable("DATABASE_URL", "User")
+    if (-not [string]::IsNullOrEmpty($dbFromUser)) { $env:DATABASE_URL = $dbFromUser }
+}
+
 function Get-RunningPid {
     if (Test-Path $PidFile) {
         $pid0 = [int](Get-Content $PidFile -Raw).Trim()
@@ -45,6 +57,17 @@ $argList = @("-m","uvicorn","app.main:app","--host",$HostAddr,"--port","$Port","
 if ($Reload) { $argList += "--reload" }
 
 Write-Host "????????Ctrl+C ???????????????? $OutLog"
+function Test-Database {
+    # ???: ???? DATABASE_URL ??? postgres?PG??? pg_isready ???????????
+    if ($env:DATABASE_URL -match "postgres|postgresql") {
+        $pgIsReady = Get-Command pg_isready -ErrorAction SilentlyContinue
+        if ($pgIsReady) { return (& pg_isready -h 127.0.0.1 -p 5433 -d managesys_prod 2>$null).ExitCode -eq 0 }
+        # ??? pg_isready???? 5433 ??
+        return [bool](Test-NetConnection -ComputerName 127.0.0.1 -Port 5433 -InformationLevel Quiet -WarningAction SilentlyContinue)
+    }
+    return $true
+}
+
 while ($true) {
     $p = Start-Process -FilePath $Python -ArgumentList $argList -WorkingDirectory $BackendDir `
         -RedirectStandardOutput $OutLog -RedirectStandardError $ErrLog -WindowStyle Hidden -PassThru
@@ -52,5 +75,12 @@ while ($true) {
     Write-Host ("[{0}] ?? PID={1} ???" -f (Get-Date -Format "HH:mm:ss"), $p.Id)
     $p.WaitForExit()
     Write-Host ("[{0}] ?????? exit={1}?2s ?????..." -f (Get-Date -Format "HH:mm:ss"), $p.ExitCode)
-    Start-Sleep -Seconds 2
+    # ?? DB ?? (PG ???) ?:?? DB ??????????????????
+    if (Test-Database) {
+        Start-Sleep -Seconds 2
+    } else {
+        # DB ????????????????? 10s ?????
+        Write-Host ("[{0}] ?? DB ?????20s ???????" -f (Get-Date -Format "HH:mm:ss"))
+        Start-Sleep -Seconds 20
+    }
 }

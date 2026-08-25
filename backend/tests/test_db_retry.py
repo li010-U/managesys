@@ -219,3 +219,38 @@ class TestGetDbAutoCommitOnFlush:
         async with async_session_factory() as check:
             res = await check.execute(text("SELECT COUNT(*) FROM roles WHERE code = :c"), {"c": code})
             assert res.scalar_one() == 1, "commit 后衬句 - flush 写入未持久化"
+
+
+class TestWriteSerializationByDialect:
+    """????????????? SQLite ???PostgreSQL ????
+
+    ????????? PostgreSQL ?????????????????
+    ????????????????? SQLite ???????
+    """
+
+    @pytest.mark.asyncio
+    async def test_lock_is_skipped_when_not_sqlite(self, monkeypatch):
+        import app.db.retry as retry_mod
+
+        # ?? PostgreSQL?IS_SQLITE=False -> ????????
+        monkeypatch.setattr(retry_mod, "IS_SQLITE", False)
+        assert retry_mod._serialize_writes() is False
+
+        # ???????????????????
+        async def op():
+            return "pg-ok"
+
+        assert await retry_mod.with_commit_retry(op, max_retries=1, delay=0) == "pg-ok"
+
+    @pytest.mark.asyncio
+    async def test_lock_is_active_when_sqlite(self, monkeypatch):
+        import app.db.retry as retry_mod
+
+        monkeypatch.setattr(retry_mod, "IS_SQLITE", True)
+        assert retry_mod._serialize_writes() is True
+
+        async def op():
+            return "sqlite-ok"
+
+        assert await retry_mod.with_commit_retry(op, max_retries=1, delay=0) == "sqlite-ok"
+

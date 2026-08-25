@@ -17,6 +17,7 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.core.concurrency import sse_semaphore
 from app.core.middleware import ConcurrencyLimitMiddleware
+from app.core.request_id import RequestIDMiddleware, RequestIDFilter
 from app.api.v1 import router as api_router
 from app.db.base import Base
 from app.db.session import engine, async_session_factory
@@ -28,7 +29,7 @@ BASE_LOG_DIR.mkdir(parents=True, exist_ok=True)
 APP_LOG_PATH = BASE_LOG_DIR / "app.log"
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s",
+    format="%(asctime)s | %(levelname)-8s | [%(req_id)s] | %(name)s:%(lineno)d | %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
         logging.StreamHandler(sys.stdout),
@@ -41,6 +42,10 @@ logging.basicConfig(
         ),
     ],
 )
+# ???????? request-id ???????????????? req_id
+for _h in logging.getLogger().handlers:
+    if not any(isinstance(_f, RequestIDFilter) for _f in _h.filters):
+        _h.addFilter(RequestIDFilter())
 logger = logging.getLogger("managesys")
 
 
@@ -681,6 +686,8 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # 请求链路识别：置于最外层，保证后续中间件/路由均可获得 req_id
+    app.add_middleware(RequestIDMiddleware)
     # CORS配置
     app.add_middleware(
         CORSMiddleware,

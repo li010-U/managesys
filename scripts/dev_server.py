@@ -15,7 +15,7 @@ import socket
 import subprocess
 import sys
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # 仓库根目录(scripts 的上一级)
 BACKEND_DIR = os.path.join(ROOT, "backend")
 FRONTEND_DIR = os.path.join(ROOT, "frontend")
 STATE_DIR = os.path.join(ROOT, ".dev")
@@ -32,6 +32,13 @@ else:
 
 BACKEND_PORT = 8000
 FRONTEND_PORT = 5173
+
+# 实时数据模拟器（告警生命周期去重/自动恢复驱动）
+DEV_TOOLS_DIR = os.path.join(BACKEND_DIR, "dev_tools")
+SIM_SCRIPT = os.path.join(DEV_TOOLS_DIR, "simulate_realtime.py")
+# 默认随 start 一起启动实时模拟器；设 START_SIMULATOR=0 可关闭
+SIM_ENABLED = os.environ.get("START_SIMULATOR", "1") not in ("0", "false", "False")
+SIM_ARGS_DEFAULT = ["--interval", "1.0", "--per-cycle", "0", "--consecutive", "3", "--keep-hours", "24"]
 
 
 def _pid_by_port(port):
@@ -95,16 +102,20 @@ def is_alive(pid):
         return False
 
 
-def spawn_service(name, cmd, cwd, log_name):
+def spawn_service(name, cmd, cwd, log_name, env=None):
     log_path = os.path.join(LOG_DIR, log_name)
     out = open(log_path, "ab", buffering=0)
     # CREATE_NO_WINDOW = 0x08000000
+    proc_env = os.environ.copy()
+    if env:
+        proc_env.update(env)
     try:
         proc = subprocess.Popen(
             cmd,
             cwd=cwd,
             stdout=out,
             stderr=subprocess.STDOUT,
+            env=proc_env,
             creationflags=subprocess.CREATE_NO_WINDOW,
             shell=False,
         )
@@ -149,6 +160,20 @@ def start():
         pid = spawn_service("前端", vue_cli, FRONTEND_DIR, "frontend.log")
         if pid:
             pids["frontend"] = pid
+
+    # 实时数据模拟器（告警生命周期驱动）
+    if SIM_ENABLED:
+        sim_pid = pids.get("simulator")
+        if sim_pid and is_alive(sim_pid):
+            print(f"  [跳过] 实时模拟器已在运行 (PID={sim_pid})")
+        elif os.path.exists(SIM_SCRIPT):
+            sim_env = {"ALLOW_DEV_TOOL_WRITE": "1"}
+            cmd = [PYTHON, SIM_SCRIPT] + SIM_ARGS_DEFAULT
+            pid = spawn_service("实时模拟器", cmd, DEV_TOOLS_DIR, "simulator.log", env=sim_env)
+            if pid:
+                pids["simulator"] = pid
+    else:
+        print("  [跳过] 实时模拟器未启用 (START_SIMULATOR=0)")
 
     save_pids(pids)
     if sys.platform == "win32":
@@ -205,6 +230,12 @@ def status():
             print(f"  [PID] {name} = {pid} (存活)")
         else:
             print(f"  [PID] {name} = {pid} (已退出)")
+    if SIM_ENABLED:
+        spid = pids.get("simulator")
+        if spid and is_alive(spid):
+            print(f"  [运行] 实时模拟器 (PID={spid})")
+        else:
+            print(f"  [停止] 实时模拟器")
 
 
 def restart():

@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.timeutil import now_local
 from app.db.retry import with_commit_retry
-from app.models.alert import Alert
+from app.models.alert import Alert, AlertAction
 from app.models.env_weather import TransientFailureEvent
 
 logger = logging.getLogger("managesys.alert_lifecycle")
@@ -234,3 +234,42 @@ class AlertLifecycleService:
         if event is not None:
             event.recovered_at = resolved_at
             event.duration_seconds = alert.duration_seconds or event.duration_seconds
+# ---------- 设备生命周期联动 ----------
+    async def resolve_open_for_device(
+        self,
+        device_id: int,
+        reason: str,
+        operator: Optional[str] = None,
+        note: Optional[str] = None,
+    ) -> List[int]:
+        """设备生命周期联动（下架/报废/删除/离线）时，一次性关闭该设备的未解决告警。
+
+        与传感器驱动的"连续正常 30 分钟自动恢复"不同，这是设备侧确定性的状态联动：
+        设备已不在役/已删除，其挂起告警已无意义，直接置为"已解决"并写入处理留痕。
+        """
+        now = now_local()
+        rows = (await self.db.execute(
+            select(Alert).where(
+                Alert.status.in_(_OPEN),
+                (Alert.device_id == device_id) | (Alert.target_id == str(device_id)),
+            )
+        )).scalars().all()
+        resolved_ids: List[int] = []
+        for a in rows:
+            a.status = "resolved"
+            a.resolved_at = now
+            a.lifecycle_action = reason
+            a.cooldown_until = now + timedelta(minutes=self.cooldown_minutes)
+            start = a.last_abnormal_at or a.first_seen_at or a.created_at
+            if start is not None:
+                a.duration_seconds = max(0, int((now - start).total_seconds()))
+            resolved_ids.append(a.id)
+            self.db.add(AlertAction(
+                alert_id=a.id,
+                action_type="resolve",
+                operator=operator,
+                remark=note or ("设备状态联动: " + reason),
+            ))
+        if resolved_ids:
+            await with_commit_retry(self.db.commit)
+        return resolved_ids

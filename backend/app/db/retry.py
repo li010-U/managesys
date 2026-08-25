@@ -11,6 +11,8 @@ from typing import TypeVar
 
 from sqlalchemy.exc import OperationalError
 
+from app.db.session import IS_SQLITE
+
 logger = logging.getLogger("managesys.db")
 
 T = TypeVar("T")
@@ -62,6 +64,19 @@ def write_lock():
     return ConcurrencyLock()
 
 
+def _serialize_writes() -> bool:
+    """?????????????? SQLite ?????
+
+    SQLite ????????????WAL ?????????????
+    ?????? asyncio.Lock ????????? commit/flush ????
+
+    PostgreSQL ?? MVCC ?????????????????????
+    ????????????????????????? SQLite ????
+    PG ??????????????????
+    """
+    return IS_SQLITE
+
+
 def _is_lock_error(exc: BaseException) -> bool:
     """判断异常是否为 SQLite 并发锁导致的错误。"""
     cursor = exc
@@ -87,8 +102,11 @@ async def with_commit_retry(
     若连续重试仍失败则抛出最后一次异常。为了彻底避免同进程内并发写，
     这里先用进程内写锁将 commit/flush 串行化，再对偶发锁冲突做有限次重试。
     """
-    # 串行化写，避免同一进程内的并发写锁冲突（快速切换页面/多人在线的常见诱因）
-    async with _get_write_lock():
+    # 仅在 SQLite 下串行化写；PostgreSQL 直接执行（保留对瞬时错误的有限重试）。
+    lock = _get_write_lock() if _serialize_writes() else None
+    if lock is not None:
+        await lock.acquire()
+    try:
         attempt = 0
         while True:
             try:
@@ -99,7 +117,10 @@ async def with_commit_retry(
                 attempt += 1
                 wait = delay * (2 ** (attempt - 1))
                 logger.warning(
-                    "SQLite 写锁冲突，第 %d/%d 次重试（等待 %.2fs）: %s",
+                    "数据库写锁冲突，第 %d/%d 次重试（等待 %.2fs）: %s",
                     attempt, max_retries, wait, exc,
                 )
                 await asyncio.sleep(wait)
+    finally:
+        if lock is not None:
+            lock.release()

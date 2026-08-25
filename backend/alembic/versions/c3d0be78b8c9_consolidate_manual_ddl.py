@@ -37,11 +37,13 @@ def _columns_definition(dialect_name: str):
     """(table, column, type_sql) tuples; type_sql is dialect-aware."""
     bool_t = "BOOLEAN DEFAULT 0"
     int_t = "INTEGER"
+    # PG 无 DATETIME 类型，用 TIMESTAMP；SQLite 保持 DATETIME。仅非 SQLite 方言迁移时生效。
+    dt_t = "TIMESTAMP" if dialect_name == "postgresql" else "DATETIME"
     # All statements are additive and guarded; SQLite/PG both accept these.
     return [
         ("work_order_categories", "need_approval", bool_t),
         ("work_orders", "approved_by", int_t),
-        ("work_orders", "approved_at", "DATETIME"),
+        ("work_orders", "approved_at", dt_t),
         ("work_orders", "reject_reason", "TEXT"),
         ("users", "must_change_password", bool_t),
         ("users", "token_version", "INTEGER DEFAULT 0"),
@@ -55,10 +57,10 @@ def _columns_definition(dialect_name: str):
         ("racks", "facing_deg", "FLOAT"),
         ("alerts", "dedupe_key", "VARCHAR(128)"),
         ("alerts", "occurrences", "INTEGER DEFAULT 1"),
-        ("alerts", "first_seen_at", "DATETIME"),
-        ("alerts", "acknowledged_at", "DATETIME"),
-        ("alerts", "resolved_at", "DATETIME"),
-        ("alerts", "escalated_at", "DATETIME"),
+        ("alerts", "first_seen_at", dt_t),
+        ("alerts", "acknowledged_at", dt_t),
+        ("alerts", "resolved_at", dt_t),
+        ("alerts", "escalated_at", dt_t),
         ("alerts", "escalated_from", "VARCHAR(16)"),
         ("audit_logs", "request_path", "VARCHAR(256)"),
         ("audit_logs", "user_agent", "VARCHAR(512)"),
@@ -73,11 +75,21 @@ def upgrade() -> None:
             op.execute(f"ALTER TABLE {table} ADD COLUMN {col} {type_sql}")
 
     # IP 台账全局唯一约束（防重复 IP）。若存在重复数据则跳过，交由数据治理处理。
-    try:
-        op.execute("DROP INDEX IF EXISTS uq_ip_address_subnet_addr")
-        op.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_ip_address_addr ON ip_addresses(address)")
-    except Exception:
-        pass
+    # PostgreSQL：uq_ip_address_addr 可能已是 IpAddress 模型唯一约束的支撑索引，
+    # 不能用 DROP INDEX 删除（否则报 "cannot drop index ... requires it"），故不删旧索引；
+    # 用 CREATE UNIQUE INDEX IF NOT EXISTS 幂等保证 address 唯一（约束已存在时自动 no-op）。
+    # SQLite 保留原 DROP+CREATE 行为。
+    if dialect != "postgresql":
+        try:
+            op.execute("DROP INDEX IF EXISTS uq_ip_address_subnet_addr")
+            op.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_ip_address_addr ON ip_addresses(address)")
+        except Exception:
+            pass
+    else:
+        try:
+            op.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_ip_address_addr ON ip_addresses(address)")
+        except Exception:
+            pass
 
 
 def downgrade() -> None:

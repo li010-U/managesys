@@ -153,7 +153,7 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'IpResources' })
-import { ref, reactive, onMounted } from "vue"
+import { ref, reactive, computed, onMounted } from "vue"
 import { Refresh, Warning, Download, Plus } from "@element-plus/icons-vue"
 import { useRouter } from "vue-router"
 import { ElMessage, ElMessageBox } from "element-plus"
@@ -320,6 +320,54 @@ async function loadHistory() {
 }
 function historyLabel(f: string): string {
   return { status: '状态', device: '归属设备', used_as: '用途', remark: '备注' }[f] || f
+}
+
+// VLAN 管理
+const vlanList = ref<IpVlan[]>([])
+const vlanLoading = ref(false)
+const vlanDlg = reactive({ visible: false, isEdit: false, form: {} as any, saving: false })
+const watermarkSubnets = computed(() => subnets.value.filter(s => s.over_watermark))
+
+async function fetchVlans() {
+  vlanLoading.value = true
+  try { vlanList.value = (await listVlansApi()).data || [] }
+  catch (e: any) { ElMessage.error(e?.response?.data?.detail || '加载 VLAN 失败') }
+  finally { vlanLoading.value = false }
+}
+function openVlan(row?: IpVlan) {
+  vlanDlg.isEdit = !!row
+  vlanDlg.form = row
+    ? { id: row.id, vlan_id: row.vlan_id, name: row.name || '', description: row.description || '', room_id: row.room_id || null, status: row.status }
+    : { vlan_id: undefined, name: '', description: '', room_id: null, status: 'active' }
+  vlanDlg.visible = true
+}
+async function saveVlan() {
+  const f = vlanDlg.form
+  if (!f.vlan_id) { ElMessage.warning('请填写 VLAN 编号'); return }
+  vlanDlg.saving = true
+  try {
+    if (vlanDlg.isEdit) await updateVlanApi(vlanDlg.form.id, { name: f.name, description: f.description, room_id: f.room_id || null, status: f.status })
+    else await createVlanApi({ vlan_id: f.vlan_id, name: f.name, description: f.description, room_id: f.room_id || null, status: f.status })
+    ElMessage.success('保存成功')
+    vlanDlg.visible = false
+    await Promise.all([fetchVlans(), fetchSubnets()])
+  } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '保存失败') }
+  finally { vlanDlg.saving = false }
+}
+async function removeVlan(row: IpVlan) {
+  try { await ElMessageBox.confirm('确认删除 VLAN ' + row.vlan_id + '？下属子网将解绑 VLAN', '删除', { type: 'warning' }) } catch { return }
+  try { await deleteVlanApi(row.id); ElMessage.success('删除成功'); await Promise.all([fetchVlans(), fetchSubnets()]) }
+  catch (e: any) { ElMessage.error(e?.response?.data?.detail || '删除失败') }
+}
+
+// CSV 导出
+async function exportSubnets() {
+  try { downloadCsvBlob(await exportSubnetsApi(), 'subnets.csv'); ElMessage.success('导出成功') }
+  catch (e: any) { ElMessage.error('导出失败') }
+}
+async function exportAddresses() {
+  try { downloadCsvBlob(await exportAddressesApi({ subnet_id: addrFilter.subnet_id || undefined, status: addrFilter.status || undefined }), 'addresses.csv'); ElMessage.success('导出成功') }
+  catch (e: any) { ElMessage.error('导出失败') }
 }
 
 async function handleImport() {
