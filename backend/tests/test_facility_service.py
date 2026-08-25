@@ -1,5 +1,6 @@
 ﻿"""机房管理服务单元测试 - 验证 N+1 查询修复"""
 import pytest
+from sqlalchemy import select
 
 from app.services.facility_service import DataCenterService, RoomService, RackService
 from app.models.facility import DataCenter, Room, Rack
@@ -275,3 +276,68 @@ class TestFacilityServiceCRUD:
         service = DataCenterService(db_session)
         result = await service.delete(99999)
         assert result is False
+
+class TestDeleteGuardsMountedDevices:
+    """\u5220\u9664\u9632\u62a4\uff1a\u673a\u623f/\u673a\u67dc/\u6570\u636e\u4e2d\u5fc3\u4e0b\u8fd8\u6709\u8bbe\u5907\u65f6\u8fd4\u56de 409\u63d0\u793a\u5148\u4e0b\u67b6"""
+
+    async def _make_rack_with_device(self, db, code="RK-GUARD"):
+        from app.models.device_type import DeviceType
+        dc = DataCenter(name="\u6d4b\u8bd5DC", code="DC-GUARD")
+        db.add(dc)
+        await db.flush()
+        room = Room(data_center_id=dc.id, name="\u6d4b\u8bd5\u673a\u623f", code="RM-GUARD")
+        db.add(room)
+        await db.flush()
+        rack = Rack(room_id=room.id, name="\u6d4b\u8bd5\u673a\u67dc", code=code, total_units=42, available_units=42)
+        db.add(rack)
+        await db.flush()
+        dt = DeviceType(name="\u670d\u52a1\u5668", code="SERVER", category="compute")
+        db.add(dt)
+        await db.flush()
+        device = Device(
+            device_type_id=dt.id,
+            rack_id=rack.id,
+            name="\u9700\u4e0b\u67b6\u8bbe\u5907",
+            asset_number="ASSET-GUARD-01",
+            status="mounted",
+        )
+        db.add(device)
+        await db.flush()
+        return rack.id
+
+    @pytest.mark.asyncio
+    async def test_rack_delete_blocks_when_devices_mounted(self, db_session):
+        rack_id = await self._make_rack_with_device(db_session)
+        service = RackService(db_session)
+        with pytest.raises(Exception) as exc:
+            await service.delete(rack_id, operator_username="admin", operator_ip="127.0.0.1")
+        assert getattr(exc.value, "status_code", None) == 409
+
+    @pytest.mark.asyncio
+    async def test_room_delete_blocks_when_devices_mounted(self, db_session):
+        rack_id = await self._make_rack_with_device(db_session)
+        room_id = (await db_session.execute(
+            select(Rack.room_id).where(Rack.id == rack_id)
+        )).scalar()
+        service = RoomService(db_session)
+        with pytest.raises(Exception) as exc:
+            await service.delete(room_id, operator_username="admin", operator_ip="127.0.0.1")
+        assert getattr(exc.value, "status_code", None) == 409
+
+    @pytest.mark.asyncio
+    async def test_rack_delete_succeeds_when_empty(self, db_session):
+        from app.models.device_type import DeviceType
+        dc = DataCenter(name="\u6d4b\u8bd5DC", code="DC-EMPTY")
+        db_session.add(dc)
+        await db_session.flush()
+        room = Room(data_center_id=dc.id, name="\u6d4b\u8bd5\u673a\u623f", code="RM-EMPTY")
+        db_session.add(room)
+        await db_session.flush()
+        rack = Rack(room_id=room.id, name="\u6d4b\u8bd5\u673a\u67dc", code="RK-EMPTY", total_units=42, available_units=42)
+        db_session.add(rack)
+        await db_session.commit()
+
+        service = RackService(db_session)
+        result = await service.delete(rack.id, operator_username="admin", operator_ip="127.0.0.1")
+        await db_session.commit()
+        assert result is True

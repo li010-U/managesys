@@ -2,7 +2,9 @@
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from fastapi import HTTPException
 from app.models.facility import DataCenter, Room, Rack
+from app.models.device import Device
 from app.schemas.facility import (
     DataCenterCreate, DataCenterUpdate,
     RoomCreate, RoomUpdate,
@@ -78,6 +80,17 @@ class DataCenterService:
             return False
 
         dc_name = dc.name
+        dev_cnt = (await self.db.execute(
+            select(func.count()).select_from(Device).where(
+                Device.rack_id.in_(
+                    select(Rack.id).where(
+                        Rack.room_id.in_(select(Room.id).where(Room.data_center_id == dc_id))
+                    )
+                )
+            )
+        )).scalar() or 0
+        if dev_cnt:
+            raise HTTPException(status_code=409, detail=f"数据中心下仍有 {dev_cnt} 台设备，请先下架后再删除")
         await self.db.delete(dc)
         await self.db.flush()
 
@@ -167,6 +180,13 @@ class RoomService:
             return False
 
         room_name = room.name
+        dev_cnt = (await self.db.execute(
+            select(func.count()).select_from(Device).where(
+                Device.rack_id.in_(select(Rack.id).where(Rack.room_id == room_id))
+            )
+        )).scalar() or 0
+        if dev_cnt:
+            raise HTTPException(status_code=409, detail=f"机房下仍有 {dev_cnt} 台设备，请先下架后再删除")
         await self.db.delete(room)
         await self.db.flush()
 
@@ -330,6 +350,9 @@ class RackService:
             return False
 
         rack_name = rack.name
+        dev_cnt = (await self.db.execute(select(func.count()).select_from(Device).where(Device.rack_id == rack_id))).scalar() or 0
+        if dev_cnt:
+            raise HTTPException(status_code=409, detail=f"机柜下仍有 {dev_cnt} 台设备，请先下架后再删除")
         await self.db.delete(rack)
         await self.db.flush()
 
