@@ -1,6 +1,7 @@
 """Work Order Management API"""
 from datetime import datetime, date
 from typing import Optional, List
+from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request, status as fastapi_status
 import csv
 import io
@@ -40,7 +41,8 @@ WORK_ORDER_SORT_WHITELIST = {
 
 
 def generate_order_no():
-    return f"WO{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    # 秒级时间戳在并发下会撞唯一索引（OrderNo unique），追加随机后缀保证一号一单。
+    return f"WO{datetime.now().strftime('%Y%m%d%H%M%S')}{uuid4().hex[:8]}"
 
 async def _ensure_manageable(work_order_id: int, current_user: User, db: AsyncSession, need_creator: bool = False):
     """Object-level authorization guard for work order writes.

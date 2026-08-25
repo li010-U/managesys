@@ -173,5 +173,5 @@ async def resolve_auto_complete(db, order_id: int):
         await exec_sql(db, """
             INSERT INTO work_order_comments (work_order_id, user_id, content, comment_type, created_at)
             VALUES (?, ?, ?, ?, datetime('now','localtime'))
-        """, (order_id, order.assignee_id or order.creator_id, "?????????????", "process"))
+        """, (order_id, order.assignee_id or order.creator_id, "工单已按匹配规则自动完成", "process"))
         return

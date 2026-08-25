@@ -187,21 +187,33 @@ class SensorService:
         return rows
 
     async def record_data(self, sensor_id: int, value: float):
-        # 传感器不存在时不写入（否则外键约束在 flush 时报错 -> 500），返回 None 由路由转 404
+        # 传感器不存在时不写入（否则外键约束在 flush 报错 -> 500），返回 None 由路由转 404
         sensor = await self.get_by_id(sensor_id)
         if not sensor:
             return None
-        sd = SensorData(sensor_id=sensor_id, value=value, source_mark="normal")
-        # 越阈则标记为 abnormal（与告警互补，作为告警源数据）
-        if self._is_breach(sensor, value):
-            sd.source_mark = "abnormal"
+        breach = self._is_breach(sensor, value)
+        sd = SensorData(sensor_id=sensor_id, value=value, source_mark="abnormal" if breach else "normal")
         sensor.current_value = {"value": value, "unit": self._get_unit(sensor.sensor_type)}
         sensor.last_update_time = now_local()
         sensor.status = "online"
         self.db.add(sd)
         await self.db.flush()
         await self.db.refresh(sd)
+        # 与告警体系打通：越阈 -> 异常信号，恢复正常 -> 正常信号（触发自动恢复计时）
+        await self._propagate_signal(sensor, breach)
         return sd
+
+    async def _propagate_signal(self, sensor, breach: bool) -> None:
+        """把传感器采集结果作为信号推入告警生命周期，使传感器越阈与告警中心一致。
+        原先 record_data 只把越阈点标记为 abnormal、不产生告警；现统一进入告警生命周期。"""
+        from app.services.alert_lifecycle_service import AlertLifecycleService
+        await AlertLifecycleService(self.db).register_signal(
+            "sensor", str(sensor.id), breach,
+            title=sensor.name or f"sensor:{sensor.id}",
+            level=sensor.alert_level or "general",
+            metric=sensor.sensor_type,
+            source="monitor",
+        )
     def _is_breach(self, sensor, value: float) -> bool:
         """判断当前值是否越过阈值（上下限任一越界）。"""
         if sensor.threshold_min is not None and value < sensor.threshold_min:

@@ -208,6 +208,8 @@ cd D:\managesys\backend
 1. 优先迁移到 PostgreSQL（见第 10 节）以提升写入并发，仍保持单 worker。
 2. 确实需要多 worker 时，必须先落地 Redis 集中状态（`requirements.txt` 取消 `redis` 注释、`.env` 配置 `REDIS_URL`，并将后台任务调度改为「分布式互斥/只在一个实例执行」），否则多 worker 会引入新问题。
 3. 在未配置 Redis 前，`--workers` 请一律保持为 1。
+NOTE (current deployment): background tasks (data retention / alert escalation / alert lifecycle / env poll) now run exactly once per interval via a PostgreSQL advisory-lock single-leader election, so multiple workers are safe for task scheduling. Rate limiting and SSE connection caps remain per-process counters: before Redis is configured, `--workers N` scales those per-process limits by N instead of sharing them.
+
 
 ## 10. 迁移到 PostgreSQL（提升并发承载）
 
