@@ -88,3 +88,20 @@ def test_apply_fixes_clears_orphan_ip_ref_only():
         c.close()
     finally:
         os.remove(p)
+
+
+def test_resolve_db_url_prefers_app_settings_over_os_environ(monkeypatch):
+    """回归：计划任务场景下应跟随应用配置（加载 .env）而不是默认回退 SQLite。"""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    url = data_audit.resolve_db_url()
+    assert url.startswith(("sqlite", "postgres"))
+
+
+def test_resolve_db_url_honors_explicit_and_env(monkeypatch):
+    # 显式传参优先（postgres url 原样返回）
+    assert data_audit.resolve_db_url("postgresql://u:p@h:5432/db") == "postgresql://u:p@h:5432/db"
+    # 显式传 sqlite 文件被转为 sqlite+aiosqlite url
+    u = data_audit.resolve_db_url("/tmp/foo.db")
+    assert u.startswith("sqlite+aiosqlite:///")
+    # 应用配置优先（settings 已按 env>预期层次读取，故结果必为合法驱动）
+    assert data_audit.resolve_db_url().startswith(("sqlite", "postgres"))

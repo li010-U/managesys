@@ -14,6 +14,8 @@ import json
 import os
 import sqlite3
 import sys
+import glob
+import shutil
 from pathlib import Path
 
 # \u9879\u76ee\u6839\uff08backend/\uff09
@@ -84,8 +86,37 @@ def _pg_restore(src_file: str, force: bool, live_backup: str | None) -> str:
     return str(Path(src_file).resolve())
 
 
+
+
+def _resolve_pg_tool(name: str) -> str:
+    """解析 pg_dump / pg_restore 可执行文件路径。
+
+    - 优先系统 PATH；
+    - 其次常见 PostgreSQL 安装目录（Windows：Program Files / C:\u3001仓库内置 pgsql）。
+    """
+    found = shutil.which(name)
+    if found:
+        return found
+    bases = [
+        r"C:\\Program Files\\PostgreSQL",
+        r"C:\\PostgreSQL",
+        r"D:\\PostgreSQL",
+        str(ROOT_DIR),
+        str(ROOT_DIR.parent / "_pg" / "extract" / "pgsql"),
+    ]
+    for base in bases:
+        for bin_dir in glob.glob(os.path.join(base, "**", "bin"), recursive=True):
+            p = os.path.join(bin_dir, name + ".exe")
+            if os.path.isfile(p):
+                return p
+    return name
+
+
 def _run_or_raise(cmd):
     """\u8fd0\u884c\u5916\u90e8\u5de5\u5177\uff0c\u5931\u8d25\u65f6\u629b\u51fa RuntimeError\u3002"""
+    if cmd and cmd[0] in ("pg_dump", "pg_restore"):
+        cmd = [_resolve_pg_tool(cmd[0])] + cmd[1:]
+
     try:
         _subprocess.run(cmd, check=True)
     except FileNotFoundError:

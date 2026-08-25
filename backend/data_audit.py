@@ -32,7 +32,18 @@ def resolve_db_url(db_path: str | None = None) -> str:
             return db_path.strip()
         return _file_to_url(db_path)
 
-    env = (os.environ.get("DATABASE_URL") or "").strip()
+    # 优先采用应用配置（会加载 .env 的 DATABASE_URL，与 app / backup 一致）
+    # 再回退到进程环境变量，最后才是默认 SQLite 文件。
+    env = ""
+    try:
+        from app.core.config import settings
+        cfg_url = (settings.DATABASE_URL or "")
+        if cfg_url and ("sqlite" in cfg_url or "postgres" in cfg_url):
+            env = cfg_url
+    except Exception:
+        env = ""
+    if not env:
+        env = (os.environ.get("DATABASE_URL") or "").strip()
     if env:
         if env.startswith("sqlite:///"):
             p = env.split("///", 1)[-1]
