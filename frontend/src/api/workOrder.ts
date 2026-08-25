@@ -1,4 +1,4 @@
-﻿import http from './index'
+import http from './index'
 
 // ============ 工单分类 ============
 export const getWorkOrderCategories = () => {
@@ -18,6 +18,10 @@ export const deleteWorkOrderCategory = (id: number) => {
 }
 
 // ============ 工单 ============
+export const exportWorkOrdersApi = (params?: any) => {
+  return http.get('/work-orders/export', { params, responseType: 'blob' })
+}
+
 export const getWorkOrders = (params?: any) => {
   return http.get('/work-orders', { params })
 }

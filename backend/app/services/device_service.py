@@ -1,4 +1,4 @@
-﻿"""设备管理服务"""
+"""设备管理服务"""
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -6,6 +6,14 @@ from app.models.device_type import DeviceType
 from app.models.device import Device, DeviceLifecycle
 from app.schemas.device import DeviceTypeCreate, DeviceTypeUpdate, DeviceCreate, DeviceUpdate, ThresholdConfigUpdate
 from app.services.ip_registry_service import sync_device_ip_ledger, release_device_ip_ledger
+
+# ?????????????????????????????????
+DEVICE_SORT_WHITELIST = {
+    "id": Device.id, "name": Device.name, "asset_number": Device.asset_number,
+    "status": Device.status, "brand": Device.brand, "model": Device.model,
+    "management_ip": Device.management_ip, "power_rating": Device.power_rating,
+    "created_at": Device.created_at, "updated_at": Device.updated_at,
+}
 
 # 设备状态白名单：仅允许以下取值，避免任意字符串写入破坏状态机与统计语义
 ALLOWED_DEVICE_STATUSES = {
@@ -139,7 +147,8 @@ class DeviceService:
         self.db = db
 
     async def get_list(self, page: int = 1, page_size: int = 10, keyword: str = None,
-                       device_type_id: int = None, rack_id: int = None, status: str = None) -> tuple[list[Device], int]:
+                       device_type_id: int = None, rack_id: int = None, status: str = None,
+                       sort_by: str = None, order: str = "desc") -> tuple[list[Device], int]:
         query = select(Device)
         count_query = select(func.count(Device.id))
         if keyword:
@@ -156,8 +165,15 @@ class DeviceService:
             query = query.where(Device.status == status)
             count_query = count_query.where(Device.status == status)
         total = (await self.db.execute(count_query)).scalar() or 0
+        sort_col = DEVICE_SORT_WHITELIST.get(sort_by)
+        if sort_col is None:
+            order_expr = Device.created_at.desc()
+        elif order and order.lower() == "asc":
+            order_expr = sort_col.asc()
+        else:
+            order_expr = sort_col.desc()
         result = await self.db.execute(
-            query.order_by(Device.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+            query.order_by(order_expr, Device.id.desc()).offset((page - 1) * page_size).limit(page_size)
         )
         return list(result.scalars().all()), total
 
@@ -191,7 +207,15 @@ class DeviceService:
         await self.db.flush()
         # 同步 IP 台账（与设备同事务，保证唯一事实源）
         from app.services.ip_registry_service import sync_device_ip_ledger as _sync
-        await _sync(self.db, device, operator=operator_username)
+        sync_result = await _sync(self.db, device, operator=operator_username)
+        # IP 冲突联动：设备 IP 与台账既有占用冲突时，生成设备级冲突告警
+        if sync_result and sync_result.get("conflict"):
+            from app.services.alert_lifecycle_service import AlertLifecycleService
+            await AlertLifecycleService(self.db).register_signal(
+                "device", str(device.id), True,
+                title="IP 地址冲突", level="serious",
+                device_id=device.id, metric="ip_conflict", source="system",
+            )
         if device.rack_id is not None:
             from app.services.facility_service import recompute_rack_available
             await recompute_rack_available(self.db, device.rack_id)
@@ -261,7 +285,15 @@ class DeviceService:
 
         # 同步 IP 台账（与设备同事务）
         from app.services.ip_registry_service import sync_device_ip_ledger as _sync
-        await _sync(self.db, device, operator=operator_username)
+        sync_result = await _sync(self.db, device, operator=operator_username)
+        # IP 冲突联动：设备 IP 变更与台账既有占用冲突时，生成/刷新设备级冲突告警
+        if sync_result and sync_result.get("conflict"):
+            from app.services.alert_lifecycle_service import AlertLifecycleService
+            await AlertLifecycleService(self.db).register_signal(
+                "device", str(device.id), True,
+                title="IP 地址冲突", level="serious",
+                device_id=device.id, metric="ip_conflict", source="system",
+            )
         if old_rack is not None or device.rack_id is not None:
             from app.services.facility_service import recompute_rack_available
             if old_rack is not None:
@@ -280,6 +312,14 @@ class DeviceService:
         # 释放该设备在 IP 台账中的条目（同事务）
         from app.services.ip_registry_service import release_device_ip_ledger as _release
         await _release(self.db, device_id, operator=operator_username)
+        # 设备生命周期联动：删除前先关闭该设备未解决告警（同一事务，避免遗留挂起告警）
+        from app.services.alert_lifecycle_service import AlertLifecycleService
+        await AlertLifecycleService(self.db).resolve_open_for_device(
+            device_id, reason="device_deleted",
+            operator=operator_username or "system",
+            note="设备已删除，自动关闭未解决告警",
+        )
+        
         _del_rack_id = device.rack_id
         await self.db.delete(device)
         await self.db.flush()
@@ -330,8 +370,16 @@ class DeviceService:
             ip_address=operator_ip,
         )
 
-        return device
+        # 设备状态联动：下线/报废/库存/维护等非在役状态，自动关闭该设备未解决告警
+        if new_status in {"offline", "scrapped", "in_stock", "maintenance"}:
+            from app.services.alert_lifecycle_service import AlertLifecycleService
+            await AlertLifecycleService(self.db).resolve_open_for_device(
+                device.id, reason=f"device_{new_status}",
+                operator=device_operator,
+                note=f"设备状态变更为 {new_status}，自动关闭未解决告警",
+            )
 
+        return device
     async def get_lifecycles(self, device_id: int) -> list[DeviceLifecycle]:
         result = await self.db.execute(
             select(DeviceLifecycle).where(DeviceLifecycle.device_id == device_id)
@@ -347,3 +395,57 @@ class DeviceService:
             operator=operator, remark=remark,
         )
         self.db.add(lc)
+
+    async def get_device_environment(self, device_id: int):
+        """设备⇄机房⇄传感器关联：由设备所在机柜解析机房，返回该机房的传感器/环境快照。
+
+        关联链：Device.rack_id -> Rack.room_id -> Room，Sensor.room_id == Room.id。
+        设备未挂载机柜或无对应机房时返回空 sensors，不报错。
+        """
+        if device_id is None:
+            return None
+        device = await self.get_by_id(device_id)
+        if device is None:
+            return None
+
+        from sqlalchemy import select as _sel
+        from app.models.facility import Room
+        from app.models.sensor import Sensor
+
+        room_id = None
+        room_name = None
+        rack_id = device.rack_id
+        rack_name = device.rack.name if device.rack else None
+        if device.rack is not None:
+            room_id = device.rack.room_id
+        if room_id is not None:
+            room = (await self.db.execute(_sel(Room).where(Room.id == room_id))).scalar_one_or_none()
+            room_name = room.name if room else None
+
+        sensors = []
+        if room_id is not None:
+            rows = (await self.db.execute(
+                _sel(Sensor).where(Sensor.room_id == room_id).order_by(Sensor.name)
+            )).scalars().all()
+            for s in rows:
+                sensors.append({
+                    "id": s.id,
+                    "name": s.name,
+                    "code": s.code,
+                    "sensor_type": s.sensor_type,
+                    "status": s.status,
+                    "current_value": s.current_value,
+                    "last_update_time": s.last_update_time.isoformat() if s.last_update_time else None,
+                    "threshold_min": s.threshold_min,
+                    "threshold_max": s.threshold_max,
+                })
+
+        return {
+            "device_id": device.id,
+            "device_name": device.name,
+            "rack_id": rack_id,
+            "rack_name": rack_name,
+            "room_id": room_id,
+            "room_name": room_name,
+            "sensors": sensors,
+        }

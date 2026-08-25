@@ -1,4 +1,8 @@
-﻿"""告警管理 API 路由"""
+"""告警管理 API 路由"""
+from datetime import datetime
+import csv
+import io
+from fastapi.responses import Response
 from fastapi import APIRouter, Depends, Query, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -106,11 +110,13 @@ async def list_alerts(
     level: str = Query(None),
     status: str = Query(None),
     target_type: str = Query(None),
+    sort_by: str = Query(None),
+    order: str = Query("desc"),
     db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(require_permission("monitor:view_alerts")),
 ):
     service = AlertService(db)
-    items, total = await service.get_list(page, page_size, keyword, level, status, target_type)
+    items, total = await service.get_list(page, page_size, keyword, level, status, target_type, sort_by, order)
     resp = []
     for item in items:
         r = AlertResponse.model_validate(item)
@@ -119,6 +125,49 @@ async def list_alerts(
         resp.append(r)
     return AlertPageResponse(items=resp, total=total, page=page, page_size=page_size)
 
+
+@router.get("/export", summary="导出告警列表 CSV")
+async def export_alerts(
+    keyword: str = Query(None),
+    level: str = Query(None),
+    status: str = Query(None),
+    target_type: str = Query(None),
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(require_permission("monitor:view_alerts")),
+):
+    """导出告警列表为 CSV（兼容 Excel 中文），应用当前筛选条件。"""
+    service = AlertService(db)
+    items, _ = await service.get_list(1, 100000, keyword, level, status, target_type)
+    resp = []
+    for item in items:
+        r = AlertResponse.model_validate(item)
+        if item.rule:
+            r.rule_name = item.rule.name
+        resp.append(r)
+
+    headers = ["ID", "标题", "级别", "状态",
+               "对象类型", "对象ID", "来源",
+               "规则", "设备", "发生次数",
+               "持续秒数", "是否偶发",
+               "创建时间", "恢复时间"]
+    buf = io.StringIO()
+    buf.write("\ufeff")
+    writer = csv.writer(buf)
+    writer.writerow(headers)
+    def fmt(v):
+        return v.strftime("%Y-%m-%d %H:%M:%S") if v else ""
+    for a in resp:
+        writer.writerow([
+            a.id, a.title, a.level, a.status,
+            a.target_type, a.target_id, a.source,
+            a.rule_name or "", a.device_name or "", a.occurrences or "",
+            a.duration_seconds if a.duration_seconds is not None else "",
+            "是" if a.is_transient else "否",
+            fmt(a.created_at), fmt(a.resolved_at),
+        ])
+    filename = f"alerts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    return Response(content=buf.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 @router.get("/stats")
 async def alert_stats(

@@ -534,7 +534,7 @@ const loadTasks = async () => {
       params.date_to = searchForm.dateRange[1]
     }
     const res = await getInspectionTasks(params)
-    tasks.value = res.data
+    tasks.value = res.data?.items || []
   } catch (e) {
     console.error(e)
   } finally {
@@ -547,7 +547,7 @@ const loadPlans = async () => {
   plansLoading.value = true
   try {
     const res = await getInspectionPlans()
-    plans.value = res.data
+    plans.value = res.data?.items || []
   } catch (e) {
     console.error(e)
   } finally {
@@ -560,7 +560,7 @@ const loadIssues = async () => {
   issuesLoading.value = true
   try {
     const res = await getInspectionIssues()
-    issues.value = res.data
+    issues.value = res.data?.items || []
   } catch (e) {
     console.error(e)
   } finally {
@@ -576,9 +576,9 @@ const loadOptions = async () => {
       getAllRoomsApi(),
       getAssignableUsers()
     ])
-    templates.value = tplRes.data || []
+    templates.value = tplRes.data?.items || []
     facilities.value = facRes.data || []
-    users.value = userRes.data || []
+    users.value = userRes.data?.items || []
   } catch (e) {
     console.error(e)
   }

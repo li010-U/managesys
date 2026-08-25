@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="page">
     <div class="page-header">
       <div>
@@ -18,6 +18,7 @@
             <el-option v-for="t in deviceTypes" :key="t.id" :label="t.name" :value="t.id" />
           </el-select>
           <div style="flex:1"></div>
+          <el-button type="success" plain :icon="Download" @click="handleExport" :loading="exporting">导出CSV</el-button>
           <el-button type="primary" :icon="Plus" @click="openDialog()">新增设备</el-button>
         </div>
       </template>
@@ -242,6 +243,42 @@
           </div>
           <el-empty v-else description="该设备类型未配置阈值" />
         </el-tab-pane>
+
+        <el-tab-pane label="机房环境" name="environment">
+          <div v-loading="deviceEnvLoading" style="min-height:120px">
+            <el-alert v-if="deviceEnv && !deviceEnv.room_id" type="info" :closable="false" show-icon
+              title="该设备未挂载机柜，无法关联机房传感器" />
+            <template v-else-if="deviceEnv">
+              <div class="env-summary">
+                机房：<b>{{ deviceEnv.room_name || "-" }}</b>
+                <span v-if="deviceEnv.rack_name"> / 机柜：{{ deviceEnv.rack_name }}</span>
+                <span>（{{ deviceEnv.sensors.length }} 个传感器）</span>
+              </div>
+              <el-table :data="deviceEnv.sensors" stripe size="small" max-height="320" v-if="deviceEnv.sensors.length">
+                <el-table-column prop="name" label="传感器" min-width="120" />
+                <el-table-column prop="sensor_type" label="类型" width="110">
+                  <template #default="{ row }">{{ sensorTypeLabel(row.sensor_type) }}</template>
+                </el-table-column>
+                <el-table-column prop="current_value" label="当前值" min-width="120">
+                  <template #default="{ row }">{{ sensorValueText(row) }}</template>
+                </el-table-column>
+                <el-table-column label="阈值" min-width="150">
+                  <template #default="{ row }">
+                    <span v-if="row.threshold_min !== null && row.threshold_max !== null">{{ row.threshold_min }} ~ {{ row.threshold_max }}</span>
+                    <span v-else-if="row.threshold_min !== null">>= {{ row.threshold_min }}</span>
+                    <span v-else-if="row.threshold_max !== null"><= {{ row.threshold_max }}</span>
+                    <span v-else>-</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="status" label="状态" width="90">
+                  <template #default="{ row }"><el-tag size="small" :type="row.status === 'online' ? 'success' : 'info'">{{ row.status === 'online' ? '在线' : row.status }}</el-tag></template>
+                </el-table-column>
+              </el-table>
+              <el-empty v-else description="该机房暂无传感器" />
+            </template>
+            <el-empty v-else description="暂无环境数据" />
+          </div>
+        </el-tab-pane>
       </el-tabs>
     </el-dialog>
   </div>
@@ -252,10 +289,11 @@ defineOptions({ name: 'DeviceList' })
 import { ref, onMounted, nextTick } from "vue";
 import { useRoute } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { Plus, Edit, Delete } from "@element-plus/icons-vue";
-import { getDevicesApi, createDeviceApi, updateDeviceApi, deleteDeviceApi, getDeviceLifecyclesApi, getAllDeviceTypesApi } from "../../api/device";
-import type { DeviceInfo, DeviceTypeInfo, ThresholdConfig } from "../../api/device";
+import { Plus, Edit, Delete, Download } from "@element-plus/icons-vue";
+import { getDevicesApi, createDeviceApi, updateDeviceApi, deleteDeviceApi, getDeviceLifecyclesApi, getAllDeviceTypesApi, getDeviceEnvironmentApi, exportDevicesApi } from "../../api/device";
+import type { DeviceInfo, DeviceTypeInfo, ThresholdConfig, DeviceEnvironment } from "../../api/device";
 import { getRacksApi } from "../../api/facility";
+import { downloadCsvBlob } from "../../api/ipRegistry";
 import TableSkeleton from "../../components/common/TableSkeleton.vue";
 import type { RackInfo } from "../../api/facility";
 
@@ -309,6 +347,8 @@ const detailTab = ref("info");
 const currentDevice = ref<DeviceInfo | null>(null);
 const lifecycleList = ref<LifecycleRecord[]>([]);
 const deviceTypeThresholds = ref<ThresholdConfig[]>([]);
+const deviceEnv = ref<DeviceEnvironment | null>(null);
+const deviceEnvLoading = ref(false);
 
 const route = useRoute();
 
@@ -351,6 +391,24 @@ async function fetchDeviceTypes() {
     const r = await getAllDeviceTypesApi();
     deviceTypes.value = r.data as any;
   } catch {}
+}
+
+const exporting = ref(false);
+async function handleExport() {
+  exporting.value = true;
+  try {
+    const r: any = await exportDevicesApi({
+      keyword: keyword.value || undefined,
+      status: filterStatus.value || undefined,
+      device_type_id: filterType.value ? Number(filterType.value) : undefined,
+    });
+    downloadCsvBlob(r, `devices_${Date.now()}.csv`);
+    ElMessage.success("导出成功");
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || "导出失败");
+  } finally {
+    exporting.value = false;
+  }
 }
 
 async function fetchData() {
@@ -421,11 +479,23 @@ async function showDetail(item: DeviceInfo) {
   detailTab.value = "info";
   detailDialog.value.visible = true;
   lifecycleList.value = [];
+  deviceEnv.value = null;
 
   try {
     const r = await getDeviceLifecyclesApi(item.id);
     lifecycleList.value = r.data || [];
   } catch {}
+
+  // 设备⇄机房⇄传感器关联：加载设备所在机房的传感器/环境快照
+  deviceEnvLoading.value = true;
+  try {
+    const er = await getDeviceEnvironmentApi(item.id);
+    deviceEnv.value = er.data || null;
+  } catch {
+    deviceEnv.value = null;
+  } finally {
+    deviceEnvLoading.value = false;
+  }
 
   const dt = deviceTypes.value.find(t => t.id === item.device_type_id);
   deviceTypeThresholds.value = dt?.thresholds || [];
@@ -440,6 +510,22 @@ async function unmountDevice(item: DeviceInfo) {
   } catch {}
 }
 
+
+const SENSOR_TYPE_LABEL: Record<string, string> = {
+  temperature: "温度", humidity: "湿度", smoke: "烟感", water: "水浸", door_magnetic: "门磁", power: "电源",
+};
+function sensorTypeLabel(t: string) { return SENSOR_TYPE_LABEL[t] || t; }
+function sensorValueText(row: any): string {
+  const v = row?.current_value;
+  if (v === null || v === undefined) return "-";
+  if (typeof v === "object") {
+    const val = v.value ?? v.current ?? v.v ?? v.temperature ?? v.humidity;
+    if (val === undefined) return JSON.stringify(v);
+    const unit = v.unit ?? "";
+    return String(val) + (unit ? " " + unit : "");
+  }
+  return String(v);
+}
 function formatDate(dateStr: string): string {
   if (!dateStr) return "-";
   return new Date(dateStr).toLocaleString("zh-CN");

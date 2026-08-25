@@ -1,8 +1,15 @@
-﻿"""告警 Service"""
+"""告警 Service"""
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, or_, case
 from app.models.alert import AlertRule, Alert, AlertAction
 from app.db.retry import with_commit_retry
+
+# ?????????????????????????????????
+ALERT_SORT_WHITELIST = {
+    "id": Alert.id, "title": Alert.title, "level": Alert.level, "status": Alert.status,
+    "target_type": Alert.target_type, "source": Alert.source, "occurrences": Alert.occurrences,
+    "created_at": Alert.created_at, "resolved_at": Alert.resolved_at,
+}
 
 class AlertRuleService:
     def __init__(self, db: AsyncSession):
@@ -54,7 +61,7 @@ class AlertService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def get_list(self, page: int, page_size: int, keyword: str = None, level: str = None, status: str = None, target_type: str = None):
+    async def get_list(self, page: int, page_size: int, keyword: str = None, level: str = None, status: str = None, target_type: str = None, sort_by: str = None, order: str = "desc"):
         q = select(Alert).options()
         if keyword:
             q = q.where(or_(Alert.title.ilike(f"%{keyword}%"), Alert.description.ilike(f"%{keyword}%")))
@@ -76,11 +83,17 @@ class AlertService:
             (Alert.level == "general", 1),
             else_=0,
         )
-        q = q.order_by(
-            status_order.desc(),
-            level_order.desc(),
-            desc(Alert.created_at),
-        )
+        sort_col = ALERT_SORT_WHITELIST.get(sort_by)
+        if sort_col is None:
+            q = q.order_by(
+                status_order.desc(),
+                level_order.desc(),
+                desc(Alert.created_at),
+            )
+        elif order and order.lower() == "asc":
+            q = q.order_by(sort_col.asc(), Alert.id.desc())
+        else:
+            q = q.order_by(sort_col.desc(), Alert.id.desc())
         total = (await self.db.execute(select(func.count()).select_from(q.subquery()))).scalar() or 0
         q = q.offset((page - 1) * page_size).limit(page_size)
         items = (await self.db.execute(q)).scalars().all()

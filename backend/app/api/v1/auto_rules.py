@@ -47,7 +47,7 @@ async def list_rules(
         LEFT JOIN users u ON r.action_assign_user_id = u.id
         ORDER BY r.sort ASC, r.id ASC
     """)).fetchall()
-    return {"data": [dict(r._mapping) for r in rows]}
+    return {"items": [dict(r._mapping) for r in rows]}
 
 
 @router.post("", summary="Create auto rule")

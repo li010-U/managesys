@@ -29,6 +29,10 @@ export interface AlertInfo {
 }
 export interface AlertPage { items: AlertInfo[]; total: number; page: number; page_size: number }
 
+export function exportAlertsApi(params: { keyword?: string; level?: string; status?: string; target_type?: string }) {
+  return http.get("/alerts/export", { params, responseType: "blob" });
+}
+
 export function getAlertsApi(params: { page: number; page_size: number; keyword?: string; level?: string; status?: string; target_type?: string }) {
   return http.get<AlertPage>('/alerts', { params })
 }

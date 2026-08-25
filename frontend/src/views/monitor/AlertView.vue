@@ -61,6 +61,7 @@
               </el-select>
             </div>
             <div class="toolbar-right">
+              <el-button type="success" plain size="small" :icon="Download" @click="handleExportAlert" :loading="exporting">导出CSV</el-button>
               <el-button :icon="Refresh" size="small" @click="loadAlerts">刷新</el-button>
             </div>
           </div>
@@ -80,7 +81,7 @@
             <el-table-column prop="rule_name" label="触发规则" width="130" show-overflow-tooltip />
             <el-table-column prop="target_type" label="对象类型" width="100"><template #default="{ row }">{{ targetTypeLabel(row.target_type) }}</template></el-table-column>
             <el-table-column prop="created_at" label="发生时间" width="160"><template #default="{ row }">{{ fmtTime(row.created_at) }}</template></el-table-column>
-            <el-table-column label="操作" width="120" fixed="right"><template #default="{ row }"><el-button size="small" text type="primary" @click="openHandleDialog(row)">处理</el-button></template></el-table-column>
+            <el-table-column label="操作" width="150" fixed="right"><template #default="{ row }"><el-button size="small" text type="primary" @click="openHandleDialog(row)">处理</el-button><el-button v-if="isIpConflict(row)" size="small" text type="warning" @click="goConflictCenter(row)">IP冲突</el-button></template></el-table-column>
           </el-table>
           <el-pagination v-model:current-page="alertPage" v-model:page-size="alertPageSize" :total="alertTotal" :page-sizes="[10,20,50]" layout="total, sizes, prev, pager, next" small style="margin-top:12px;justify-content:center" />
         </el-card>
@@ -134,9 +135,11 @@
 <script setup lang="ts">
 defineOptions({ name: 'AlertManagement' })
 import { ref, reactive, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Edit, Delete, Refresh, Search, Bell, Warning, Clock, CircleCheck, MagicStick } from '@element-plus/icons-vue'
-import { getAlertRulesApi, createAlertRuleApi, updateAlertRuleApi, deleteAlertRuleApi, getAlertsApi, getAlertStatsApi, handleAlertApi, getAlertAttributionApi } from '../../api/alert'
+import { Plus, Edit, Delete, Refresh, Search, Bell, Warning, Clock, CircleCheck, MagicStick, Download } from '@element-plus/icons-vue'
+import { getAlertRulesApi, createAlertRuleApi, updateAlertRuleApi, deleteAlertRuleApi, getAlertsApi, getAlertStatsApi, handleAlertApi, getAlertAttributionApi, exportAlertsApi } from '../../api/alert'
+import { downloadCsvBlob } from '../../api/ipRegistry'
 
 const activeTab = ref('rules')
 const ruleList = ref<any[]>([])
@@ -185,7 +188,34 @@ async function loadAttribution() {
 }
 
 async function loadAlerts() { alertLoading.value = true; try { const [a, s] = await Promise.all([getAlertsApi({ page: alertPage.value, page_size: alertPageSize.value, keyword: alertSearch.value || undefined, level: alertLevel.value || undefined, status: alertStatus.value || undefined }), getAlertStatsApi()]); alertList.value = a.data.items; alertTotal.value = a.data.total; alertStats.value = s.data } catch { alertList.value = [] } finally { alertLoading.value = false } }
+const exporting = ref(false);
+async function handleExportAlert() {
+  exporting.value = true;
+  try {
+    const r: any = await exportAlertsApi({
+      keyword: alertSearch.value || undefined,
+      level: alertLevel.value || undefined,
+      status: alertStatus.value || undefined,
+    });
+    downloadCsvBlob(r, `alerts_${Date.now()}.csv`);
+    ElMessage.success("导出成功");
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || "导出失败");
+  } finally {
+    exporting.value = false;
+  }
+}
+
 function openHandleDialog(alert: any) { handleDialog.visible = true; handleDialog.alert = alert; handleForm.value = { action_type: 'acknowledge', remark: '', root_cause: '' }; attributionText.value = '' }
+const router = useRouter()
+function isIpConflict(alert: any): boolean {
+  return !!(alert && (alert.title || "").includes("IP 地址冲突"))
+}
+function goConflictCenter(alert: any) {
+  const q: any = {}
+  if (alert?.device_id) q.device_id = String(alert.device_id)
+  router.push({ path: "/system/ip-conflict-center", query: q })
+}
 async function submitHandle() { if (!handleForm.value.action_type) { ElMessage.warning('请选择处理操作'); return } handleSubmitting.value = true; try { await handleAlertApi(handleDialog.alert.id, handleForm.value); ElMessage.success('处理成功'); handleDialog.visible = false; await loadAlerts() } catch { /* interceptor */ } finally { handleSubmitting.value = false } }
 
 function metricLabel(m: string) { const map: Record<string,string> = { temperature:'温度', humidity:'湿度', cpu:'CPU', memory:'内存', disk:'磁盘' }; return map[m] || m }

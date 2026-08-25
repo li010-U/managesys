@@ -1,7 +1,10 @@
-﻿"""Work Order Management API"""
+"""Work Order Management API"""
 from datetime import datetime, date
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request, status as fastapi_status
+import csv
+import io
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db, get_current_user, require_permission
@@ -22,9 +25,18 @@ from app.schemas.work_order import (
     WorkOrderVerify,
     WorkOrderClose,
     WorkOrderCommentCreate,
+    WorkOrderListResponse,
+    WorkOrderPageResponse,
 )
 
 router = APIRouter(prefix="/work-orders", tags=["Work Order"])
+
+# ?????????????????????????????????
+WORK_ORDER_SORT_WHITELIST = {
+    "id": "w.id", "order_no": "w.order_no", "title": "w.title",
+    "priority": "w.priority", "status": "w.status",
+    "plan_date": "w.plan_date", "created_at": "w.created_at", "updated_at": "w.updated_at",
+}
 
 
 def generate_order_no():
@@ -61,7 +73,7 @@ async def get_categories(db: AsyncSession = Depends(get_db), _current_user: User
     rows = [dict(r._mapping) for r in result.fetchall()]
     for r in rows:
         r["need_approval"] = bool(r.get("need_approval"))
-    return {"data": rows}
+    return {"items": rows}
 
 
 @router.post("/categories", summary="Create category")
@@ -142,13 +154,15 @@ async def delete_category(
 
 
 # ============ Work Orders ============
-@router.get("", summary="Get work order list")
+@router.get("", summary="Get work order list", response_model=WorkOrderPageResponse)
 async def get_work_orders(
     status: Optional[str] = None,
     priority: Optional[str] = None,
     keyword: Optional[str] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    sort_by: str = Query(None),
+    order: str = Query("desc"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("work:view"))
 ):
@@ -166,6 +180,14 @@ async def get_work_orders(
     
     where_clause = " AND ".join(conditions) if conditions else "1=1"
     offset = (page - 1) * page_size
+
+    order_dir = "ASC" if (order and order.lower() == "asc") else "DESC"
+    sort_col = WORK_ORDER_SORT_WHITELIST.get(sort_by)
+    if sort_col:
+        order_sql = f"ORDER BY {sort_col} {order_dir}, w.id DESC"
+    else:
+        order_sql = "ORDER BY w.created_at DESC, w.id DESC"
+
     
     sql = """
         SELECT w.*, c.name as category_name,
@@ -180,9 +202,9 @@ async def get_work_orders(
         LEFT JOIN devices d ON w.device_id = d.id
         LEFT JOIN rooms f ON w.facility_id = f.id
         WHERE {}
-        ORDER BY w.created_at DESC, w.id DESC
+        {}
         LIMIT ? OFFSET ?
-    """.format(where_clause)
+    """.format(where_clause, order_sql)
     
     total_sql = f"SELECT COUNT(*) AS cnt FROM work_orders w WHERE {where_clause}"
     total = (await exec_sql(db, total_sql, tuple(params))).scalar() or 0
@@ -191,7 +213,7 @@ async def get_work_orders(
     rows = result.fetchall()
     
     return {
-        "data": [
+        "items": [
             {
                 "id": r.id, "order_no": r.order_no, "title": r.title,
                 "category_name": r.category_name, "priority": r.priority, "status": r.status,
@@ -207,6 +229,66 @@ async def get_work_orders(
         "page_size": page_size,
     }
 
+
+@router.get("/export", summary="导出工单列表 CSV")
+async def export_work_orders(
+    status: Optional[str] = None,
+    priority: Optional[str] = None,
+    keyword: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission("work:view")),
+):
+    """导出工单列表为 CSV（兼容 Excel 中文），应用当前筛选条件。"""
+    conditions = []
+    params = []
+    if status:
+        conditions.append("w.status = ?")
+        params.append(status)
+    if priority:
+        conditions.append("w.priority = ?")
+        params.append(priority)
+    if keyword:
+        conditions.append("(LOWER(w.title) LIKE ? OR LOWER(w.order_no) LIKE ?)")
+        params.extend([f"%{keyword.lower()}%", f"%{keyword.lower()}%"])
+    where_clause = " AND ".join(conditions) if conditions else "1=1"
+
+    sql = """
+        SELECT w.*, c.name as category_name,
+               creator.username as creator_name,
+               assignee.username as assignee_name,
+               d.name as device_name,
+               f.name as facility_name
+        FROM work_orders w
+        LEFT JOIN work_order_categories c ON w.category_id = c.id
+        LEFT JOIN users creator ON w.creator_id = creator.id
+        LEFT JOIN users assignee ON w.assignee_id = assignee.id
+        LEFT JOIN devices d ON w.device_id = d.id
+        LEFT JOIN rooms f ON w.facility_id = f.id
+        WHERE {}
+        ORDER BY w.created_at DESC, w.id DESC
+    """.format(where_clause)
+    rows = (await exec_sql(db, sql, tuple(params))).fetchall()
+
+    headers = ["ID", "单号", "标题", "分类", "优先级",
+               "状态", "创建人", "处理人",
+               "设备", "机房", "计划日期",
+               "创建时间", "更新时间"]
+    buf = io.StringIO()
+    buf.write("\ufeff")
+    writer = csv.writer(buf)
+    writer.writerow(headers)
+    def fmt(v):
+        return v.strftime("%Y-%m-%d %H:%M:%S") if v else ""
+    for r in rows:
+        writer.writerow([
+            r.id, r.order_no, r.title, r.category_name or "",
+            r.priority, r.status, r.creator_name or "", r.assignee_name or "",
+            r.device_name or "", r.facility_name or "",
+            fmt(r.plan_date), fmt(r.created_at), fmt(r.updated_at),
+        ])
+    filename = f"work_orders_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    return Response(content=buf.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 @router.get("/stats", summary="Get work order stats")
 async def get_stats(
@@ -705,7 +787,7 @@ async def get_assignable_users(
         )
     users = [dict(r._mapping) for r in result.fetchall()]
     if not users:
-        return {'data': []}
+        return {'items': []}
     ids = [u["id"] for u in users]
     placeholders = ",".join(["?"] * len(ids))
     workload_rows = (await exec_sql(db, """
@@ -718,7 +800,7 @@ async def get_assignable_users(
     for u in users:
         u["workload"] = workload.get(u["id"], 0)
     users.sort(key=lambda x: (x["workload"], x["id"]))
-    return {'data': users, 'recommended_id': users[0]["id"] if users else None}
+    return {'items': users, 'recommended_id': users[0]["id"] if users else None}
 
 
 @router.delete("/{work_order_id}", summary="Delete work order")

@@ -254,7 +254,7 @@ const hasNext = computed(() => currentIndex.value >= 0 && currentIndex.value < o
 const loadOrderIds = async () => {
   try {
     const res = await getWorkOrderList({ page: 1, page_size: 100 })
-    const items = res.data?.data || []
+    const items = res.data?.items || []
     orderIds.value = items.map((w: any) => w.id)
   } catch { orderIds.value = [] }
 }
@@ -348,7 +348,7 @@ const loadDetail = async () => {
 const loadAssignable = async () => {
   try {
     const res = await getAssignableUsers()
-    assignableUsers.value = res.data?.data || []
+    assignableUsers.value = res.data?.items || []
     recommendedAssigneeId.value = res.data?.recommended_id ?? null
   } catch { /* ignore */ }
 }
@@ -357,7 +357,7 @@ const loadKnowledgeRecommend = async (keyword: string) => {
   if (!keyword) { knowledgeArticles.value = []; return }
   try {
     const res = await recommendKnowledge(keyword)
-    knowledgeArticles.value = res.data?.data || []
+    knowledgeArticles.value = res.data?.items || []
   } catch { knowledgeArticles.value = [] }
 }
 

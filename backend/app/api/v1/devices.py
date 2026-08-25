@@ -1,5 +1,9 @@
 """设备管理 API 路由"""
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+import csv
+import io
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db, get_current_user, require_permission, require_any_permission
@@ -160,11 +164,13 @@ async def list_devices(
     device_type_id: int = Query(None),
     rack_id: int = Query(None),
     status: str = Query(None),
+    sort_by: str = Query(None),
+    order: str = Query("desc"),
     db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(require_permission("device:view")),
 ):
     service = DeviceService(db)
-    items, total = await service.get_list(page, page_size, keyword, device_type_id, rack_id, status)
+    items, total = await service.get_list(page, page_size, keyword, device_type_id, rack_id, status, sort_by, order)
     resp = []
     for d in items:
         r = DeviceResponse.model_validate(d)
@@ -175,6 +181,49 @@ async def list_devices(
         resp.append(r)
     return DevicePageResponse(items=resp, total=total, page=page, page_size=page_size)
 
+
+@router.get("/export", summary="导出设备列表 CSV")
+async def export_devices(
+    keyword: str = Query(None),
+    device_type_id: int = Query(None),
+    rack_id: int = Query(None),
+    status: str = Query(None),
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(require_permission("device:view")),
+):
+    """导出设备台账为 CSV（兼容 Excel 中文显示），应用当前列表筛选条件。"""
+    service = DeviceService(db)
+    items, _ = await service.get_list(1, 100000, keyword, device_type_id, rack_id, status)
+
+    headers = ["ID",
+               "名称",
+               "资产编号",
+               "序列号",
+               "设备类型",
+               "类型分类",
+               "所在机柜",
+               "所在机房",
+               "状态",
+               "管理IP",
+               "业务IP",
+               "创建时间"]
+    buf = io.StringIO()
+    buf.write("\ufeff")
+    writer = csv.writer(buf)
+    writer.writerow(headers)
+    for d in items:
+        writer.writerow([
+            d.id, d.name, d.asset_number, d.serial_number or "",
+            d.device_type.name if d.device_type else "",
+            d.device_type.category if d.device_type else "",
+            d.rack.name if d.rack else "",
+            d.rack.room.name if d.rack and d.rack.room else "",
+            d.status, d.management_ip or "", d.business_ip or "",
+            d.created_at.strftime("%Y-%m-%d %H:%M:%S") if d.created_at else "",
+        ])
+    filename = f"devices_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    return Response(content=buf.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 @router.get("/{device_id}", response_model=DeviceResponse)
 async def get_device(
@@ -192,6 +241,20 @@ async def get_device(
     r.rack_name = d.rack.name if d.rack else ""
     r.room_name = d.rack.room.name if d.rack and d.rack.room else ""
     return r
+
+
+@router.get("/{device_id}/environment")
+async def get_device_environment(
+    device_id: int,
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(require_permission("device:view")),
+):
+    """设备⇄机房⇄传感器关联：返回该设备所在机房的传感器/环境快照。"""
+    service = DeviceService(db)
+    data = await service.get_device_environment(device_id)
+    if data is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="设备不存在")
+    return data
 
 
 @router.post("", response_model=DeviceResponse, status_code=status.HTTP_201_CREATED)

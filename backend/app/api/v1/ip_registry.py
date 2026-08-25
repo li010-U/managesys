@@ -1,5 +1,6 @@
 """IP 地址台账与子网管理 API"""
 from typing import Optional
+from datetime import datetime
 from fastapi import APIRouter, Depends, Request, Query, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,6 +41,46 @@ class AddressSave(BaseModel):
     used_as: Optional[str] = Field(None, max_length=16)
     remark: Optional[str] = Field(None, max_length=256)
 
+
+# ===== ?????? =====
+class IpAddressItem(BaseModel):
+    id: int
+    address: str
+    status: str
+    subnet_id: Optional[int] = None
+    subnet: Optional[str] = None
+    device_id: Optional[int] = None
+    device_name: Optional[str] = None
+    used_as: Optional[str] = None
+    remark: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
+class IpAddressPageResponse(BaseModel):
+    items: list[IpAddressItem]
+    total: int
+    page: int
+    page_size: int
+
+
+class IpHistoryItem(BaseModel):
+    id: int
+    ip_id: int
+    address: str
+    field_changed: Optional[str] = None
+    from_value: Optional[str] = None
+    to_value: Optional[str] = None
+    operator: Optional[str] = None
+    source: Optional[str] = None
+    remark: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class IpHistoryPageResponse(BaseModel):
+    items: list[IpHistoryItem]
+    total: int
+    page: int
+    page_size: int
 
 @router.get("/subnets")
 async def list_subnets(
@@ -98,7 +139,7 @@ async def delete_subnet(
     return {"message": "删除成功"}
 
 
-@router.get("/addresses")
+@router.get("/addresses", response_model=IpAddressPageResponse)
 async def list_addresses(
     subnet_id: Optional[int] = Query(None),
     status: Optional[str] = Query(None),
@@ -149,7 +190,7 @@ async def allocate_address(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/history")
+@router.get("/history", response_model=IpHistoryPageResponse)
 async def list_history(
     address: Optional[str] = Query(None),
     address_id: Optional[int] = Query(None),

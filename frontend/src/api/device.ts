@@ -100,6 +100,10 @@ export interface DevicePage {
   page_size: number;
 }
 
+export function exportDevicesApi(params: { keyword?: string; device_type_id?: number; rack_id?: number; status?: string }) {
+  return http.get("/devices/export", { params, responseType: "blob" });
+}
+
 export function getDevicesApi(params: { page: number; page_size: number; keyword?: string; device_type_id?: number; rack_id?: number; status?: string }) {
   return http.get<DevicePage>("/devices", { params });
 }
@@ -126,4 +130,30 @@ export function changeDeviceStatusApi(id: number, params: { status: string; oper
 
 export function getDeviceLifecyclesApi(id: number) {
   return http.get(`/devices/${id}/lifecycles`);
+}
+
+export interface DeviceEnvironmentSensor {
+  id: number;
+  name: string;
+  code: string;
+  sensor_type: string;
+  status: string;
+  current_value?: any;
+  last_update_time?: string | null;
+  threshold_min?: number | null;
+  threshold_max?: number | null;
+}
+
+export interface DeviceEnvironment {
+  device_id: number;
+  device_name: string;
+  rack_id?: number | null;
+  rack_name?: string | null;
+  room_id?: number | null;
+  room_name?: string | null;
+  sensors: DeviceEnvironmentSensor[];
+}
+
+export function getDeviceEnvironmentApi(id: number) {
+  return http.get<DeviceEnvironment>(`/devices/${id}/environment`);
 }

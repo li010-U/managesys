@@ -1,4 +1,4 @@
-﻿"""工单相关 Schema"""
+"""工单相关 Schema"""
 from datetime import datetime, date
 from typing import Optional, List
 from pydantic import BaseModel, Field, ConfigDict
@@ -164,6 +164,14 @@ class WorkOrderListResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+
+
+class WorkOrderPageResponse(BaseModel):
+    items: list[WorkOrderListResponse]
+    total: int
+    page: int
+    page_size: int
 
 class WorkOrderStats(BaseModel):
     total: int = 0

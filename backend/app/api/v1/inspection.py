@@ -1,4 +1,4 @@
-﻿"""Device Inspection API"""
+"""Device Inspection API"""
 from datetime import datetime, date
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -14,6 +14,7 @@ from app.schemas.inspection import (
     InspectionPlanUpdate,
     InspectionRecordCreate,
     InspectionIssueCreate,
+    InspectionTaskPageResponse,
 )
 
 router = APIRouter(prefix="/inspection", tags=["Device Inspection"])
@@ -26,7 +27,7 @@ async def get_templates(db: AsyncSession = Depends(get_db),
 ):
     result = await exec_sql(db, "SELECT * FROM inspection_templates ORDER BY id")
     rows = result.fetchall()
-    return {"data": [dict(r._mapping) for r in rows]}
+    return {"items": [dict(r._mapping) for r in rows]}
 
 
 @router.post("/templates", summary="Create inspection template")
@@ -78,7 +79,7 @@ async def get_plans(
     
     rows = result.fetchall()
     return {
-        "data": [
+        "items": [
             {
                 "id": r.id, "name": r.name, "plan_type": r.plan_type,
                 "frequency": r.frequency, "status": r.status,
@@ -163,7 +164,7 @@ async def delete_plan(
 
 
 # ============ Inspection Tasks ============
-@router.get("/tasks", summary="Get inspection tasks")
+@router.get("/tasks", summary="Get inspection tasks", response_model=InspectionTaskPageResponse)
 async def get_tasks(
     status: Optional[str] = None,
     page: int = Query(1, ge=1),
@@ -191,7 +192,7 @@ async def get_tasks(
     rows = result.fetchall()
     return {
         "total": total,
-        "data": [
+        "items": [
             {
                 "id": r.id, "plan_id": r.plan_id, "plan_name": r.plan_name,
                 "status": r.status, "priority": r.priority,
@@ -401,7 +402,7 @@ async def get_issues(
     
     rows = result.fetchall()
     return {
-        "data": [
+        "items": [
             {
                 "id": r.id, "task_id": r.task_id, "task_name": r.task_name,
                 "device_name": r.device_name, "issue_title": r.issue_title,

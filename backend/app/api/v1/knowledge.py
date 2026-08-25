@@ -48,7 +48,7 @@ async def list_articles(
         LIMIT ?
     """.format(where)
     rows = (await exec_sql(db, sql, tuple(params) + (limit,))).fetchall()
-    return {"data": [_row_to_dict(r) for r in rows]}
+    return {"items": [_row_to_dict(r) for r in rows]}
 
 
 @router.post("", summary="Create knowledge article")
@@ -88,4 +88,4 @@ async def recommend_articles(
         LIMIT {}
     """.format(limit)
     rows = (await exec_sql(db, sql, ("%{}%".format(keyword.lower()), "%{}%".format(keyword.lower())))).fetchall()
-    return {"data": [_row_to_dict(r) for r in rows]}
+    return {"items": [_row_to_dict(r) for r in rows]}

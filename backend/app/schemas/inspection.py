@@ -1,4 +1,4 @@
-﻿"""设备巡检 Schema"""
+"""设备巡检 Schema"""
 from datetime import datetime, date
 from typing import Optional, List
 from pydantic import BaseModel, Field, ConfigDict
@@ -142,6 +142,11 @@ class InspectionTaskListResponse(BaseModel):
 
 
 # ============ 巡检记录 ============
+class InspectionTaskPageResponse(BaseModel):
+    items: list[InspectionTaskListResponse]
+    total: int
+
+
 class InspectionRecordCreate(BaseModel):
     device_id: Optional[int] = Field(None, description="关联设备")
     item_name: str = Field(..., description="巡检项名称")

@@ -85,6 +85,9 @@
           <el-button type="primary" @click="handleCreate">
             <el-icon><Plus /></el-icon> 创建工单
           </el-button>
+          <el-button type="success" plain @click="handleExport" :loading="exporting">
+            <el-icon><Download /></el-icon> 导出CSV
+          </el-button>
           <el-button @click="handleOpenRules">
             <el-icon><SetUp /></el-icon> 自动化规则
           </el-button>
@@ -729,10 +732,11 @@ import { ref, reactive, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Document, Clock, Loading, Check, Search, Refresh, Plus, Upload, Paperclip, Reading, SetUp, Collection
+  Document, Clock, Loading, Check, Search, Refresh, Plus, Upload, Paperclip, Reading, SetUp, Collection, Download
 } from '@element-plus/icons-vue'
 import {
   getWorkOrderList,
+  exportWorkOrdersApi,
   getWorkOrderStats,
   getWorkOrderDetail,
   createWorkOrder,
@@ -763,6 +767,7 @@ import {
 } from '@/api/workOrder'
 import { getDevicesApi } from '@/api/device'
 import { getAllRoomsApi } from '@/api/facility'
+import { downloadCsvBlob } from '@/api/ipRegistry'
 import { useAuthStore } from '@/stores/auth'
 import TableSkeleton from '@/components/common/TableSkeleton.vue'
 
@@ -926,6 +931,20 @@ const loadStats = async () => {
 }
 
 // 加载列表数据
+const exporting = ref(false);
+async function handleExport() {
+  exporting.value = true;
+  try {
+    const r: any = await exportWorkOrdersApi({ ...searchForm });
+    downloadCsvBlob(r, `work_orders_${Date.now()}.csv`);
+    ElMessage.success("导出成功");
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || "导出失败");
+  } finally {
+    exporting.value = false;
+  }
+}
+
 const loadData = async () => {
   loading.value = true
   try {
@@ -935,8 +954,8 @@ const loadData = async () => {
       ...searchForm
     }
     const res = await getWorkOrderList(params)
-    workOrders.value = res.data.data || []
-    pagination.total = res.data.total ?? res.data.data?.length ?? 0
+    workOrders.value = res.data.items || []
+    pagination.total = res.data.total ?? res.data.items?.length ?? 0
   } catch (e) {
     console.error(e)
   } finally {
@@ -953,8 +972,8 @@ const loadOptions = async () => {
       getDevicesApi({ page: 1, page_size: 100 }),
       getAllRoomsApi()
     ])
-    categories.value = catRes.data?.data || []
-    assignableUsers.value = (userRes.data?.data || []).sort((a: any, b: any) => (a.workload ?? 0) - (b.workload ?? 0))
+    categories.value = catRes.data?.items || []
+    assignableUsers.value = (userRes.data?.items || []).sort((a: any, b: any) => (a.workload ?? 0) - (b.workload ?? 0))
     recommendedAssigneeId.value = userRes.data?.recommended_id ?? null
     devices.value = deviceRes.data.items || []
     facilities.value = facilityRes.data || []
@@ -1027,7 +1046,7 @@ const loadKnowledgeRecommend = async (keyword: string) => {
   }
   try {
     const res = await recommendKnowledge(keyword)
-    knowledgeArticles.value = res?.data?.data || []
+    knowledgeArticles.value = res?.data?.items || []
   } catch (e) {
     knowledgeArticles.value = []
   }
@@ -1405,7 +1424,7 @@ const loadAutoRules = async () => {
   rulesLoading.value = true
   try {
     const res = await getAutoRules()
-    autoRules.value = (res as any)?.data?.data || []
+    autoRules.value = (res as any)?.data?.items || []
   } catch (e) {
     console.error(e)
   } finally {
