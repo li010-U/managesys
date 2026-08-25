@@ -126,3 +126,12 @@ async def test_device_service_wiring_syncs_ledger(db_session):
     held2 = (await db_session.execute(
         select(IpAddress).where(IpAddress.device_id == dev.id))).scalars().all()
     assert held2 == []
+
+@pytest.mark.asyncio
+async def test_delete_subnet_blocks_when_has_addresses(db_session):
+    svc = IpRegistryService(db_session)
+    sub = await svc.create_subnet(name="sub-guard", network="10.77.0.0", prefix=24)
+    await svc.save_address("10.77.0.10", "allocated", subnet_id=sub.id)
+    with pytest.raises(Exception) as exc:
+        await svc.delete_subnet(sub.id)
+    assert getattr(exc.value, "status_code", None) == 409

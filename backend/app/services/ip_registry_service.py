@@ -9,6 +9,7 @@
 import ipaddress
 from typing import Optional
 
+from fastapi import HTTPException
 from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -266,6 +267,11 @@ class IpRegistryService:
         sub = (await self.db.execute(select(IpSubnet).where(IpSubnet.id == subnet_id))).scalar_one_or_none()
         if not sub:
             return False
+        cnt = (await self.db.execute(
+            select(func.count()).select_from(IpAddress).where(IpAddress.subnet_id == subnet_id)
+        )).scalar() or 0
+        if cnt:
+            raise HTTPException(status_code=409, detail=f"该子网下仍有 {cnt} 个 IP 地址，请先清除后再删除")
         await self.db.delete(sub)
         await self.db.flush()
         return True
