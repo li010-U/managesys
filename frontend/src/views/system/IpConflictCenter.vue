@@ -55,7 +55,7 @@
       <div v-for="c in data.potential" :key="'p-'+c.ip" class="conflict-block">
         <div class="conflict-title">
           <el-tag type="warning">{{ c.ip }}</el-tag>
-          <span class="warn-text">同一IP同时出现在多个字段?{{ (c.roles||[]).map(roleName).join('、') }}</span>
+          <span class="warn-text">同一IP同时出现在多个字段：{{ (c.roles||[]).map(roleName).join('、') }}</span>
         </div>
         <div class="device-grid">
           <div v-for="(d,i) in (c.devices||[])" :key="i" class="device-cell">

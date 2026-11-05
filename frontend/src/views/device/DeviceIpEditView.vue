@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h3 class="page-title">设备IP编辑</h3>
-        <p class="page-desc" v-if="device">{{ device.name }}?{{ device.asset_number }}?</p>
+        <p class="page-desc" v-if="device">{{ device.name }} · {{ device.asset_number }}</p>
       </div>
       <el-button type="primary" :icon="Position" @click="locateRack">定位机柜</el-button>
     </div>
